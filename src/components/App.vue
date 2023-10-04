@@ -5,11 +5,12 @@ import {Bndr} from 'bndr-js'
 import {produce} from 'immer'
 import {clamp} from 'lodash'
 import Tq, {useTweeq} from 'tweeq'
-import {computed, onMounted, ref} from 'vue'
+import {computed, ref} from 'vue'
 
 import {playSound} from '@/playSound'
-import {getObjectURL, useProject} from '@/project'
+import {getObjectURL, Shot, useProject} from '@/project'
 import {refWithSetter} from '@/use/refWithSetter'
+import {useBndr} from '@/use/useBndr'
 import {useTethr} from '@/use/useTethr'
 
 import TethrConfig from './TethrConfig.vue'
@@ -28,13 +29,11 @@ const {
 	configs: cameraConfigs,
 } = useTethr()
 
-const testNumber = ref(0)
-
 const liveToggle = ref(false)
 const enableHiRes = ref(false)
 
 const currentFrame = refWithSetter(0, value => {
-	return clamp(value, 0, project.allFrames.value.length - 1)
+	return clamp(value, 0, project.allKomas.value.length - 1)
 })
 
 const temporalFrame = ref<null | number>(null) // For previewing, live toggle
@@ -56,6 +55,7 @@ Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
 	}
 )
 
+//------------------------------------------------------------------------------
 // Playing
 const isLooping = ref(false)
 const isPlaying = ref(false)
@@ -81,7 +81,7 @@ function togglePlay() {
 
 		const elapsed = new Date().getTime() - startTime
 
-		const elapsedFrames = Math.round((elapsed / 1000) * 24)
+		const elapsedFrames = Math.round((elapsed / 1000) * 15)
 
 		if (!isLooping.value && elapsedFrames >= duration) {
 			temporalFrame.value = outPoint
@@ -109,11 +109,12 @@ useEventListener(window, 'beforeunload', e => {
 	}
 })
 
+//------------------------------------------------------------------------------
+// Seek bar
 const $frameMeasure = ref<null | HTMLElement>(null)
-onMounted(() => {
-	if (!$frameMeasure.value) return
 
-	Bndr.pointer($frameMeasure.value)
+useBndr($frameMeasure, el => {
+	Bndr.pointer(el)
 		.drag({pointerCapture: true, coordinate: 'offset'})
 		.on(d => {
 			const frame = Math.floor(d.current[0] / 80)
@@ -128,6 +129,7 @@ function insertCamera(frame: number) {
 	})
 }
 
+//------------------------------------------------------------------------------
 registerActions([
 	{
 		id: 'open_project',
@@ -184,10 +186,26 @@ registerActions([
 			const jpg = _jpg
 
 			project.data.value = produce(project.data.value, draft => {
-				draft.frames[draft.captureFrame] = {jpg, raw, lv: lv.value}
+				const shot: Shot = {
+					jpg,
+					raw,
+					lv: lv.value,
+					cameraConfigs: {},
+				}
 
-				for (let i = draft.captureFrame + 1; i <= draft.frames.length; i++) {
-					if (!draft.frames[i]) {
+				const koma = draft.komas[currentFrame.value]
+
+				if (koma) {
+					koma.shots[0] = shot
+				} else {
+					draft.komas[currentFrame.value] = {
+						shots: [shot],
+						backupShots: [],
+					}
+				}
+
+				for (let i = draft.captureFrame + 1; i <= draft.komas.length; i++) {
+					if (!draft.komas[i]) {
 						draft.captureFrame = i
 						break
 					}
@@ -239,10 +257,10 @@ registerActions([
 	{
 		id: 'delete_current_frame',
 		icon: 'backspace',
-		input: ['delete', 'backspace'],
+		input: ['delete', 'backspace', 'gamepad:home'],
 		perform() {
 			project.data.value = produce(project.data.value, draft => {
-				draft.frames.splice(currentFrame.value, 1)
+				draft.komas.splice(currentFrame.value, 1)
 				if (currentFrame.value < draft.captureFrame) {
 					draft.captureFrame -= 1
 				}
@@ -313,7 +331,7 @@ const transparent =
 	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
 
 const currentFrameImage = computed(() => {
-	const frame = project.data.value.frames[previewFrame.value]
+	const frame = project.data.value.komas[previewFrame.value]?.shots[0]
 	if (isLiveview.value || !frame) {
 		return transparent
 	}
@@ -325,7 +343,7 @@ const onionskinAttrs = computed(() => {
 	const {onionskin} = project.state
 
 	const delta = onionskin < 0 ? -1 : 1
-	const frame = project.data.value.frames[previewFrame.value + delta]
+	const frame = project.data.value.komas[previewFrame.value + delta]?.shots[0]
 	if (!frame) {
 		return {
 			style: {display: 'none'},
@@ -363,7 +381,7 @@ const onionskinAttrs = computed(() => {
 					:modelValue="previewFrame"
 					:precision="0"
 					:min="0"
-					:max="project.allFrames.value.length - 1"
+					:max="project.allKomas.value.length - 1"
 					:step="1"
 					:bar="false"
 					unit=" F"
@@ -458,7 +476,7 @@ const onionskinAttrs = computed(() => {
 								ref="$frameMeasure"
 								class="frameMeasure"
 								:style="{
-									width: `calc(${project.allFrames.value.length} * var(--frame-width))`,
+									width: `calc(${project.allKomas.value.length} * var(--frame-width))`,
 								}"
 							/>
 							<div class="seekbar" :style="seekbarStyles">
@@ -466,28 +484,31 @@ const onionskinAttrs = computed(() => {
 							</div>
 							<div class="previewRange" :style="previewRangeStyles" />
 							<div
-								v-for="(frame, i) in project.allFrames.value"
-								:key="i"
+								v-for="(koma, frame) in project.allKomas.value"
+								:key="frame"
 								class="frame"
 							>
-								<div class="frame-header tq-font-numeric">{{ i }}</div>
+								<div class="frame-header tq-font-numeric">{{ frame }}</div>
 								<div
-									v-if="i === project.captureFrame.value"
+									v-if="frame === project.captureFrame.value"
 									class="frame-image liveview"
 								>
 									<Icon icon="material-symbols:photo-camera-outline" />
 								</div>
 								<div
-									v-else-if="frame"
+									v-else-if="koma && koma.shots[0]"
 									class="frame-image-wrapper"
-									:class="{hasRaw: frame.raw}"
+									:class="{hasRaw: koma.shots[0].raw}"
 								>
-									<img class="frame-image" :src="getObjectURL(frame.lv)" />
+									<img
+										class="frame-image"
+										:src="getObjectURL(koma.shots[0].lv)"
+									/>
 								</div>
 								<div
 									v-else
 									class="frame-image empty"
-									@dblclick="insertCamera(i)"
+									@dblclick="insertCamera(frame)"
 								/>
 							</div>
 						</div>

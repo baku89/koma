@@ -1,40 +1,60 @@
 import {useRefHistory} from '@vueuse/core'
+import {merge} from 'lodash'
 import {ConfigType} from 'tethr'
 import {computed, reactive, shallowRef} from 'vue'
 
-interface Project {
+import {mapToPromises, queryString} from './util'
+
+/**
+ * Termiology
+ * - Frame: An integer that represents a frame number (starts from 0)
+ * - Koma: A frame data that contains multiple Shots
+ * - Shot: A single image data that contains images and metadata
+ **/
+
+interface Project<T = Blob> {
 	state: ProjectState
-	data: ProjectData
+	data: ProjectData<T>
+}
+
+interface CameraConfigs {
+	focalLength?: ConfigType['focalLength']
+	focusDistance?: ConfigType['focusDistance']
+	aperture?: ConfigType['aperture']
+	shutterSpeed?: ConfigType['shutterSpeed']
+	iso?: ConfigType['iso']
+	colorTemperature?: ConfigType['colorTemperature']
 }
 
 // A project-specific data that does not need to be history-tracked
 interface ProjectState {
 	previewRange: [number, number]
 	onionskin: number
-	cameraConfigs: {
-		focalLength: ConfigType['focalLength']
-		aperture: ConfigType['aperture']
-		shutterSpeed: ConfigType['shutterSpeed']
-		iso: ConfigType['iso']
-		colorTemperature: ConfigType['colorTemperature']
-	}
+	cameraConfigs: CameraConfigs
 }
 
 // A project-specific data that needs to be history-tracked
-interface ProjectData {
+interface ProjectData<T = Blob> {
 	name: string
+	fps: number
 	captureFrame: number
-	frames: Frame[]
+	komas: Koma<T>[]
 }
 
-type Frame = EmptyFrame | CapturedFrame
+type Koma<T = Blob> = EmptyKoma | CapturedKoma<T>
 
-type EmptyFrame = null
+type EmptyKoma = null
 
-interface CapturedFrame {
-	lv: Blob
-	jpg: Blob
-	raw?: Blob
+interface CapturedKoma<T = Blob> {
+	shots: (Shot<T> | null)[]
+	backupShots: Shot<T>[]
+}
+
+export interface Shot<T = Blob> {
+	lv: T
+	jpg: T
+	raw?: T
+	cameraConfigs: CameraConfigs
 }
 
 const urlForBlob = new WeakMap<Blob, string>()
@@ -45,6 +65,7 @@ const emptyProject: Project = {
 		onionskin: 0,
 		cameraConfigs: {
 			focalLength: 50,
+			focusDistance: 24,
 			aperture: 5.6,
 			shutterSpeed: '1/100',
 			iso: 100,
@@ -52,9 +73,10 @@ const emptyProject: Project = {
 		},
 	},
 	data: {
+		fps: 15,
 		name: 'Untitled',
 		captureFrame: 0,
-		frames: Array(10).fill(null),
+		komas: Array(10).fill(null),
 	},
 }
 
@@ -83,18 +105,17 @@ export function useProject() {
 		set: value => ({...data.value, captureFrame: value}),
 	})
 
-	const allFrames = computed<Frame[]>(() => {
-		const framesToAdd = Math.max(
-			data.value.captureFrame - data.value.frames.length + 1,
+	const allKomas = computed<Koma[]>(() => {
+		const komaNumberToFill = Math.max(
+			data.value.captureFrame - data.value.komas.length + 1,
 			0
 		)
 
-		return [...data.value.frames, ...Array(framesToAdd).fill(null)]
+		return [...data.value.komas, ...Array(komaNumberToFill).fill(null)]
 	})
 
 	// Open and Save Projects
-
-	async function open() {
+	async function getDirectoryHandler() {
 		const handler = await window.showDirectoryPicker({id: 'saveFile'})
 
 		const option: FileSystemHandlePermissionDescriptor = {
@@ -105,60 +126,103 @@ export function useProject() {
 
 		if (permission !== 'granted') {
 			const permission = await handler.requestPermission(option)
-			if (permission === 'denied') return
+			if (permission === 'denied') throw new Error('Permission denied')
 		}
 
-		directoryHandler.value = handler
+		return handler
+	}
+
+	async function open() {
+		directoryHandler.value = await getDirectoryHandler()
 		history.clear()
 
-		const {state: flattenState, data: flattenData} = JSON.parse(
+		const {state: flatState, data: flatData} = JSON.parse(
 			await loadText('project.json')
-		)
+		) as Project<string>
 
-		const frames: Frame[] = await Promise.all(
-			flattenData.frames.map(async (f: boolean, i: number) => {
-				if (!f) return null
+		const unflatData: ProjectData<Blob> = {
+			...flatData,
+			komas: await mapToPromises(flatData.komas, async koma => {
+				if (koma === null) return null
 
-				return {
-					lv: await openSequenceImage(flattenData.name + '_lv', i, 'jpg'),
-					jpg: await openSequenceImage(flattenData.name, i, 'jpg'),
-					raw: await openSequenceImage(flattenData.name, i, 'dng'),
-				}
-			})
-		)
+				const shots = await mapToPromises(koma.shots, shot => {
+					if (shot === null) return null
+					return openShot(shot)
+				})
 
-		state.previewRange = flattenState.previewRange
-		state.onionskin = flattenState.onionskin
-		state.cameraConfigs = flattenState.cameraConfigs
+				const backupShots = await mapToPromises(koma.backupShots, openShot)
 
-		data.value = {...flattenData, frames}
+				return {...koma, shots, backupShots}
+			}),
+		}
+
+		// In case the latest project format has more properties than the saved one,
+		// merge the saved state with the default state
+		const mergedState = merge(flatState, emptyProject.state)
+
+		// Don't need to deepmerge
+		const mergedData = {...emptyProject.data, ...unflatData, frames}
+
+		for (const key of Object.keys(emptyProject.data)) {
+			;(state as any)[key] = (mergedState as any)[key]
+		}
+
+		data.value = mergedData
 		lastSaved.value = data.value
 	}
 
 	async function save() {
 		if (directoryHandler.value === null) {
-			await open()
+			directoryHandler.value = await getDirectoryHandler()
 		}
 
-		if (directoryHandler.value === null) return
+		const flatData: ProjectData<string> = {
+			...data.value,
+			komas: await mapToPromises(data.value.komas, async (koma, frame) => {
+				if (koma === null) return null
 
-		// Save Project File at first
-		const flatData = {...data.value, frames: data.value.frames.map(f => !!f)}
+				const shots = await mapToPromises(koma.shots, (shot, layer) => {
+					if (shot === null) return null
+					return saveShot(shot, frame, {layer})
+				})
+
+				const backupShots = await mapToPromises(
+					koma.backupShots,
+					(shot, index) => saveShot(shot, frame, {backup: index})
+				)
+
+				return {...koma, shots, backupShots}
+			}),
+		}
 		const json = JSON.stringify({state, data: flatData})
 		saveText(json, 'project.json')
 
-		// Save all frames
-		const frames = data.value.frames
-
-		for (const [i, frame] of frames.entries()) {
-			if (frame === null) continue
-
-			saveSequenceImage(frame.lv, data.value.name + '_lv', i, 'jpg')
-			saveSequenceImage(frame.jpg, data.value.name, i, 'jpg')
-			if (frame.raw) saveSequenceImage(frame.raw, data.value.name, i, 'dng')
-		}
-
 		lastSaved.value = data.value
+	}
+
+	async function openShot(shot: Shot<string>): Promise<Shot> {
+		const lv = await openBlob(shot.lv)
+		const jpg = await openBlob(shot.jpg)
+		const raw = shot.raw ? await openBlob(shot.raw) : undefined
+
+		return {...shot, lv, jpg, raw}
+	}
+
+	// Saves a frame to the project directrory and replace all Blob entries with the name of the file
+	async function saveShot(
+		shot: Shot,
+		frame: number,
+		query: Record<string, string | number>
+	): Promise<Shot<string>> {
+		const basename = [data.value.name, queryString(query)].join('_')
+
+		const lv = await saveSequenceImage(shot.lv, basename + '_lv', frame, 'jpg')
+		const jpg = await saveSequenceImage(shot.jpg, basename, frame, 'jpg')
+		const raw = shot.raw
+			? await saveSequenceImage(shot.raw, basename, frame, 'dng')
+			: undefined
+
+		return {...shot, lv, jpg, raw}
 	}
 
 	// File System Access API utils
@@ -183,25 +247,18 @@ export function useProject() {
 		await w.close()
 	}
 
-	async function openSequenceImage(
-		basename: string,
-		frame: number,
-		extension: string
-	): Promise<Blob> {
+	async function openBlob(filename: string): Promise<Blob> {
 		if (!directoryHandler.value) throw new Error('No directory handler')
 
-		const suffix = frame.toString().padStart(4, '0')
-		const fileName = `${basename}_${suffix}.${extension}`
-
 		try {
-			const h = await directoryHandler.value.getFileHandle(fileName)
-			const f = await h.getFile()
-			return f
+			const h = await directoryHandler.value.getFileHandle(filename)
+			return await h.getFile()
 		} catch (err) {
 			return undefined as any // TODO: for DNG
 		}
 	}
 
+	// Save the BLob image to the project directrory and returns the name of the file
 	async function saveSequenceImage(
 		blob: Blob,
 		basename: string,
@@ -220,6 +277,8 @@ export function useProject() {
 		const w = await h.createWritable()
 		await w.write(blob)
 		await w.close()
+
+		return fileName
 	}
 
 	function pauseHistory() {
@@ -253,7 +312,7 @@ export function useProject() {
 		open,
 		save,
 		captureFrame,
-		allFrames,
+		allKomas: allKomas,
 		setInPoint,
 		setOutPoint,
 	}
