@@ -1,6 +1,26 @@
 import {useRefHistory} from '@vueuse/core'
-import {computed, shallowRef} from 'vue'
+import {ConfigType} from 'tethr'
+import {computed, reactive, shallowRef} from 'vue'
 
+interface Project {
+	state: ProjectState
+	data: ProjectData
+}
+
+// A project-specific data that does not need to be history-tracked
+interface ProjectState {
+	previewRange: [number, number]
+	onionskin: number
+	cameraConfigs: {
+		focalLength: ConfigType['focalLength']
+		aperture: ConfigType['aperture']
+		shutterSpeed: ConfigType['shutterSpeed']
+		iso: ConfigType['iso']
+		colorTemperature: ConfigType['colorTemperature']
+	}
+}
+
+// A project-specific data that needs to be history-tracked
 interface ProjectData {
 	name: string
 	captureFrame: number
@@ -14,14 +34,28 @@ type EmptyFrame = null
 interface CapturedFrame {
 	lv: Blob
 	jpg: Blob
+	raw?: Blob
 }
 
 const urlForBlob = new WeakMap<Blob, string>()
 
-const emptyProject: ProjectData = {
-	name: 'Untitled',
-	captureFrame: 0,
-	frames: Array(10).fill(null),
+const emptyProject: Project = {
+	state: {
+		previewRange: [0, 9],
+		onionskin: 0,
+		cameraConfigs: {
+			focalLength: 50,
+			aperture: 5.6,
+			shutterSpeed: '1/100',
+			iso: 100,
+			colorTemperature: 5500,
+		},
+	},
+	data: {
+		name: 'Untitled',
+		captureFrame: 0,
+		frames: Array(10).fill(null),
+	},
 }
 
 export function getObjectURL(blob: Blob) {
@@ -36,8 +70,9 @@ export function getObjectURL(blob: Blob) {
 export function useProject() {
 	const directoryHandler = shallowRef<FileSystemDirectoryHandle | null>(null)
 
-	const data = shallowRef<ProjectData>(emptyProject)
-	const lastSaved = shallowRef<ProjectData>(emptyProject)
+	const state = reactive<ProjectState>(emptyProject.state)
+	const data = shallowRef<ProjectData>(emptyProject.data)
+	const lastSaved = shallowRef<ProjectData>(emptyProject.data)
 
 	const hasModified = computed(() => data.value !== lastSaved.value)
 
@@ -76,19 +111,27 @@ export function useProject() {
 		directoryHandler.value = handler
 		history.clear()
 
-		const flatten = JSON.parse(await loadText('project.json'))
+		const {state: flattenState, data: flattenData} = JSON.parse(
+			await loadText('project.json')
+		)
+
 		const frames: Frame[] = await Promise.all(
-			flatten.frames.map(async (f: boolean, i: number) => {
+			flattenData.frames.map(async (f: boolean, i: number) => {
 				if (!f) return null
 
 				return {
-					lv: await openSequenceImage(flatten.name + '_lv', i, 'jpg'),
-					jpg: await openSequenceImage(flatten.name, i, 'jpg'),
+					lv: await openSequenceImage(flattenData.name + '_lv', i, 'jpg'),
+					jpg: await openSequenceImage(flattenData.name, i, 'jpg'),
+					raw: await openSequenceImage(flattenData.name, i, 'dng'),
 				}
 			})
 		)
 
-		data.value = {...flatten, frames}
+		state.previewRange = flattenState.previewRange
+		state.onionskin = flattenState.onionskin
+		state.cameraConfigs = flattenState.cameraConfigs
+
+		data.value = {...flattenData, frames}
 		lastSaved.value = data.value
 	}
 
@@ -100,8 +143,8 @@ export function useProject() {
 		if (directoryHandler.value === null) return
 
 		// Save Project File at first
-		const flattened = {...data.value, frames: data.value.frames.map(f => !!f)}
-		const json = JSON.stringify(flattened)
+		const flatData = {...data.value, frames: data.value.frames.map(f => !!f)}
+		const json = JSON.stringify({state, data: flatData})
 		saveText(json, 'project.json')
 
 		// Save all frames
@@ -112,6 +155,7 @@ export function useProject() {
 
 			saveSequenceImage(frame.lv, data.value.name + '_lv', i, 'jpg')
 			saveSequenceImage(frame.jpg, data.value.name, i, 'jpg')
+			if (frame.raw) saveSequenceImage(frame.raw, data.value.name, i, 'dng')
 		}
 
 		lastSaved.value = data.value
@@ -149,9 +193,13 @@ export function useProject() {
 		const suffix = frame.toString().padStart(4, '0')
 		const fileName = `${basename}_${suffix}.${extension}`
 
-		const h = await directoryHandler.value.getFileHandle(fileName)
-		const f = await h.getFile()
-		return f
+		try {
+			const h = await directoryHandler.value.getFileHandle(fileName)
+			const f = await h.getFile()
+			return f
+		} catch (err) {
+			return undefined as any // TODO: for DNG
+		}
 	}
 
 	async function saveSequenceImage(
@@ -177,6 +225,7 @@ export function useProject() {
 	function pauseHistory() {
 		history.pause()
 	}
+
 	function pushHistory() {
 		history.resume()
 		if (data.value !== history.last.value.snapshot) {
@@ -184,7 +233,18 @@ export function useProject() {
 		}
 	}
 
+	function setInPoint(value: number) {
+		const inPoint = Math.min(value, state.previewRange[1])
+		state.previewRange = [inPoint, state.previewRange[1]]
+	}
+
+	function setOutPoint(value: number) {
+		const outPoint = Math.max(value, state.previewRange[0])
+		state.previewRange = [state.previewRange[0], outPoint]
+	}
+
 	return {
+		state,
 		data,
 		history,
 		pauseHistory,
@@ -194,5 +254,7 @@ export function useProject() {
 		save,
 		captureFrame,
 		allFrames,
+		setInPoint,
+		setOutPoint,
 	}
 }

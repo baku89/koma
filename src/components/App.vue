@@ -1,14 +1,18 @@
 <script lang="ts" setup>
-import {extendRef, useEventListener} from '@vueuse/core'
+import {Icon} from '@iconify/vue'
+import {useEventListener} from '@vueuse/core'
 import {Bndr} from 'bndr-js'
 import {produce} from 'immer'
 import {clamp} from 'lodash'
 import Tq, {useTweeq} from 'tweeq'
-import {computed, onMounted, Ref, ref} from 'vue'
+import {computed, onMounted, ref} from 'vue'
 
 import {playSound} from '@/playSound'
 import {getObjectURL, useProject} from '@/project'
+import {refWithSetter} from '@/use/refWithSetter'
 import {useTethr} from '@/use/useTethr'
+
+import TethrConfig from './TethrConfig.vue'
 
 const project = useProject()
 
@@ -17,27 +21,18 @@ const {registerActions, onBeforeActionPerform} = useTweeq('com.baku89.koma', {
 	accentColor: '#ff0000',
 })
 
-const {camera, liveviewMediaStream, toggleCameraConnection, configs} =
-	useTethr()
+const {
+	camera,
+	liveviewMediaStream,
+	toggleCameraConnection,
+	configs: cameraConfigs,
+} = useTethr()
 
 const testNumber = ref(0)
 
-function refWithSetter<T>(initialValue: T, setter: (value: T) => T) {
-	const r = ref(initialValue) as Ref<T>
-
-	const c = computed<T>({
-		get() {
-			return r.value
-		},
-		set(value: T) {
-			r.value = setter(value)
-		},
-	})
-
-	return c
-}
-
 const liveToggle = ref(false)
+const enableHiRes = ref(false)
+
 const currentFrame = refWithSetter(0, value => {
 	return clamp(value, 0, project.allFrames.value.length - 1)
 })
@@ -55,22 +50,11 @@ const previewFrame = computed(() => {
 	return temporalFrame.value ?? currentFrame.value
 })
 
-Bndr.keyboard()
-	.pressed('5')
-	.on(pressed => {
+Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
+	pressed => {
 		liveToggle.value = pressed
-	})
-
-const previewRange = extendRef(ref([0, 0]), {
-	setInPoint(value: number) {
-		const inPoint = Math.min(value, previewRange.value[1])
-		previewRange.value = [inPoint, previewRange.value[1]]
-	},
-	setOutPoint(value: number) {
-		const outPoint = Math.max(value, previewRange.value[0])
-		previewRange.value = [previewRange.value[0], outPoint]
-	},
-})
+	}
+)
 
 // Playing
 const isLooping = ref(false)
@@ -86,7 +70,7 @@ function togglePlay() {
 
 	const startTime = new Date().getTime()
 
-	const [inPoint, outPoint] = previewRange.value
+	const [inPoint, outPoint] = project.state.previewRange
 	const duration = outPoint - inPoint + 1
 
 	function update() {
@@ -166,8 +150,8 @@ registerActions([
 	},
 	{
 		id: 'shoot',
-		icon: 'photo_camera',
-		input: 'enter',
+		icon: 'circle',
+		input: ['enter', 'gamepad:r'],
 		menu: '',
 		async perform() {
 			if (!camera.value) return
@@ -180,12 +164,17 @@ registerActions([
 
 			const result = await camera.value.takePhoto()
 
-			let _jpg: Blob | null = null
+			let _jpg: Blob | undefined
+			let raw: Blob | undefined
 
 			if (result.status === 'ok') {
 				for (const object of result.value) {
-					if (object.format !== 'raw') {
+					const format = String(object.format)
+
+					if (/jpe?g/.test(format)) {
 						_jpg = object.blob
+					} else {
+						raw = object.blob
 					}
 				}
 			}
@@ -195,7 +184,7 @@ registerActions([
 			const jpg = _jpg
 
 			project.data.value = produce(project.data.value, draft => {
-				draft.frames[draft.captureFrame] = {jpg, lv: lv.value}
+				draft.frames[draft.captureFrame] = {jpg, raw, lv: lv.value}
 
 				for (let i = draft.captureFrame + 1; i <= draft.frames.length; i++) {
 					if (!draft.frames[i]) {
@@ -206,7 +195,7 @@ registerActions([
 			})
 
 			currentFrame.value = project.captureFrame.value
-			previewRange.setOutPoint(project.captureFrame.value)
+			project.setOutPoint(project.captureFrame.value)
 
 			if (new Date().getTime() - timeStart > 500) {
 				playSound('sound/Accent36-1.mp3')
@@ -275,7 +264,7 @@ registerActions([
 		icon: 'line_start_square',
 		input: 'b',
 		perform() {
-			previewRange.setInPoint(currentFrame.value)
+			project.setInPoint(currentFrame.value)
 		},
 	},
 	{
@@ -283,7 +272,7 @@ registerActions([
 		icon: 'line_end_square',
 		input: 'n',
 		perform() {
-			previewRange.setOutPoint(currentFrame.value)
+			project.setOutPoint(currentFrame.value)
 		},
 	},
 	{
@@ -309,7 +298,7 @@ const seekbarStyles = computed(() => {
 })
 
 const previewRangeStyles = computed(() => {
-	const [inPoint, outPoint] = previewRange.value
+	const [inPoint, outPoint] = project.state.previewRange
 	return {
 		transform: `translateX(calc(${inPoint} * var(--frame-width)))`,
 		width: `calc(${outPoint - inPoint + 1} * var(--frame-width) + 1px)`,
@@ -320,13 +309,37 @@ const isLiveview = computed(() => {
 	return previewFrame.value === project.captureFrame.value
 })
 
+const transparent =
+	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+
 const currentFrameImage = computed(() => {
 	const frame = project.data.value.frames[previewFrame.value]
 	if (isLiveview.value || !frame) {
-		return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+		return transparent
 	}
 
-	return getObjectURL(frame.lv)
+	return getObjectURL(enableHiRes.value ? frame.jpg : frame.lv)
+})
+
+const onionskinAttrs = computed(() => {
+	const {onionskin} = project.state
+
+	const delta = onionskin < 0 ? -1 : 1
+	const frame = project.data.value.frames[previewFrame.value + delta]
+	if (!frame) {
+		return {
+			style: {display: 'none'},
+		}
+	}
+
+	const opacity = onionskin % 1 === 0 ? 1 : Math.abs(onionskin) % 1
+
+	return {
+		src: getObjectURL(enableHiRes.value ? frame.jpg : frame.lv),
+		style: {
+			opacity,
+		},
+	}
 })
 </script>
 
@@ -362,10 +375,11 @@ const currentFrameImage = computed(() => {
 					v-model="isPlaying"
 					:icon="isPlaying ? 'pause' : 'play_arrow'"
 				/>
+				<Tq.InputIconToggle v-model="enableHiRes" icon="hd" />
 			</template>
 			<template #right>
 				<Tq.InputButton
-					:label="camera ? configs.model.value ?? 'Unknown' : 'Connect'"
+					:label="camera ? cameraConfigs.model.value ?? 'Unknown' : 'Connect'"
 					@click="toggleCameraConnection"
 				/>
 			</template>
@@ -385,7 +399,8 @@ const currentFrameImage = computed(() => {
 										muted
 										playsinline
 									/>
-									<img :src="currentFrameImage" class="view-photo" />
+									<img class="view-photo" :src="currentFrameImage" />
+									<img class="view-photo" v-bind="onionskinAttrs" />
 								</div>
 							</div>
 						</template>
@@ -395,27 +410,48 @@ const currentFrameImage = computed(() => {
 				<template #second>
 					<div class="controls">
 						<div class="cameraParameters">
-							<div class="heading">Camera Controls</div>
 							<Tq.ParameterGrid>
-								<Tq.Parameter label="Focal Length">
-									<Tq.InputNumber v-model="testNumber" unit="mm" />
+								<Tq.ParameterHeading>Camera Control</Tq.ParameterHeading>
+								<Tq.Parameter label="F.L." icon="lucide:focus">
+									<TethrConfig
+										name="focalLength"
+										:config="cameraConfigs.focalLength"
+									/>
 								</Tq.Parameter>
-								<Tq.Parameter label="Aperture">
-									<Tq.InputNumber v-model="testNumber" />
+								<Tq.Parameter label="F.D." icon="tabler:frustum">
+									<TethrConfig :config="cameraConfigs.focusDistance" />
 								</Tq.Parameter>
-								<Tq.Parameter label="Shutter Speed">
-									<Tq.InputNumber v-model="testNumber" />
+								<Tq.Parameter label="Apr." icon="ph:aperture">
+									<TethrConfig
+										name="aperture"
+										:config="cameraConfigs.aperture"
+									/>
 								</Tq.Parameter>
-								<Tq.Parameter label="ISO">
+								<Tq.Parameter label="SS" icon="material-symbols:shutter-speed">
+									<TethrConfig :config="cameraConfigs.shutterSpeed" />
+								</Tq.Parameter>
+								<Tq.Parameter label="WB" icon="subway:black-white">
+									<TethrConfig
+										name="colorTemperature"
+										:config="cameraConfigs.colorTemperature"
+									/>
+								</Tq.Parameter>
+								<Tq.Parameter label="ISO" icon="carbon:iso">
+									<TethrConfig :config="cameraConfigs.iso" />
+								</Tq.Parameter>
+								<Tq.ParameterHeading>Viewport</Tq.ParameterHeading>
+								<Tq.Parameter
+									icon="fluent-emoji-high-contrast:onion"
+									label="Onion"
+								>
 									<Tq.InputNumber
-										v-model="testNumber"
-										:step="1"
-										:min="0"
-										:max="100"
+										v-model="project.state.onionskin"
+										:max="0"
+										:min="-1"
+										:step="0.1"
 									/>
 								</Tq.Parameter>
 							</Tq.ParameterGrid>
-							{{ testNumber }}
 						</div>
 						<div class="timeline">
 							<div
@@ -439,13 +475,15 @@ const currentFrameImage = computed(() => {
 									v-if="i === project.captureFrame.value"
 									class="frame-image liveview"
 								>
-									<span class="material-symbols-outlined"> photo_camera </span>
+									<Icon icon="material-symbols:photo-camera-outline" />
 								</div>
-								<img
+								<div
 									v-else-if="frame"
-									class="frame-image"
-									:src="getObjectURL(frame.lv)"
-								/>
+									class="frame-image-wrapper"
+									:class="{hasRaw: frame.raw}"
+								>
+									<img class="frame-image" :src="getObjectURL(frame.lv)" />
+								</div>
 								<div
 									v-else
 									class="frame-image empty"
@@ -514,11 +552,6 @@ const currentFrameImage = computed(() => {
 	border-right 1px solid var(--tq-color-surface-border)
 	padding 12px
 
-	.heading
-		font-size 14px
-		font-weight bold
-		margin 0 0 9px
-
 // Timeline
 .timeline
 	padding 12px 0
@@ -562,12 +595,12 @@ header-frame-text-style()
 		content ''
 		display block
 		position absolute
-		top 0
 		left 1px
 		height var(--header-height)
 		width var(--frame-width)
 		background var(--tq-color-primary)
 		z-index -1
+		border-radius 0 999px 0 0
 
 .previewRange
 	position absolute
@@ -606,8 +639,28 @@ header-frame-text-style()
 		justify-content center
 		border-radius var(--tq-input-border-radius)
 
+		&-wrapper
+			position relative
+
+			&.hasRaw:before
+				content ''
+				display block
+				position absolute
+				bottom 0
+				left 2px
+				right 2px
+				height 4px
+				border-radius 4px
+				background var(--tq-color-on-primary)
+
+
 		&.liveview
 			background var(--tq-color-primary-container)
+
+			svg
+				margin auto
+				transform translate(-2px) // IDK why
+
 
 		&.empty
 			background var(--tq-color-input)

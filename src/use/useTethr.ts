@@ -12,18 +12,18 @@ import {onUnmounted, reactive, readonly, Ref, shallowRef, watch} from 'vue'
 export interface TethrConfig<T> {
 	writable: boolean
 	value: T | null
-	update: (value: T) => void
+	set: (value: T) => void
 	option?: ConfigDescOption<T>
 }
 
 export function useTethrConfig<N extends ConfigName>(
 	camera: Ref<Tethr | null>,
 	name: N
-) {
+): TethrConfig<ConfigType[N]> {
 	const config = reactive({
 		writable: false,
 		value: null,
-		update: () => null,
+		set: () => null,
 		option: undefined,
 	}) as TethrConfig<ConfigType[N]>
 
@@ -43,7 +43,7 @@ export function useTethrConfig<N extends ConfigName>(
 			config.value = desc.value
 			config.option = desc.option
 
-			config.update = (value: ConfigType[N]) => cam.set(name, value)
+			config.set = (value: ConfigType[N]) => cam.set(name, value)
 
 			cam.on(`${name}Changed` as any, (desc: ConfigDesc<ConfigType[N]>) => {
 				config.value = desc.value
@@ -54,7 +54,7 @@ export function useTethrConfig<N extends ConfigName>(
 		{immediate: true}
 	)
 
-	return readonly(config)
+	return readonly(config) as TethrConfig<ConfigType[N]>
 }
 
 export function useTethr() {
@@ -92,10 +92,16 @@ export function useTethr() {
 				liveviewMediaStream.value = ms
 			})
 
-			await cam.setExposureMode('M')
-			await cam.setAperture(9)
-			await cam.setShutterSpeed('1/60')
-			await cam.setIso(100)
+			cam.importConfigs({
+				exposureMode: 'M',
+				aperture: 4,
+				shutterSpeed: '1/30',
+				iso: 100,
+				whiteBalance: 'manual',
+				colorTemperature: 5500,
+				imageQuality: 'raw 14bit,fine',
+			})
+
 			await cam.startLiveview()
 
 			camera.value = cam
