@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import {extendRef, useEventListener} from '@vueuse/core'
-import * as Bndr from 'bndr-js'
+import {Bndr} from 'bndr-js'
 import {produce} from 'immer'
 import {clamp} from 'lodash'
 import Tq, {useTweeq} from 'tweeq'
