@@ -16,3 +16,6 @@
 [submodule "dev_modules/tweeq"]
 	path = dev_modules/tweeq
 	url = https://github.com/baku89/tweeq
+[submodule "dev_modules/tethr"]
+	path = dev_modules/tethr
+	url = https://github.com/baku89/tethr

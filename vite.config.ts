@@ -12,6 +12,9 @@ const monacoEditorPluginDefault = (monacoEditorPlugin as any).default as (
 
 export default defineConfig({
 	base: './',
+	server: {
+		port: 5555,
+	},
 	plugins: [
 		glsl(),
 		vue(),
@@ -25,9 +28,9 @@ export default defineConfig({
 				enabled: true,
 			},
 			manifest: {
-				name: 'Paper.js Editor',
-				short_name: 'Paper.js',
-				theme_color: '#ffffff',
+				name: 'Koma',
+				short_name: 'Koma',
+				theme_color: '#16160e',
 				display: 'standalone',
 				display_override: ['window-controls-overlay', 'standalone'],
 				icons: [
@@ -65,6 +68,16 @@ export default defineConfig({
 					new URL('./dev_modules/tweeq/src', import.meta.url)
 				),
 			},
+			{
+				find: 'tethr',
+				replacement: fileURLToPath(
+					new URL('./dev_modules/tethr/src', import.meta.url)
+				),
+			},
 		],
+	},
+	define: {
+		// This is needed to make the PromiseQueue class available in the browser.
+		'process.env.PROMISE_QUEUE_COVERAGE': false,
 	},
 })
