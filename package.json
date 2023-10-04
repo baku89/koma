@@ -16,6 +16,8 @@
 		"dev_modules/*"
 	],
 	"devDependencies": {
+		"@iconify/vue": "^4.1.1",
+		"@types/howler": "^2.2.9",
 		"@types/wicg-file-system-access": "^2020.9.6",
 		"@typescript-eslint/eslint-plugin": "^6.7.0",
 		"@typescript-eslint/parser": "^6.7.0",
@@ -29,6 +31,7 @@
 		"eslint-plugin-unused-imports": "^3.0.0",
 		"eslint-plugin-vue": "^9.17.0",
 		"fast-array-diff": "^1.1.0",
+		"howler": "^2.2.4",
 		"immer": "^10.0.3",
 		"lodash": "^4.17.21",
 		"paper": "^0.12.17",

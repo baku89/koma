@@ -6,6 +6,7 @@ import {clamp} from 'lodash'
 import Tq, {useTweeq} from 'tweeq'
 import {computed, onMounted, Ref, ref} from 'vue'
 
+import {playSound} from '@/playSound'
 import {getObjectURL, useProject} from '@/project'
 import {useTethr} from '@/use/useTethr'
 
@@ -171,6 +172,9 @@ registerActions([
 		async perform() {
 			if (!camera.value) return
 
+			playSound('sound/Camera-Phone03-1.mp3')
+			const timeStart = new Date().getTime()
+
 			const lv = await camera.value.getLiveViewImage()
 			if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
 
@@ -203,6 +207,10 @@ registerActions([
 
 			currentFrame.value = project.captureFrame.value
 			previewRange.setOutPoint(project.captureFrame.value)
+
+			if (new Date().getTime() - timeStart > 500) {
+				playSound('sound/Accent36-1.mp3')
+			}
 		},
 	},
 	{
@@ -250,6 +258,7 @@ registerActions([
 					draft.captureFrame -= 1
 				}
 			})
+			playSound('sound/Hit08-1.mp3')
 		},
 	},
 	{
