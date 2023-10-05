@@ -5,7 +5,7 @@ import {Bndr} from 'bndr-js'
 import {produce} from 'immer'
 import {clamp} from 'lodash'
 import Tq, {useTweeq} from 'tweeq'
-import {computed, ref} from 'vue'
+import {computed, ref, shallowRef} from 'vue'
 
 import {playSound} from '@/playSound'
 import {getObjectURL, Shot, useProject} from '@/project'
@@ -13,6 +13,7 @@ import {refWithSetter} from '@/use/refWithSetter'
 import {useBndr} from '@/use/useBndr'
 import {useTethr} from '@/use/useTethr'
 
+import {lerp} from '../../dev_modules/linearly/src/scalar'
 import TethrConfig from './TethrConfig.vue'
 
 const project = useProject()
@@ -54,6 +55,13 @@ Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
 		liveToggle.value = pressed
 	}
 )
+
+//------------------------------------------------------------------------------
+// Viewport popup
+
+type ViewportPopup = null | {type: 'progress'; progress: number}
+
+const viewportPopup = shallowRef<ViewportPopup>(null)
 
 //------------------------------------------------------------------------------
 // Playing
@@ -159,65 +167,92 @@ registerActions([
 		async perform() {
 			if (!camera.value) return
 
-			playSound('sound/Camera-Phone03-1.mp3')
-			const timeStart = new Date().getTime()
+			try {
+				viewportPopup.value = {
+					type: 'progress',
+					progress: 0,
+				}
 
-			const lv = await camera.value.getLiveViewImage()
-			if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
+				playSound('sound/Camera-Phone03-1.mp3')
+				const timeStart = new Date().getTime()
 
-			const result = await camera.value.takePhoto()
+				const lv = await camera.value.getLiveViewImage()
+				if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
 
-			let _jpg: Blob | undefined
-			let raw: Blob | undefined
+				viewportPopup.value = {
+					type: 'progress',
+					progress: 0.1,
+				}
 
-			if (result.status === 'ok') {
-				for (const object of result.value) {
-					const format = String(object.format)
+				const onProgress = ({progress}: {progress: number}) => {
+					viewportPopup.value = {
+						type: 'progress',
+						progress: lerp(0.1, 1, progress),
+					}
+				}
+				camera.value.on('progress', onProgress)
 
-					if (/jpe?g/.test(format)) {
-						_jpg = object.blob
+				const result = await camera.value.takePhoto()
+
+				camera.value.off('progress', onProgress)
+
+				let _jpg: Blob | undefined
+				let raw: Blob | undefined
+
+				if (result.status === 'ok') {
+					for (const object of result.value) {
+						const format = String(object.format)
+
+						if (/jpe?g/.test(format)) {
+							_jpg = object.blob
+						} else {
+							raw = object.blob
+						}
+					}
+				}
+
+				if (!_jpg) return
+
+				const jpg = _jpg
+
+				project.data.value = produce(project.data.value, draft => {
+					const shot: Shot = {
+						jpg,
+						raw,
+						lv: lv.value,
+						cameraConfigs: {},
+					}
+
+					const koma = draft.komas[currentFrame.value]
+
+					if (koma) {
+						// If there is already a shot, replace it
+						koma.shots[0] = shot
 					} else {
-						raw = object.blob
+						// Otherwise, create a new frame
+						draft.komas[currentFrame.value] = {
+							shots: [shot],
+							backupShots: [],
+						}
 					}
-				}
-			}
 
-			if (!_jpg) return
-
-			const jpg = _jpg
-
-			project.data.value = produce(project.data.value, draft => {
-				const shot: Shot = {
-					jpg,
-					raw,
-					lv: lv.value,
-					cameraConfigs: {},
-				}
-
-				const koma = draft.komas[currentFrame.value]
-
-				if (koma) {
-					koma.shots[0] = shot
-				} else {
-					draft.komas[currentFrame.value] = {
-						shots: [shot],
-						backupShots: [],
+					// Find next empty frame
+					for (let i = draft.captureFrame + 1; i <= draft.komas.length; i++) {
+						if (!draft.komas[i]) {
+							draft.captureFrame = i
+							break
+						}
 					}
+				})
+
+				currentFrame.value = project.captureFrame.value
+				project.setOutPoint(project.captureFrame.value)
+
+				if (new Date().getTime() - timeStart > 500) {
+					playSound('sound/Accent36-1.mp3')
 				}
-
-				for (let i = draft.captureFrame + 1; i <= draft.komas.length; i++) {
-					if (!draft.komas[i]) {
-						draft.captureFrame = i
-						break
-					}
-				}
-			})
-
-			currentFrame.value = project.captureFrame.value
-			project.setOutPoint(project.captureFrame.value)
-
-			if (new Date().getTime() - timeStart > 500) {
-				playSound('sound/Accent36-1.mp3')
+			} finally {
+				viewportPopup.value = null
 			}
 		},
 	},
@@ -420,6 +455,17 @@ const onionskinAttrs = computed(() => {
 									/>
 									<img class="view-photo" :src="currentFrameImage" />
 									<img class="view-photo" v-bind="onionskinAttrs" />
+									<div
+										v-if="viewportPopup?.type === 'progress'"
+										class="viewportPopupProgress"
+									>
+										<div
+											class="progress"
+											:style="{
+												width: `calc(${viewportPopup.progress * 100}% - 4px)`,
+											}"
+										/>
+									</div>
 								</div>
 							</div>
 						</template>
@@ -559,6 +605,27 @@ const onionskinAttrs = computed(() => {
 
 .liveview > .view-video
 	border-color var(--tq-color-tinted-input-active)
+
+.viewportPopupProgress
+	left 50%
+	top 50%
+	position absolute
+	transform translate(-50%, -50%)
+	width 30%
+	height var(--tq-input-height)
+	border-radius 9999px
+	overflow hidden
+	border 1px solid var(--tq-color-on-background)
+	opacity .5
+
+	.progress
+		position absolute
+		top 2px
+		bottom 2px
+		left 2px
+		background var(--tq-color-on-background)
+		border-radius 9999px
+		transition width .5s ease
 
 
 // Controls (Bottom Pane)
