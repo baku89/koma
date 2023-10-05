@@ -83,6 +83,7 @@ export function useTethr() {
 			}
 
 			const cam = cams[0]
+			cam.setLog(false)
 			await cam.open()
 
 			cam.on('disconnect', () => {
