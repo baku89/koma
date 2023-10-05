@@ -72,6 +72,7 @@ function togglePlay() {
 
 	const [inPoint, outPoint] = project.state.previewRange
 	const duration = outPoint - inPoint + 1
+	const {fps} = project.data.value
 
 	function update() {
 		if (!isPlaying.value) {
@@ -81,7 +82,7 @@ function togglePlay() {
 
 		const elapsed = new Date().getTime() - startTime
 
-		const elapsedFrames = Math.round((elapsed / 1000) * 15)
+		const elapsedFrames = Math.round((elapsed / 1000) * fps)
 
 		if (!isLooping.value && elapsedFrames >= duration) {
 			temporalFrame.value = outPoint

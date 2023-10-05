@@ -1,15 +1,25 @@
-import {useRefHistory} from '@vueuse/core'
+import {useRefHistory, whenever} from '@vueuse/core'
+import {produce} from 'immer'
 import {merge} from 'lodash'
 import {ConfigType} from 'tethr'
 import {computed, reactive, shallowRef} from 'vue'
 
-import {mapToPromises, queryString} from './util'
+import {
+	getDirectoryHandle,
+	mapToPromises,
+	openBlob,
+	queryString,
+	saveBlob,
+} from './util'
 
 /**
  * Termiology
  * - Frame: An integer that represents a frame number (starts from 0)
  * - Koma: A frame data that contains multiple Shots
  * - Shot: A single image data that contains images and metadata
+ *
+ * - flatten data: A data represented as plain JS object and can be JSON-stringified
+ * - unflatten data: A data that contains Blob objects
  **/
 
 interface Project<T = Blob> {
@@ -90,13 +100,13 @@ export function getObjectURL(blob: Blob) {
 }
 
 export function useProject() {
-	const directoryHandler = shallowRef<FileSystemDirectoryHandle | null>(null)
+	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
 
 	const state = reactive<ProjectState>(emptyProject.state)
 	const data = shallowRef<ProjectData>(emptyProject.data)
-	const lastSaved = shallowRef<ProjectData>(emptyProject.data)
 
-	const hasModified = computed(() => data.value !== lastSaved.value)
+	const lastSavedData = shallowRef<ProjectData>(emptyProject.data)
+	const hasModified = computed(() => data.value !== lastSavedData.value)
 
 	const history = useRefHistory(data, {capacity: 400})
 
@@ -115,25 +125,9 @@ export function useProject() {
 	})
 
 	// Open and Save Projects
-	async function getDirectoryHandler() {
-		const handler = await window.showDirectoryPicker({id: 'saveFile'})
-
-		const option: FileSystemHandlePermissionDescriptor = {
-			mode: 'readwrite',
-		}
-
-		const permission = await handler.queryPermission(option)
-
-		if (permission !== 'granted') {
-			const permission = await handler.requestPermission(option)
-			if (permission === 'denied') throw new Error('Permission denied')
-		}
-
-		return handler
-	}
 
 	async function open() {
-		directoryHandler.value = await getDirectoryHandler()
+		directoryHandle.value = await getDirectoryHandle()
 		history.clear()
 
 		const {state: flatState, data: flatData} = JSON.parse(
@@ -161,19 +155,24 @@ export function useProject() {
 		const mergedState = merge(flatState, emptyProject.state)
 
 		// Don't need to deepmerge
-		const mergedData = {...emptyProject.data, ...unflatData, frames}
+		const mergedData = {...emptyProject.data, ...unflatData}
 
 		for (const key of Object.keys(emptyProject.data)) {
 			;(state as any)[key] = (mergedState as any)[key]
 		}
 
-		data.value = mergedData
-		lastSaved.value = data.value
+		data.value = lastSavedData.value = mergedData
 	}
 
 	async function save() {
-		if (directoryHandler.value === null) {
-			directoryHandler.value = await getDirectoryHandler()
+		if (!hasModified.value) return
+
+		if (directoryHandle.value === null) {
+			const handler = await getDirectoryHandle()
+			directoryHandle.value = handler
+			data.value = produce(data.value, draft => {
+				draft.name = handler.name
+			})
 		}
 
 		const flatData: ProjectData<string> = {
@@ -194,16 +193,18 @@ export function useProject() {
 				return {...koma, shots, backupShots}
 			}),
 		}
-		const json = JSON.stringify({state, data: flatData})
-		saveText(json, 'project.json')
 
-		lastSaved.value = data.value
+		const json = JSON.stringify({state, data: flatData})
+		alert(json)
+		await saveText(json, 'project.json')
+
+		lastSavedData.value = data.value
 	}
 
 	async function openShot(shot: Shot<string>): Promise<Shot> {
-		const lv = await openBlob(shot.lv)
-		const jpg = await openBlob(shot.jpg)
-		const raw = shot.raw ? await openBlob(shot.raw) : undefined
+		const lv = await openBlob(directoryHandle, shot.lv)
+		const jpg = await openBlob(directoryHandle, shot.jpg)
+		const raw = shot.raw ? await openBlob(directoryHandle, shot.raw) : undefined
 
 		return {...shot, lv, jpg, raw}
 	}
@@ -216,10 +217,10 @@ export function useProject() {
 	): Promise<Shot<string>> {
 		const basename = [data.value.name, queryString(query)].join('_')
 
-		const lv = await saveSequenceImage(shot.lv, basename + '_lv', frame, 'jpg')
-		const jpg = await saveSequenceImage(shot.jpg, basename, frame, 'jpg')
+		const lv = await saveImageSequence(shot.lv, basename + '_lv', frame, 'jpg')
+		const jpg = await saveImageSequence(shot.jpg, basename, frame, 'jpg')
 		const raw = shot.raw
-			? await saveSequenceImage(shot.raw, basename, frame, 'dng')
+			? await saveImageSequence(shot.raw, basename, frame, 'dng')
 			: undefined
 
 		return {...shot, lv, jpg, raw}
@@ -227,18 +228,18 @@ export function useProject() {
 
 	// File System Access API utils
 	async function loadText(filename: string): Promise<string> {
-		if (!directoryHandler.value) throw new Error('No directory handler')
+		if (!directoryHandle.value) throw new Error('No directory handler')
 
-		const h = await directoryHandler.value.getFileHandle(filename)
+		const h = await directoryHandle.value.getFileHandle(filename)
 		const f = await h.getFile()
 		const text = await f.text()
 		return text
 	}
 
 	async function saveText(text: string, fileName: string) {
-		if (!directoryHandler.value) throw new Error('No directory handler')
+		if (!directoryHandle.value) throw new Error('No directory handler')
 
-		const h = await directoryHandler.value.getFileHandle(fileName, {
+		const h = await directoryHandle.value.getFileHandle(fileName, {
 			create: true,
 		})
 
@@ -246,39 +247,19 @@ export function useProject() {
 		await w.write(text)
 		await w.close()
 	}
-
-	async function openBlob(filename: string): Promise<Blob> {
-		if (!directoryHandler.value) throw new Error('No directory handler')
-
-		try {
-			const h = await directoryHandler.value.getFileHandle(filename)
-			return await h.getFile()
-		} catch (err) {
-			return undefined as any // TODO: for DNG
-		}
-	}
-
-	// Save the BLob image to the project directrory and returns the name of the file
-	async function saveSequenceImage(
+	// Save the blob image to the project directrory and returns the name of the file
+	async function saveImageSequence(
 		blob: Blob,
 		basename: string,
 		frame: number,
 		extension: string
 	) {
-		if (!directoryHandler.value) throw new Error('No directory handler')
-
 		const suffix = frame.toString().padStart(4, '0')
-		const fileName = `${basename}_${suffix}.${extension}`
+		const filename = `${basename}_${suffix}.${extension}`
 
-		const h = await directoryHandler.value.getFileHandle(fileName, {
-			create: true,
-		})
+		saveBlob(directoryHandle, filename, blob)
 
-		const w = await h.createWritable()
-		await w.write(blob)
-		await w.close()
-
-		return fileName
+		return filename
 	}
 
 	function pauseHistory() {
@@ -291,6 +272,9 @@ export function useProject() {
 			history.commit()
 		}
 	}
+
+	// Enable autosave
+	whenever(hasModified, save, {flush: 'post'})
 
 	function setInPoint(value: number) {
 		const inPoint = Math.min(value, state.previewRange[1])
