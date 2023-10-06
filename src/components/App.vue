@@ -5,7 +5,7 @@ import {Bndr} from 'bndr-js'
 import {produce} from 'immer'
 import {clamp} from 'lodash'
 import Tq, {useTweeq} from 'tweeq'
-import {computed, ref, shallowRef} from 'vue'
+import {computed, ref, shallowRef, watch} from 'vue'
 
 import {playSound} from '@/playSound'
 import {getObjectURL, Shot, useProject} from '@/project'
@@ -70,8 +70,10 @@ const isPlaying = ref(false)
 
 function togglePlay() {
 	isPlaying.value = !isPlaying.value
+}
 
-	if (!isPlaying.value) {
+watch(isPlaying, isPlaying => {
+	if (!isPlaying) {
 		temporalFrame.value = null
 		return
 	}
@@ -83,7 +85,7 @@ function togglePlay() {
 	const {fps} = project.data.value
 
 	function update() {
-		if (!isPlaying.value) {
+		if (!isPlaying) {
 			temporalFrame.value = null
 			return
 		}
@@ -94,7 +96,7 @@ function togglePlay() {
 
 		if (!isLooping.value && elapsedFrames >= duration) {
 			temporalFrame.value = outPoint
-			isPlaying.value = false
+			isPlaying = false
 		} else {
 			temporalFrame.value = (elapsedFrames % duration) + inPoint
 			requestAnimationFrame(update)
@@ -102,7 +104,8 @@ function togglePlay() {
 	}
 
 	update()
-}
+})
+
 onBeforeActionPerform(action => {
 	if (action.id !== 'toggle_play') {
 		isPlaying.value = false
