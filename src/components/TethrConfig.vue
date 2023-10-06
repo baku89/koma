@@ -1,14 +1,7 @@
 <template>
 	<Tq.InputString
-		v-if="config.value === null"
-		modelValue="-"
-		font="monospace"
-		align="center"
-		disabled
-	/>
-	<Tq.InputString
-		v-else-if="!config.option"
-		:modelValue="String(targetValue)"
+		v-if="config.value === null || !config.option"
+		:modelValue="config.value ? String(config.value) : '-'"
 		font="monospace"
 		align="center"
 		disabled
@@ -32,6 +25,8 @@
 		:max="config.option.max"
 		:step="config.option.step"
 		:disabled="!config.writable"
+		:prefix="prefix"
+		:suffix="suffix"
 		@focus="focusing = true"
 		@blur="focusing = false"
 		@update:modelValue="update"
@@ -41,25 +36,22 @@
 <script lang="ts" setup generic="T">
 import {capital} from 'case'
 import {throttle} from 'lodash'
-import {ConfigName} from 'tethr'
 import Tq from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
 import {TethrConfig} from '@/use/useTethr'
 
 interface Props {
-	name?: ConfigName
 	config: TethrConfig<T>
-	unit?: string
+	suffix?: string
+	prefix?: string
 }
 
+const props = withDefaults(defineProps<Props>(), {prefix: '', suffix: ''})
+
 const labelizer = computed<(value: T | null) => string>(() => {
-	if (props.name === 'aperture') {
-		return (value: T | null) => 'F' + value
-	} else if (props.name === 'focalLength') {
-		return (value: T | null) => value + ' mm'
-	} else if (props.name === 'colorTemperature') {
-		return (value: T | null) => value + ' K'
+	if (props.prefix || props.suffix) {
+		return (value: T | null) => props.prefix + value + props.suffix
 	} else {
 		return (value: T | null) => {
 			return /^[a-z]$/.test(value as any)
@@ -69,9 +61,7 @@ const labelizer = computed<(value: T | null) => string>(() => {
 	}
 })
 
-const props = withDefaults(defineProps<Props>(), {unit: ''})
-
-const targetValue = ref(props.config.value)
+const targetValue = ref<any>(props.config.value)
 
 const focusing = ref(false)
 
@@ -79,8 +69,8 @@ const setterDebounced = computed(() => {
 	return throttle(props.config.set, 100)
 })
 
-function update(value: T) {
-	targetValue.value = value as any
+function update(value: any) {
+	targetValue.value = value
 	setterDebounced.value(value)
 }
 

@@ -423,7 +423,7 @@ const onionskinAttrs = computed(() => {
 					:max="project.allKomas.value.length - 1"
 					:step="1"
 					:bar="false"
-					unit=" F"
+					suffix=" F"
 					style="width: 5em"
 					@update:modelValue="currentFrame = $event"
 				/>
@@ -483,26 +483,23 @@ const onionskinAttrs = computed(() => {
 								<Tq.ParameterHeading>Camera Control</Tq.ParameterHeading>
 								<Tq.Parameter label="F.L." icon="lucide:focus">
 									<TethrConfig
-										name="focalLength"
 										:config="cameraConfigs.focalLength"
+										suffix="mm"
 									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="F.D." icon="tabler:frustum">
 									<TethrConfig :config="cameraConfigs.focusDistance" />
 								</Tq.Parameter>
 								<Tq.Parameter label="Apr." icon="ph:aperture">
-									<TethrConfig
-										name="aperture"
-										:config="cameraConfigs.aperture"
-									/>
+									<TethrConfig :config="cameraConfigs.aperture" prefix="F" />
 								</Tq.Parameter>
 								<Tq.Parameter label="SS" icon="material-symbols:shutter-speed">
 									<TethrConfig :config="cameraConfigs.shutterSpeed" />
 								</Tq.Parameter>
 								<Tq.Parameter label="WB" icon="subway:black-white">
 									<TethrConfig
-										name="colorTemperature"
 										:config="cameraConfigs.colorTemperature"
+										suffix="K"
 									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="ISO" icon="carbon:iso">
