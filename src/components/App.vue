@@ -72,8 +72,8 @@ function togglePlay() {
 	isPlaying.value = !isPlaying.value
 }
 
-watch(isPlaying, isPlaying => {
-	if (!isPlaying) {
+watch(isPlaying, () => {
+	if (!isPlaying.value) {
 		temporalFrame.value = null
 		return
 	}
@@ -85,7 +85,7 @@ watch(isPlaying, isPlaying => {
 	const {fps} = project.data.value
 
 	function update() {
-		if (!isPlaying) {
+		if (!isPlaying.value) {
 			temporalFrame.value = null
 			return
 		}
@@ -95,8 +95,8 @@ watch(isPlaying, isPlaying => {
 		const elapsedFrames = Math.round((elapsed / 1000) * fps)
 
 		if (!isLooping.value && elapsedFrames >= duration) {
-			temporalFrame.value = outPoint
-			isPlaying = false
+			currentFrame.value = outPoint
+			isPlaying.value = false
 		} else {
 			temporalFrame.value = (elapsedFrames % duration) + inPoint
 			requestAnimationFrame(update)
@@ -145,7 +145,7 @@ function insertCamera(frame: number) {
 registerActions([
 	{
 		id: 'open_project',
-		icon: 'folder_open',
+		icon: 'material-symbols:folder-open-rounded',
 		menu: '',
 		input: 'command+o',
 		async perform() {
@@ -155,7 +155,7 @@ registerActions([
 	},
 	{
 		id: 'save_project',
-		icon: 'folder_open',
+		icon: 'mdi:content-save',
 		input: 'command+s',
 		menu: '',
 		async perform() {
@@ -164,7 +164,7 @@ registerActions([
 	},
 	{
 		id: 'shoot',
-		icon: 'circle',
+		icon: 'mdi:circle',
 		input: ['enter', 'gamepad:r'],
 		menu: '',
 		async perform() {
@@ -261,7 +261,7 @@ registerActions([
 	},
 	{
 		id: 'undo',
-		icon: 'undo',
+		icon: 'mdi:undo',
 		input: 'command+z',
 		perform() {
 			project.history.undo()
@@ -270,7 +270,7 @@ registerActions([
 	},
 	{
 		id: 'redo',
-		icon: 'redo',
+		icon: 'mdi:redo',
 		input: 'command+shift+z',
 		perform() {
 			project.history.redo()
@@ -279,7 +279,7 @@ registerActions([
 	},
 	{
 		id: 'go_forward_1_frame',
-		icon: 'arrow_forward',
+		icon: 'lucide:step-forward',
 		input: ['f', 'right'],
 		perform() {
 			currentFrame.value += 1
@@ -287,7 +287,7 @@ registerActions([
 	},
 	{
 		id: 'go_backward_1_frame',
-		icon: 'arrow_back',
+		icon: 'lucide:step-back',
 		input: ['d', 'left'],
 		perform() {
 			currentFrame.value = Math.max(0, currentFrame.value - 1)
@@ -295,7 +295,7 @@ registerActions([
 	},
 	{
 		id: 'delete_current_frame',
-		icon: 'backspace',
+		icon: 'mdi:backspace',
 		input: ['delete', 'backspace', 'gamepad:home'],
 		perform() {
 			project.data.value = produce(project.data.value, draft => {
@@ -309,7 +309,7 @@ registerActions([
 	},
 	{
 		id: 'insert_camera',
-		icon: 'add_a_photo',
+		icon: 'mdi:camera-plus',
 		perform() {
 			project.data.value = produce(project.data.value, draft => {
 				draft.captureFrame = currentFrame.value
@@ -318,7 +318,7 @@ registerActions([
 	},
 	{
 		id: 'set_in_point',
-		icon: 'line_start_square',
+		icon: 'mdi:contain-start',
 		input: 'b',
 		perform() {
 			project.setInPoint(currentFrame.value)
@@ -326,7 +326,7 @@ registerActions([
 	},
 	{
 		id: 'set_out_point',
-		icon: 'line_end_square',
+		icon: 'mdi:contain-end',
 		input: 'n',
 		perform() {
 			project.setOutPoint(currentFrame.value)
@@ -334,13 +334,13 @@ registerActions([
 	},
 	{
 		id: 'toggle_play',
-		icon: 'play_arrow',
+		icon: 'mdi:play',
 		input: 'space',
 		perform: togglePlay,
 	},
 	{
 		id: 'toggle_loop',
-		icon: 'laps',
+		icon: 'material-symbols:laps',
 		input: 'l',
 		perform() {
 			isLooping.value = !isLooping.value
@@ -427,15 +427,16 @@ const onionskinAttrs = computed(() => {
 					style="width: 5em"
 					@update:modelValue="currentFrame = $event"
 				/>
-				<Tq.InputIconToggle v-model="isLooping" icon="laps" />
+				<Tq.InputIconToggle v-model="isLooping" icon="material-symbols:laps" />
 				<Tq.InputIconToggle
 					v-model="isPlaying"
-					:icon="isPlaying ? 'pause' : 'play_arrow'"
+					:icon="isPlaying ? 'mdi:pause' : 'mdi:play'"
 				/>
-				<Tq.InputIconToggle v-model="enableHiRes" icon="hd" />
+				<Tq.InputIconToggle v-model="enableHiRes" icon="mdi:high-definition" />
 			</template>
 			<template #right>
 				<Tq.InputButton
+					icon="mdi:connection"
 					:label="camera ? cameraConfigs.model.value ?? 'Unknown' : 'Connect'"
 					@click="toggleCameraConnection"
 				/>
