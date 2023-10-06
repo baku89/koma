@@ -170,9 +170,12 @@ export function useProject() {
 		if (directoryHandle.value === null) {
 			const handler = await getDirectoryHandle()
 			directoryHandle.value = handler
-			data.value = produce(data.value, draft => {
-				draft.name = handler.name
-			})
+
+			if (data.value.name === emptyProject.data.name) {
+				data.value = produce(data.value, draft => {
+					draft.name = handler.name
+				})
+			}
 		}
 
 		const flatData: ProjectData<string> = {
