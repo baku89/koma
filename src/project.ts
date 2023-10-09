@@ -1,6 +1,6 @@
 import {useRefHistory, whenever} from '@vueuse/core'
 import {produce} from 'immer'
-import {merge} from 'lodash'
+import {clamp, merge} from 'lodash'
 import {ConfigType} from 'tethr'
 import {computed, reactive, shallowRef} from 'vue'
 
@@ -40,6 +40,9 @@ interface CameraConfigs {
 interface ProjectState {
 	previewRange: [number, number]
 	onionskin: number
+	timeline: {
+		komaWidth: number
+	}
 	cameraConfigs: CameraConfigs
 }
 
@@ -73,6 +76,9 @@ const emptyProject: Project = {
 	state: {
 		previewRange: [0, 9],
 		onionskin: 0,
+		timeline: {
+			komaWidth: 1,
+		},
 		cameraConfigs: {
 			focalLength: 50,
 			focusDistance: 24,
@@ -198,7 +204,6 @@ export function useProject() {
 		}
 
 		const json = JSON.stringify({state, data: flatData})
-		alert(json)
 		await saveText(json, 'project.json')
 
 		lastSavedData.value = data.value
@@ -285,7 +290,12 @@ export function useProject() {
 	}
 
 	function setOutPoint(value: number) {
-		const outPoint = Math.max(value, state.previewRange[0])
+		const outPoint = clamp(
+			value,
+			state.previewRange[0],
+			allKomas.value.length - 1
+		)
+
 		state.previewRange = [state.previewRange[0], outPoint]
 	}
 

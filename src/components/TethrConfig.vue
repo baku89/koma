@@ -1,72 +1,36 @@
-<template>
-	<Tq.InputString
-		v-if="config.value === null || !config.option"
-		:modelValue="config.value ? String(config.value) : '-'"
-		font="monospace"
-		align="center"
-		disabled
-	/>
-	<Tq.InputDropdown
-		v-else-if="config.option.type === 'enum'"
-		:modelValue="targetValue"
-		:options="config.option.values"
-		:labelizer="labelizer"
-		:disabled="config.writable"
-		font="monospace"
-		align="center"
-		@focus="focusing = true"
-		@blur="focusing = false"
-		@update:modelValue="update"
-	/>
-	<Tq.InputNumber
-		v-else-if="config.option?.type === 'range'"
-		:modelValue="targetValue"
-		:min="config.option.min"
-		:max="config.option.max"
-		:step="config.option.step"
-		:disabled="!config.writable"
-		:prefix="prefix"
-		:suffix="suffix"
-		@focus="focusing = true"
-		@blur="focusing = false"
-		@update:modelValue="update"
-	/>
-</template>
-
 <script lang="ts" setup generic="T">
 import {capital} from 'case'
 import {throttle} from 'lodash'
+import {ConfigName, WhiteBalance} from 'tethr'
 import Tq from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
-import {TethrConfig} from '@/use/useTethr'
+import {Config} from '@/use/useTethr'
 
 interface Props {
-	config: TethrConfig<T>
+	config: Config<T>
+	name?: ConfigName
 	suffix?: string
 	prefix?: string
 }
 
-const props = withDefaults(defineProps<Props>(), {prefix: '', suffix: ''})
+interface InputAttrs {
+	labelizer?: (value: T | null) => string
+	leftIcon?: string
+	rightIcon?: string
+	icons?: string[]
+	prefix?: string
+	suffix?: string
+}
 
-const labelizer = computed<(value: T | null) => string>(() => {
-	if (props.prefix || props.suffix) {
-		return (value: T | null) => props.prefix + value + props.suffix
-	} else {
-		return (value: T | null) => {
-			return /^[a-z]$/.test(value as any)
-				? capital(value as any)
-				: String(value)
-		}
-	}
-})
+const props = withDefaults(defineProps<Props>(), {prefix: '', suffix: ''})
 
 const targetValue = ref<any>(props.config.value)
 
 const focusing = ref(false)
 
 const setterDebounced = computed(() => {
-	return throttle(props.config.set, 100)
+	return throttle(props.config.set, 50)
 })
 
 function update(value: any) {
@@ -80,7 +44,102 @@ watch(
 		if (!focusing) targetValue.value = value as any
 	}
 )
+
+const inputAttrs = computed<InputAttrs>(() => {
+	switch (props.name) {
+		case 'aperture':
+			return {
+				labelizer: v => 'F' + v,
+			}
+		case 'focalLength':
+			return {
+				suffix: 'mm',
+			}
+		case 'focusDistance':
+			return {
+				leftIcon: 'tabler:macro',
+				rightIcon: 'material-symbols:landscape-outline',
+			}
+		case 'whiteBalance': {
+			const values =
+				props.config.option?.type === 'enum'
+					? (props.config.option.values as string[])
+					: []
+
+			const icons = values.map(
+				value => whiteBalanceIcons.get(value as WhiteBalance) ?? ''
+			)
+
+			return {
+				icons,
+			}
+		}
+		case 'colorTemperature':
+			return {
+				suffix: 'K',
+			}
+		case 'shutterSpeed':
+			return {
+				labelizer: (v: any) => (/^[a-z]+$/i.test(v) ? capital(v) : v),
+			}
+	}
+
+	return {}
+})
+
+const whiteBalanceIcons = new Map<WhiteBalance, string>([
+	['auto', 'material-symbols:wb-auto'],
+	['auto cool', 'material-symbols:wb-auto-outline'],
+	['auto warm', 'material-symbols:wb-auto-outline'],
+	['auto ambience', 'material-symbols:wb-auto-outline'],
+	['daylight', 'material-symbols:wb-sunny'],
+	['shade', 'material-symbols:wb-shade'],
+	['cloud', 'material-mid:wb-cloudy'],
+	['incandescent', 'material-symbols:wb-incandescent'],
+	['fluorescent', 'material-symbols:fluorescent'],
+	['tungsten', 'ic:baseline-tungsten'],
+	['flash', 'mdi:flash'],
+	['underwater', 'material-symbols:water'],
+	['manual', 'mdi:temperature-kelvin'],
+	['custom', 'material-symbols:settings'],
+])
 </script>
+
+<template>
+	<Tq.InputString
+		v-if="config.value === null || !config.option"
+		:modelValue="config.value ? String(config.value) : '-'"
+		font="monospace"
+		align="center"
+		disabled
+	/>
+	<Tq.InputDropdown
+		v-else-if="config.option.type === 'enum'"
+		:modelValue="targetValue"
+		:options="config.option.values"
+		:disabled="config.writable"
+		font="monospace"
+		align="center"
+		v-bind="inputAttrs"
+		@focus="focusing = true"
+		@blur="focusing = false"
+		@update:modelValue="update"
+	/>
+	<Tq.InputNumber
+		v-else-if="config.option?.type === 'range'"
+		:modelValue="targetValue"
+		:min="config.option.min"
+		:max="config.option.max"
+		:step="config.option.step"
+		:disabled="!config.writable"
+		:prefix="prefix"
+		:suffix="suffix"
+		v-bind="inputAttrs"
+		@focus="focusing = true"
+		@blur="focusing = false"
+		@update:modelValue="update"
+	/>
+</template>
 
 <style lang="stylus" scoped>
 .TethrConfig

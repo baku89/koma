@@ -18,17 +18,20 @@ import TethrConfig from './TethrConfig.vue'
 
 const project = useProject()
 
-const {registerActions, onBeforeActionPerform} = useTweeq('com.baku89.koma', {
-	colorMode: 'dark',
-	accentColor: '#ff0000',
-})
+const {registerActions, onBeforeActionPerform, appStorage} = useTweeq(
+	'com.baku89.koma',
+	{
+		colorMode: 'dark',
+		accentColor: '#ff0000',
+	}
+)
 
 const {
 	camera,
 	liveviewMediaStream,
 	toggleCameraConnection,
 	configs: cameraConfigs,
-} = useTethr()
+} = useTethr(appStorage)
 
 const liveToggle = ref(false)
 const enableHiRes = ref(false)
@@ -55,6 +58,17 @@ Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
 		liveToggle.value = pressed
 	}
 )
+
+//------------------------------------------------------------------------------
+// Connection
+
+const isGamepadConnected = ref(false)
+
+Bndr.gamepad()
+	.connected()
+	.on(connected => {
+		isGamepadConnected.value = connected
+	})
 
 //------------------------------------------------------------------------------
 // Viewport popup
@@ -304,6 +318,8 @@ registerActions([
 					draft.captureFrame -= 1
 				}
 			})
+			project.setInPoint(project.state.previewRange[0])
+			project.setOutPoint(project.state.previewRange[1])
 			playSound('sound/Hit08-1.mp3')
 		},
 	},
@@ -350,15 +366,15 @@ registerActions([
 
 const seekbarStyles = computed(() => {
 	return {
-		transform: `translateX(calc(${previewFrame.value} * var(--frame-width)))`,
+		transform: `translateX(calc(${previewFrame.value} * var(--koma-width)))`,
 	}
 })
 
 const previewRangeStyles = computed(() => {
 	const [inPoint, outPoint] = project.state.previewRange
 	return {
-		transform: `translateX(calc(${inPoint} * var(--frame-width)))`,
-		width: `calc(${outPoint - inPoint + 1} * var(--frame-width) + 1px)`,
+		transform: `translateX(calc(${inPoint} * var(--koma-width)))`,
+		width: `calc(${outPoint - inPoint + 1} * var(--koma-width) + 1px)`,
 	}
 })
 
@@ -440,6 +456,10 @@ const onionskinAttrs = computed(() => {
 					:label="camera ? cameraConfigs.model.value ?? 'Unknown' : 'Connect'"
 					@click="toggleCameraConnection"
 				/>
+				<Tq.IconIndicator
+					:modelValue="isGamepadConnected"
+					icon="solar:gamepad-bold"
+				/>
 			</template>
 		</Tq.TitleBar>
 		<main class="main">
@@ -481,25 +501,43 @@ const onionskinAttrs = computed(() => {
 						<div class="cameraParameters">
 							<Tq.ParameterGrid>
 								<Tq.ParameterHeading>Camera Control</Tq.ParameterHeading>
+								<Tq.Parameter label="Exp." icon="material-symbols:exposure">
+									<TethrConfig :config="cameraConfigs.exposureComp" />
+								</Tq.Parameter>
 								<Tq.Parameter label="F.L." icon="lucide:focus">
 									<TethrConfig
 										:config="cameraConfigs.focalLength"
-										suffix="mm"
+										name="focalLength"
 									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="F.D." icon="tabler:frustum">
-									<TethrConfig :config="cameraConfigs.focusDistance" />
+									<TethrConfig
+										:config="cameraConfigs.focusDistance"
+										name="focusDistance"
+									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="Apr." icon="ph:aperture">
-									<TethrConfig :config="cameraConfigs.aperture" prefix="F" />
+									<TethrConfig
+										:config="cameraConfigs.aperture"
+										name="aperture"
+									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="SS" icon="material-symbols:shutter-speed">
-									<TethrConfig :config="cameraConfigs.shutterSpeed" />
+									<TethrConfig
+										:config="cameraConfigs.shutterSpeed"
+										name="shutterSpeed"
+									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="WB" icon="subway:black-white">
 									<TethrConfig
+										:config="cameraConfigs.whiteBalance"
+										name="whiteBalance"
+									/>
+								</Tq.Parameter>
+								<Tq.Parameter label="C.Temp" icon="mdi:temperature">
+									<TethrConfig
 										:config="cameraConfigs.colorTemperature"
-										suffix="K"
+										name="colorTemperature"
 									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="ISO" icon="carbon:iso">
@@ -517,14 +555,32 @@ const onionskinAttrs = computed(() => {
 										:step="0.1"
 									/>
 								</Tq.Parameter>
+								<Tq.Parameter icon="material-symbols:width" label="Zoom">
+									<Tq.InputNumber
+										:modelValue="project.state.timeline.komaWidth * 100"
+										:min="20"
+										:max="200"
+										suffix="%"
+										:barOrigin="100"
+										:step="1"
+										@update:modelValue="
+											project.state.timeline.komaWidth = $event / 100
+										"
+									/>
+								</Tq.Parameter>
 							</Tq.ParameterGrid>
 						</div>
-						<div class="timeline">
+						<div
+							class="timeline"
+							:style="{
+								'--koma-width': project.state.timeline.komaWidth * 80 + 'px',
+							}"
+						>
 							<div
 								ref="$frameMeasure"
 								class="frameMeasure"
 								:style="{
-									width: `calc(${project.allKomas.value.length} * var(--frame-width))`,
+									width: `calc(${project.allKomas.value.length} * var(--koma-width))`,
 								}"
 							/>
 							<div class="seekbar" :style="seekbarStyles">
@@ -534,30 +590,26 @@ const onionskinAttrs = computed(() => {
 							<div
 								v-for="(koma, frame) in project.allKomas.value"
 								:key="frame"
-								class="frame"
+								class="koma"
 							>
-								<div class="frame-header tq-font-numeric">{{ frame }}</div>
-								<div
-									v-if="frame === project.captureFrame.value"
-									class="frame-image liveview"
-								>
-									<Icon icon="material-symbols:photo-camera-outline" />
+								<div class="koma-header tq-font-numeric">{{ frame }}</div>
+								<div class="shot">
+									<div
+										v-if="frame === project.captureFrame.value"
+										class="liveview"
+									>
+										<Icon icon="material-symbols:photo-camera-outline" />
+									</div>
+									<div
+										v-else-if="koma && koma.shots[0]"
+										class="captured"
+										:class="{hasRaw: koma.shots[0].raw}"
+									>
+										<img :src="getObjectURL(koma.shots[0].lv)" />
+									</div>
+									<div v-else class="empty" @dblclick="insertCamera(frame)" />
+									<div class="in-between" />
 								</div>
-								<div
-									v-else-if="koma && koma.shots[0]"
-									class="frame-image-wrapper"
-									:class="{hasRaw: koma.shots[0].raw}"
-								>
-									<img
-										class="frame-image"
-										:src="getObjectURL(koma.shots[0].lv)"
-									/>
-								</div>
-								<div
-									v-else
-									class="frame-image empty"
-									@dblclick="insertCamera(frame)"
-								/>
 							</div>
 						</div>
 					</div>
@@ -651,15 +703,16 @@ const onionskinAttrs = computed(() => {
 	overflow-x scroll
 	overflow-y hidden
 
-	--frame-width 80px
+	--koma-width 80px
+	--koma-height 53px
 	--header-height 14px
 
 .frameMeasure
 	position absolute
 	top 0
 	height 24px
-	background-image linear-gradient(to right, var(--tq-color-on-background) 1px, transparent 1px, transparent var(--frame-width))
-	background-size var(--frame-width) 14px
+	background-image linear-gradient(to right, var(--tq-color-on-background) 1px, transparent 1px, transparent var(--koma-width))
+	background-size var(--koma-width) 14px
 	background-repeat repeat-x
 	background-position 0 12px
 
@@ -687,7 +740,7 @@ header-frame-text-style()
 		position absolute
 		left 1px
 		height var(--header-height)
-		width var(--frame-width)
+		width var(--koma-width)
 		background var(--tq-color-primary)
 		z-index -1
 		border-radius 0 999px 0 0
@@ -709,56 +762,64 @@ header-frame-text-style()
 		background var(--md-sys-color-secondary)
 		opacity .2
 
-.frame
-	flex 0 0 var(--frame-width)
+.koma-header
+	header-frame-text-style()
+	width 100%
+	height var(--header-height)
+	border-left 1px solid var(--tq-color-on-background)
+	margin-bottom 6px
 
-	&-header
-		header-frame-text-style()
+
+.shot
+	position relative
+	flex 0 0 var(--koma-width)
+	margin-left 1px
+	width calc(var(--koma-width) - 1px)
+	height var(--koma-height)
+
+	.captured, .liveview, .empty
 		width 100%
-		height var(--header-height)
-		border-left 1px solid var(--tq-color-on-background)
-		margin-bottom 6px
-
-	&-image
-		margin-left 1px
-		width calc(100% - 1px)
-		aspect-ratio 3 / 2
+		height 100%
 		text-align center
 		display flex
 		flex-direction column
 		justify-content center
+		align-items center
 		border-radius var(--tq-input-border-radius)
 
-		&-wrapper
-			position relative
+	.captured
+		overflow hidden
+		box-shadow inset 0 0 0 1px var(--tq-color-surface-border)
 
-			&.hasRaw:before
-				content ''
-				display block
-				position absolute
-				bottom 0
-				left 2px
-				right 2px
-				height 4px
-				border-radius 4px
-				background var(--tq-color-on-primary)
+		img
+			height 100%
+			object-fit contain
 
-
-		&.liveview
-			background var(--tq-color-primary-container)
-
-			svg
-				margin auto
-				transform translate(-2px) // IDK why
-
-
-		&.empty
-			background var(--tq-color-input)
-			opacity .2
-
-			&:hover
-				background var(--tq-color-input-hover)
-
-		span
+		&.hasRaw:before
+			content ''
 			display block
+			position absolute
+			bottom 0
+			left 2px
+			right 2px
+			height 2px
+			background var(--tq-color-on-primary)
+
+	.liveview
+		background var(--tq-color-primary-container)
+
+	.empty
+		background var(--tq-color-input)
+		opacity .2
+
+		&:hover
+			background var(--tq-color-input-hover)
+
+	.in-between
+		position absolute
+		top 0
+		height 100%
+		width 6px
+		right -3px
+		// background blue
 </style>
