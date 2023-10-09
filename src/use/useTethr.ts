@@ -52,7 +52,7 @@ export function useConfig<N extends ConfigName>(
 
 			config.set = (value: ConfigType[N]) => camera.set(name, value)
 
-			camera.on(`${name}Changed` as any, (desc: ConfigDesc<ConfigType[N]>) => {
+			camera.on(`${name}Change` as any, (desc: ConfigDesc<ConfigType[N]>) => {
 				config.value = desc.value
 				config.writable = desc.writable
 				config.option = desc.option
@@ -111,7 +111,7 @@ export function useTethr(
 		cam.on('liveviewStreamUpdate', (ms: MediaStream | null) => {
 			liveviewMediaStream.value = ms
 		})
-		cam.on('isoChanged', async () => {
+		cam.on('change', async () => {
 			configPresets.value = {
 				...configPresets.value,
 				...(await camera.value?.exportConfigs()),
