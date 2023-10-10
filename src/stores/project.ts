@@ -214,32 +214,34 @@ export const useProjectStore = defineStore('project', () => {
 
 		isSaving = true
 
-		if (directoryHandle.value === null) {
-			directoryHandle.value = await navigator.storage.getDirectory()
+		try {
+			if (directoryHandle.value === null) {
+				directoryHandle.value = await navigator.storage.getDirectory()
+			}
+
+			const flatProject: Project<string> = {
+				...toRaw(project),
+				komas: await mapToPromises(project.komas, async (koma, frame) => {
+					if (koma === null) return null
+
+					const shots = await mapToPromises(koma.shots, (shot, layer) => {
+						if (shot === null) return null
+						return saveShot(shot, frame, {layer})
+					})
+
+					const backupShots = await mapToPromises(
+						koma.backupShots,
+						(shot, index) => saveShot(shot, frame, {backup: index})
+					)
+
+					return {...koma, shots, backupShots}
+				}),
+			}
+
+			await saveJson(directoryHandle, flatProject, 'project.json')
+		} finally {
+			isSaving = false
 		}
-
-		const flatProject: Project<string> = {
-			...toRaw(project),
-			komas: await mapToPromises(project.komas, async (koma, frame) => {
-				if (koma === null) return null
-
-				const shots = await mapToPromises(koma.shots, (shot, layer) => {
-					if (shot === null) return null
-					return saveShot(shot, frame, {layer})
-				})
-
-				const backupShots = await mapToPromises(
-					koma.backupShots,
-					(shot, index) => saveShot(shot, frame, {backup: index})
-				)
-
-				return {...koma, shots, backupShots}
-			}),
-		}
-
-		await saveJson(directoryHandle, flatProject, 'project.json')
-
-		isSaving = false
 	}
 
 	async function openShot(shot: Shot<string>): Promise<Shot> {
