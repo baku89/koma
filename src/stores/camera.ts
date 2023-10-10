@@ -64,7 +64,7 @@ export function useConfig<N extends ConfigName>(
 	return readonly(config) as Config<ConfigType[N]>
 }
 
-export function useTethr(
+export function useCameraStore(
 	appStorage: <T>(name: string, defaultValue: T) => Ref<UnwrapRef<T>>
 ) {
 	const camera = shallowRef<Tethr | null>(null)

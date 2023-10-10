@@ -1,6 +1,7 @@
 import {useRefHistory, whenever} from '@vueuse/core'
 import {produce} from 'immer'
 import {clamp, merge} from 'lodash'
+import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
 import {computed, reactive, shallowRef} from 'vue'
 
@@ -10,7 +11,7 @@ import {
 	openBlob,
 	queryString,
 	saveBlob,
-} from './util'
+} from '@/util'
 
 /**
  * Termiology
@@ -105,7 +106,7 @@ export function getObjectURL(blob: Blob) {
 	return url
 }
 
-export function useProject() {
+export const useProjectState = defineStore('project', () => {
 	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
 
 	const state = reactive<ProjectState>(emptyProject.state)
@@ -313,4 +314,4 @@ export function useProject() {
 		setInPoint,
 		setOutPoint,
 	}
-}
+})

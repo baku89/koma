@@ -3,20 +3,17 @@ import {Icon} from '@iconify/vue'
 import {useEventListener} from '@vueuse/core'
 import {Bndr} from 'bndr-js'
 import {produce} from 'immer'
-import {clamp} from 'lodash'
+import {scalar} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
-import {computed, ref, shallowRef, watch} from 'vue'
+import {computed, ref, shallowRef} from 'vue'
 
 import {playSound} from '@/playSound'
-import {getObjectURL, Shot, useProject} from '@/project'
-import {refWithSetter} from '@/use/refWithSetter'
+import {useCameraStore} from '@/stores/camera'
+import {getObjectURL, Shot, useProjectState} from '@/stores/project'
+import {useViewportStore} from '@/stores/viewport'
 import {useBndr} from '@/use/useBndr'
-import {useTethr} from '@/use/useTethr'
 
-import {lerp} from '../../dev_modules/linearly/src/scalar'
 import TethrConfig from './TethrConfig.vue'
-
-const project = useProject()
 
 const {registerActions, onBeforeActionPerform, appStorage} = useTweeq(
 	'com.baku89.koma',
@@ -26,36 +23,19 @@ const {registerActions, onBeforeActionPerform, appStorage} = useTweeq(
 	}
 )
 
+const viewport = useViewportStore()
+const project = useProjectState()
+
 const {
 	camera,
 	liveviewMediaStream,
 	toggleCameraConnection,
 	configs: cameraConfigs,
-} = useTethr(appStorage)
-
-const liveToggle = ref(false)
-const enableHiRes = ref(false)
-
-const currentFrame = refWithSetter(0, value => {
-	return clamp(value, 0, project.allKomas.value.length - 1)
-})
-
-const temporalFrame = ref<null | number>(null) // For previewing, live toggle
-const previewFrame = computed(() => {
-	if (liveToggle.value) {
-		if (currentFrame.value === project.captureFrame.value) {
-			return project.captureFrame.value - 1
-		} else {
-			return project.captureFrame.value
-		}
-	}
-
-	return temporalFrame.value ?? currentFrame.value
-})
+} = useCameraStore(appStorage)
 
 Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
 	pressed => {
-		liveToggle.value = pressed
+		viewport.liveToggle = pressed
 	}
 )
 
@@ -79,56 +59,15 @@ const viewportPopup = shallowRef<ViewportPopup>(null)
 
 //------------------------------------------------------------------------------
 // Playing
-const isLooping = ref(false)
-const isPlaying = ref(false)
-
-function togglePlay() {
-	isPlaying.value = !isPlaying.value
-}
-
-watch(isPlaying, () => {
-	if (!isPlaying.value) {
-		temporalFrame.value = null
-		return
-	}
-
-	const startTime = new Date().getTime()
-
-	const [inPoint, outPoint] = project.state.previewRange
-	const duration = outPoint - inPoint + 1
-	const {fps} = project.data.value
-
-	function update() {
-		if (!isPlaying.value) {
-			temporalFrame.value = null
-			return
-		}
-
-		const elapsed = new Date().getTime() - startTime
-
-		const elapsedFrames = Math.round((elapsed / 1000) * fps)
-
-		if (!isLooping.value && elapsedFrames >= duration) {
-			currentFrame.value = outPoint
-			isPlaying.value = false
-		} else {
-			temporalFrame.value = (elapsedFrames % duration) + inPoint
-			requestAnimationFrame(update)
-		}
-	}
-
-	update()
-})
 
 onBeforeActionPerform(action => {
 	if (action.id !== 'toggle_play') {
-		isPlaying.value = false
-		temporalFrame.value = null
+		viewport.isPlaying = false
 	}
 })
 
 useEventListener(window, 'beforeunload', e => {
-	if (project.hasModified.value) {
+	if (project.hasModified) {
 		e.preventDefault()
 		e.returnValue =
 			'There are unsaved changes. Are you sure you want to reload?'
@@ -144,14 +83,14 @@ useBndr($frameMeasure, el => {
 		.drag({pointerCapture: true, coordinate: 'offset'})
 		.on(d => {
 			const frame = Math.floor(d.current[0] / 80)
-			currentFrame.value = frame
+			viewport.currentFrame = frame
 		})
 })
 
 function insertCamera(frame: number) {
-	currentFrame.value = frame
-	project.data.value = produce(project.data.value, draft => {
-		draft.captureFrame = currentFrame.value
+	viewport.currentFrame = frame
+	project.data = produce(project.data, draft => {
+		draft.captureFrame = viewport.currentFrame
 	})
 }
 
@@ -164,7 +103,7 @@ registerActions([
 		input: 'command+o',
 		async perform() {
 			await project.open()
-			currentFrame.value = project.data.value.captureFrame
+			viewport.currentFrame = project.data.captureFrame
 		},
 	},
 	{
@@ -204,7 +143,7 @@ registerActions([
 				const onProgress = ({progress}: {progress: number}) => {
 					viewportPopup.value = {
 						type: 'progress',
-						progress: lerp(0.1, 1, progress),
+						progress: scalar.lerp(0.1, 1, progress),
 					}
 				}
 				camera.value.on('progress', onProgress)
@@ -232,7 +171,7 @@ registerActions([
 
 				const jpg = _jpg
 
-				project.data.value = produce(project.data.value, draft => {
+				project.data = produce(project.data, draft => {
 					const shot: Shot = {
 						jpg,
 						raw,
@@ -240,14 +179,14 @@ registerActions([
 						cameraConfigs: {},
 					}
 
-					const koma = draft.komas[currentFrame.value]
+					const koma = draft.komas[viewport.currentFrame]
 
 					if (koma) {
 						// If there is already a shot, replace it
 						koma.shots[0] = shot
 					} else {
 						// Otherwise, create a new frame
-						draft.komas[currentFrame.value] = {
+						draft.komas[viewport.currentFrame] = {
 							shots: [shot],
 							backupShots: [],
 						}
@@ -262,8 +201,8 @@ registerActions([
 					}
 				})
 
-				currentFrame.value = project.captureFrame.value
-				project.setOutPoint(project.captureFrame.value)
+				viewport.currentFrame = project.captureFrame
+				project.setOutPoint(project.captureFrame)
 
 				if (new Date().getTime() - timeStart > 500) {
 					playSound('sound/Accent36-1.mp3')
@@ -279,7 +218,7 @@ registerActions([
 		input: 'command+z',
 		perform() {
 			project.history.undo()
-			currentFrame.value = project.captureFrame.value
+			viewport.currentFrame = project.captureFrame
 		},
 	},
 	{
@@ -288,7 +227,7 @@ registerActions([
 		input: 'command+shift+z',
 		perform() {
 			project.history.redo()
-			currentFrame.value = project.captureFrame.value
+			viewport.currentFrame = project.captureFrame
 		},
 	},
 	{
@@ -296,7 +235,7 @@ registerActions([
 		icon: 'lucide:step-forward',
 		input: ['f', 'right'],
 		perform() {
-			currentFrame.value += 1
+			viewport.currentFrame += 1
 		},
 	},
 	{
@@ -304,7 +243,7 @@ registerActions([
 		icon: 'lucide:step-back',
 		input: ['d', 'left'],
 		perform() {
-			currentFrame.value = Math.max(0, currentFrame.value - 1)
+			viewport.currentFrame = Math.max(0, viewport.currentFrame - 1)
 		},
 	},
 	{
@@ -312,9 +251,9 @@ registerActions([
 		icon: 'mdi:backspace',
 		input: ['delete', 'backspace', 'gamepad:home'],
 		perform() {
-			project.data.value = produce(project.data.value, draft => {
-				draft.komas.splice(currentFrame.value, 1)
-				if (currentFrame.value < draft.captureFrame) {
+			project.data = produce(project.data, draft => {
+				draft.komas.splice(viewport.currentFrame, 1)
+				if (viewport.currentFrame < draft.captureFrame) {
 					draft.captureFrame -= 1
 				}
 			})
@@ -327,8 +266,8 @@ registerActions([
 		id: 'insert_camera',
 		icon: 'mdi:camera-plus',
 		perform() {
-			project.data.value = produce(project.data.value, draft => {
-				draft.captureFrame = currentFrame.value
+			project.data = produce(project.data, draft => {
+				draft.captureFrame = viewport.currentFrame
 			})
 		},
 	},
@@ -337,7 +276,7 @@ registerActions([
 		icon: 'mdi:contain-start',
 		input: 'b',
 		perform() {
-			project.setInPoint(currentFrame.value)
+			project.setInPoint(viewport.currentFrame)
 		},
 	},
 	{
@@ -345,28 +284,30 @@ registerActions([
 		icon: 'mdi:contain-end',
 		input: 'n',
 		perform() {
-			project.setOutPoint(currentFrame.value)
+			project.setOutPoint(viewport.currentFrame)
 		},
 	},
 	{
 		id: 'toggle_play',
 		icon: 'mdi:play',
 		input: 'space',
-		perform: togglePlay,
+		perform() {
+			viewport.isPlaying = !viewport.isPlaying
+		},
 	},
 	{
 		id: 'toggle_loop',
 		icon: 'material-symbols:laps',
 		input: 'l',
 		perform() {
-			isLooping.value = !isLooping.value
+			viewport.isLooping = !viewport.isLooping
 		},
 	},
 ])
 
 const seekbarStyles = computed(() => {
 	return {
-		transform: `translateX(calc(${previewFrame.value} * var(--koma-width)))`,
+		transform: `translateX(calc(${viewport.previewFrame} * var(--koma-width)))`,
 	}
 })
 
@@ -378,27 +319,23 @@ const previewRangeStyles = computed(() => {
 	}
 })
 
-const isLiveview = computed(() => {
-	return previewFrame.value === project.captureFrame.value
-})
-
 const transparent =
 	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
 
 const currentFrameImage = computed(() => {
-	const frame = project.data.value.komas[previewFrame.value]?.shots[0]
-	if (isLiveview.value || !frame) {
+	const frame = project.data.komas[viewport.previewFrame]?.shots[0]
+	if (viewport.isLiveview || !frame) {
 		return transparent
 	}
 
-	return getObjectURL(enableHiRes.value ? frame.jpg : frame.lv)
+	return getObjectURL(viewport.enableHiRes ? frame.jpg : frame.lv)
 })
 
 const onionskinAttrs = computed(() => {
 	const {onionskin} = project.state
 
 	const delta = onionskin < 0 ? -1 : 1
-	const frame = project.data.value.komas[previewFrame.value + delta]?.shots[0]
+	const frame = project.data.komas[viewport.previewFrame + delta]?.shots[0]
 	if (!frame) {
 		return {
 			style: {display: 'none'},
@@ -408,7 +345,7 @@ const onionskinAttrs = computed(() => {
 	const opacity = onionskin % 1 === 0 ? 1 : Math.abs(onionskin) % 1
 
 	return {
-		src: getObjectURL(enableHiRes.value ? frame.jpg : frame.lv),
+		src: getObjectURL(viewport.enableHiRes ? frame.jpg : frame.lv),
 		style: {
 			opacity,
 		},
@@ -422,33 +359,37 @@ const onionskinAttrs = computed(() => {
 		<Tq.TitleBar name="Koma" class="title" icon="favicon.svg">
 			<template #left>
 				<Tq.InputString
-					:modelValue="project.data.value.name"
+					:modelValue="project.data.name"
 					style="width: 10em"
 					@focus="project.pauseHistory()"
 					@blur="project.pushHistory()"
-					@update:modelValue="
-						project.data.value = {...project.data.value, name: $event}
-					"
+					@update:modelValue="project.data = {...project.data, name: $event}"
 				/>
 			</template>
 			<template #center>
 				<Tq.InputNumber
-					:modelValue="previewFrame"
+					:modelValue="viewport.previewFrame"
 					:precision="0"
 					:min="0"
-					:max="project.allKomas.value.length - 1"
+					:max="project.allKomas.length - 1"
 					:step="1"
 					:bar="false"
 					suffix=" F"
 					style="width: 5em"
-					@update:modelValue="currentFrame = $event"
+					@update:modelValue="viewport.currentFrame = $event"
 				/>
-				<Tq.InputIconToggle v-model="isLooping" icon="material-symbols:laps" />
 				<Tq.InputIconToggle
-					v-model="isPlaying"
-					:icon="isPlaying ? 'mdi:pause' : 'mdi:play'"
+					v-model="viewport.isLooping"
+					icon="material-symbols:laps"
 				/>
-				<Tq.InputIconToggle v-model="enableHiRes" icon="mdi:high-definition" />
+				<Tq.InputIconToggle
+					v-model="viewport.isPlaying"
+					:icon="viewport.isPlaying ? 'mdi:pause' : 'mdi:play'"
+				/>
+				<Tq.InputIconToggle
+					v-model="viewport.enableHiRes"
+					icon="mdi:high-definition"
+				/>
 			</template>
 			<template #right>
 				<Tq.InputButton
@@ -468,10 +409,15 @@ const onionskinAttrs = computed(() => {
 					<Tq.PaneSplit name="preview" direction="horizontal">
 						<template #first>
 							<div class="view">
-								<div class="view-image-wrapper" :class="{liveview: isLiveview}">
+								<div
+									class="view-image-wrapper"
+									:class="{liveview: viewport.isLiveview}"
+								>
 									<video
 										class="view-video"
-										:style="{visibility: isLiveview ? 'visible' : 'hidden'}"
+										:style="{
+											visibility: viewport.isLiveview ? 'visible' : 'hidden',
+										}"
 										:srcObject.prop="liveviewMediaStream"
 										autoplay
 										muted
@@ -580,24 +526,21 @@ const onionskinAttrs = computed(() => {
 								ref="$frameMeasure"
 								class="frameMeasure"
 								:style="{
-									width: `calc(${project.allKomas.value.length} * var(--koma-width))`,
+									width: `calc(${project.allKomas.length} * var(--koma-width))`,
 								}"
 							/>
 							<div class="seekbar" :style="seekbarStyles">
-								{{ previewFrame }}
+								{{ viewport.previewFrame }}
 							</div>
 							<div class="previewRange" :style="previewRangeStyles" />
 							<div
-								v-for="(koma, frame) in project.allKomas.value"
+								v-for="(koma, frame) in project.allKomas"
 								:key="frame"
 								class="koma"
 							>
 								<div class="koma-header tq-font-numeric">{{ frame }}</div>
 								<div class="shot">
-									<div
-										v-if="frame === project.captureFrame.value"
-										class="liveview"
-									>
+									<div v-if="frame === project.captureFrame" class="liveview">
 										<Icon icon="material-symbols:photo-camera-outline" />
 									</div>
 									<div
@@ -823,3 +766,5 @@ header-frame-text-style()
 		right -3px
 		// background blue
 </style>
+../../dev_modules/tweeq/demo/src ../../dev_modules/tweeq/src @/stores/project
+@/stores/useTethr

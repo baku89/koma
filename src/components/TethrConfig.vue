@@ -147,3 +147,4 @@ const whiteBalanceIcons = new Map<WhiteBalance, string>([
 	grid-column 1 / 3
 	grid-template-columns subgrid
 </style>
+../../dev_modules/tweeq/demo/src ../../dev_modules/tweeq/src @/stores/useTethr

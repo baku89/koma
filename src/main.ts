@@ -1,10 +1,15 @@
 import 'tweeq/global.styl'
 
+import {createPinia} from 'pinia'
 import {createApp} from 'vue'
 
 import App from './components/App.vue'
 
-createApp(App).mount('#app')
+const pinia = createPinia()
+const app = createApp(App)
+
+app.use(pinia)
+app.mount('#app')
 
 // Prevent pinch zooming on tablets
 window.addEventListener(
