@@ -1,3 +1,4 @@
+import {defineStore} from 'pinia'
 import {
 	ConfigDesc,
 	ConfigDescOption,
@@ -6,15 +7,7 @@ import {
 	detectCameras,
 	Tethr,
 } from 'tethr'
-import {
-	onUnmounted,
-	reactive,
-	readonly,
-	Ref,
-	shallowRef,
-	UnwrapRef,
-	watch,
-} from 'vue'
+import {onUnmounted, reactive, readonly, Ref, ref, shallowRef, watch} from 'vue'
 
 export interface Config<T> {
 	writable: boolean
@@ -64,14 +57,12 @@ export function useConfig<N extends ConfigName>(
 	return readonly(config) as Config<ConfigType[N]>
 }
 
-export function useCameraStore(
-	appStorage: <T>(name: string, defaultValue: T) => Ref<UnwrapRef<T>>
-) {
-	const camera = shallowRef<Tethr | null>(null)
+export const useCameraStore = defineStore('camera', () => {
+	const tethr = shallowRef<Tethr | null>(null)
 
 	const liveviewMediaStream = shallowRef<null | MediaStream>(null)
 
-	const configPresets = appStorage<Partial<ConfigType>>('configPresets', {
+	const configPresets = ref<Partial<ConfigType>>({
 		exposureMode: 'M',
 		aperture: 4,
 		shutterSpeed: '1/30',
@@ -81,17 +72,17 @@ export function useCameraStore(
 		imageQuality: 'raw 14bit,fine',
 	})
 
-	async function toggleCameraConnection() {
-		if (camera.value) {
-			await camera.value.close()
-			camera.value = null
+	async function toggleConnection() {
+		if (tethr.value) {
+			await tethr.value.close()
+			tethr.value = null
 			return
 		}
 
-		let cams: Tethr[]
+		let tethrs: Tethr[]
 		try {
-			cams = await detectCameras()
-			if (cams.length === 0) {
+			tethrs = await detectCameras()
+			if (tethrs.length === 0) {
 				throw new Error('No camera detected')
 			}
 		} catch (err) {
@@ -101,12 +92,12 @@ export function useCameraStore(
 			return
 		}
 
-		const cam = cams[0]
+		const cam = tethrs[0]
 		cam.setLog(false)
 		await cam.open()
 
 		cam.on('disconnect', () => {
-			camera.value = null
+			tethr.value = null
 		})
 		cam.on('liveviewStreamUpdate', (ms: MediaStream | null) => {
 			liveviewMediaStream.value = ms
@@ -114,7 +105,7 @@ export function useCameraStore(
 		cam.on('change', async () => {
 			configPresets.value = {
 				...configPresets.value,
-				...(await camera.value?.exportConfigs()),
+				...(await tethr.value?.exportConfigs()),
 			}
 		})
 
@@ -122,54 +113,53 @@ export function useCameraStore(
 
 		await cam.startLiveview()
 
-		camera.value = cam
+		tethr.value = cam
 		;(window as any).cam = cam
 	}
 
 	onUnmounted(() => {
-		if (camera.value) {
-			camera.value.close()
-			camera.value = null
+		if (tethr.value) {
+			tethr.value.close()
+			tethr.value = null
 		}
 	})
 
 	return {
-		camera,
-		// DPC
-		configs: {
-			manufacturer: useConfig(camera, 'manufacturer'),
-			model: useConfig(camera, 'model'),
-			serialNumber: useConfig(camera, 'serialNumber'),
-			exposureMode: useConfig(camera, 'exposureMode'),
-			driveMode: useConfig(camera, 'driveMode'),
-			aperture: useConfig(camera, 'aperture'),
-			shutterSpeed: useConfig(camera, 'shutterSpeed'),
-			iso: useConfig(camera, 'iso'),
-			exposureComp: useConfig(camera, 'exposureComp'),
-			whiteBalance: useConfig(camera, 'whiteBalance'),
-			colorTemperature: useConfig(camera, 'colorTemperature'),
-			colorMode: useConfig(camera, 'colorMode'),
-			imageSize: useConfig(camera, 'imageSize'),
-			imageAspect: useConfig(camera, 'imageAspect'),
-			imageQuality: useConfig(camera, 'imageQuality'),
-			captureDelay: useConfig(camera, 'captureDelay'),
-			facingMode: useConfig(camera, 'facingMode'),
-			focalLength: useConfig(camera, 'focalLength'),
-			focusDistance: useConfig(camera, 'focusDistance'),
-			focusPeaking: useConfig(camera, 'focusPeaking'),
-			liveviewMagnifyRatio: useConfig(camera, 'liveviewMagnifyRatio'),
-			liveviewEnabled: useConfig(camera, 'liveviewEnabled'),
-			liveviewSize: useConfig(camera, 'liveviewSize'),
-			destinationToSave: useConfig(camera, 'destinationToSave'),
-			batteryLevel: useConfig(camera, 'batteryLevel'),
-			canTakePhoto: useConfig(camera, 'canTakePhoto'),
-			canRunAutoFocus: useConfig(camera, 'canRunAutoFocus'),
-			canRunManualFocus: useConfig(camera, 'canRunManualFocus'),
-			canStartLiveview: useConfig(camera, 'canStartLiveview'),
-			manualFocusOptions: useConfig(camera, 'manualFocusOptions'),
-			shutterSound: useConfig(camera, 'shutterSound'),
-		},
+		tethr,
 		liveviewMediaStream,
-		toggleCameraConnection,
+		toggleConnection,
+
+		// DPC
+		manufacturer: useConfig(tethr, 'manufacturer'),
+		model: useConfig(tethr, 'model'),
+		serialNumber: useConfig(tethr, 'serialNumber'),
+		exposureMode: useConfig(tethr, 'exposureMode'),
+		driveMode: useConfig(tethr, 'driveMode'),
+		aperture: useConfig(tethr, 'aperture'),
+		shutterSpeed: useConfig(tethr, 'shutterSpeed'),
+		iso: useConfig(tethr, 'iso'),
+		exposureComp: useConfig(tethr, 'exposureComp'),
+		whiteBalance: useConfig(tethr, 'whiteBalance'),
+		colorTemperature: useConfig(tethr, 'colorTemperature'),
+		colorMode: useConfig(tethr, 'colorMode'),
+		imageSize: useConfig(tethr, 'imageSize'),
+		imageAspect: useConfig(tethr, 'imageAspect'),
+		imageQuality: useConfig(tethr, 'imageQuality'),
+		captureDelay: useConfig(tethr, 'captureDelay'),
+		facingMode: useConfig(tethr, 'facingMode'),
+		focalLength: useConfig(tethr, 'focalLength'),
+		focusDistance: useConfig(tethr, 'focusDistance'),
+		focusPeaking: useConfig(tethr, 'focusPeaking'),
+		liveviewMagnifyRatio: useConfig(tethr, 'liveviewMagnifyRatio'),
+		liveviewEnabled: useConfig(tethr, 'liveviewEnabled'),
+		liveviewSize: useConfig(tethr, 'liveviewSize'),
+		destinationToSave: useConfig(tethr, 'destinationToSave'),
+		batteryLevel: useConfig(tethr, 'batteryLevel'),
+		canTakePhoto: useConfig(tethr, 'canTakePhoto'),
+		canRunAutoFocus: useConfig(tethr, 'canRunAutoFocus'),
+		canRunManualFocus: useConfig(tethr, 'canRunManualFocus'),
+		canStartLiveview: useConfig(tethr, 'canStartLiveview'),
+		manualFocusOptions: useConfig(tethr, 'manualFocusOptions'),
+		shutterSound: useConfig(tethr, 'shutterSound'),
 	}
-}
+})

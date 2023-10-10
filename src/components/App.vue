@@ -15,23 +15,14 @@ import {useBndr} from '@/use/useBndr'
 
 import TethrConfig from './TethrConfig.vue'
 
-const {registerActions, onBeforeActionPerform, appStorage} = useTweeq(
-	'com.baku89.koma',
-	{
-		colorMode: 'dark',
-		accentColor: '#ff0000',
-	}
-)
+const {registerActions, onBeforeActionPerform} = useTweeq('com.baku89.koma', {
+	colorMode: 'dark',
+	accentColor: '#ff0000',
+})
 
 const viewport = useViewportStore()
 const project = useProjectState()
-
-const {
-	camera,
-	liveviewMediaStream,
-	toggleCameraConnection,
-	configs: cameraConfigs,
-} = useCameraStore(appStorage)
+const camera = useCameraStore()
 
 Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
 	pressed => {
@@ -121,7 +112,9 @@ registerActions([
 		input: ['enter', 'gamepad:r'],
 		menu: '',
 		async perform() {
-			if (!camera.value) return
+			if (!camera.tethr) return
+
+			const {tethr} = camera
 
 			try {
 				viewportPopup.value = {
@@ -132,7 +125,7 @@ registerActions([
 				playSound('sound/Camera-Phone03-1.mp3')
 				const timeStart = new Date().getTime()
 
-				const lv = await camera.value.getLiveViewImage()
+				const lv = await tethr.getLiveViewImage()
 				if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
 
 				viewportPopup.value = {
@@ -146,11 +139,11 @@ registerActions([
 						progress: scalar.lerp(0.1, 1, progress),
 					}
 				}
-				camera.value.on('progress', onProgress)
+				tethr.on('progress', onProgress)
 
-				const result = await camera.value.takePhoto()
+				const result = await tethr.takePhoto()
 
-				camera.value.off('progress', onProgress)
+				tethr.off('progress', onProgress)
 
 				let _jpg: Blob | undefined
 				let raw: Blob | undefined
@@ -394,8 +387,8 @@ const onionskinAttrs = computed(() => {
 			<template #right>
 				<Tq.InputButton
 					icon="mdi:connection"
-					:label="camera ? cameraConfigs.model.value ?? 'Unknown' : 'Connect'"
-					@click="toggleCameraConnection"
+					:label="camera.model.value ?? 'Connect'"
+					@click="camera.toggleConnection"
 				/>
 				<Tq.IconIndicator
 					:modelValue="isGamepadConnected"
@@ -418,7 +411,7 @@ const onionskinAttrs = computed(() => {
 										:style="{
 											visibility: viewport.isLiveview ? 'visible' : 'hidden',
 										}"
-										:srcObject.prop="liveviewMediaStream"
+										:srcObject.prop="camera.liveviewMediaStream"
 										autoplay
 										muted
 										playsinline
@@ -448,46 +441,43 @@ const onionskinAttrs = computed(() => {
 							<Tq.ParameterGrid>
 								<Tq.ParameterHeading>Camera Control</Tq.ParameterHeading>
 								<Tq.Parameter label="Exp." icon="material-symbols:exposure">
-									<TethrConfig :config="cameraConfigs.exposureComp" />
+									<TethrConfig :config="camera.exposureComp" />
 								</Tq.Parameter>
 								<Tq.Parameter label="F.L." icon="lucide:focus">
 									<TethrConfig
-										:config="cameraConfigs.focalLength"
+										:config="camera.focalLength"
 										name="focalLength"
 									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="F.D." icon="tabler:frustum">
 									<TethrConfig
-										:config="cameraConfigs.focusDistance"
+										:config="camera.focusDistance"
 										name="focusDistance"
 									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="Apr." icon="ph:aperture">
-									<TethrConfig
-										:config="cameraConfigs.aperture"
-										name="aperture"
-									/>
+									<TethrConfig :config="camera.aperture" name="aperture" />
 								</Tq.Parameter>
 								<Tq.Parameter label="SS" icon="material-symbols:shutter-speed">
 									<TethrConfig
-										:config="cameraConfigs.shutterSpeed"
+										:config="camera.shutterSpeed"
 										name="shutterSpeed"
 									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="WB" icon="subway:black-white">
 									<TethrConfig
-										:config="cameraConfigs.whiteBalance"
+										:config="camera.whiteBalance"
 										name="whiteBalance"
 									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="C.Temp" icon="mdi:temperature">
 									<TethrConfig
-										:config="cameraConfigs.colorTemperature"
+										:config="camera.colorTemperature"
 										name="colorTemperature"
 									/>
 								</Tq.Parameter>
 								<Tq.Parameter label="ISO" icon="carbon:iso">
-									<TethrConfig :config="cameraConfigs.iso" />
+									<TethrConfig :config="camera.iso" />
 								</Tq.Parameter>
 								<Tq.ParameterHeading>Viewport</Tq.ParameterHeading>
 								<Tq.Parameter
