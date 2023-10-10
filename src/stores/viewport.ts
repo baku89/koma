@@ -79,6 +79,30 @@ export const useViewportStore = defineStore('viewport', () => {
 		update()
 	})
 
+	// Onionskin information
+	const onionskin = computed(() => {
+		if (isPlaying.value || liveToggle.value || project.onionskin === 0) {
+			return null
+		}
+
+		const frameDelta = project.onionskin < 0 ? -1 : 1
+		const frame = currentFrame.value + frameDelta
+		const shot = project.komas[frame]?.shots[0]
+
+		if (!shot) {
+			return null
+		}
+
+		const opacity =
+			project.onionskin % 1 === 0 ? 1 : Math.abs(project.onionskin) % 1
+
+		return {
+			opacity,
+			frame,
+			shot,
+		}
+	})
+
 	return {
 		liveToggle,
 		enableHiRes,
@@ -87,5 +111,6 @@ export const useViewportStore = defineStore('viewport', () => {
 		isPlaying,
 		isLiveview,
 		popup,
+		onionskin,
 	}
 })

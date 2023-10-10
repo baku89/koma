@@ -1,6 +1,7 @@
 import {useRefHistory} from '@vueuse/core'
+import {defu} from 'defu'
 import {mat2d} from 'linearly'
-import {clamp, cloneDeep, merge} from 'lodash'
+import {clamp, cloneDeep} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
 import {computed, reactive, ref, shallowRef, toRaw, toRefs, watch} from 'vue'
@@ -73,7 +74,7 @@ export interface Shot<T = Blob> {
 }
 
 const emptyProject: Project = {
-	previewRange: [0, 9],
+	previewRange: [0, 0],
 	onionskin: 0,
 	timeline: {
 		zoomFactor: 1,
@@ -90,7 +91,7 @@ const emptyProject: Project = {
 	fps: 15,
 	name: 'Untitled',
 	captureFrame: 0,
-	komas: Array(10).fill(null),
+	komas: [],
 	resolution: [1920, 1280],
 	viewport: {
 		transform: 'fit',
@@ -110,6 +111,10 @@ export const useProjectStore = defineStore('project', () => {
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
 	const hasModified = ref(false)
+
+	navigator.storage.getDirectory().then(handler => {
+		open(handler)
+	})
 
 	const undoableData = computed<UndoableData>({
 		get() {
@@ -136,9 +141,9 @@ export const useProjectStore = defineStore('project', () => {
 	})
 
 	// Open and Save Projects
+	async function open(handler?: FileSystemDirectoryHandle) {
+		directoryHandle.value = handler ?? (await getDirectoryHandle())
 
-	async function open() {
-		directoryHandle.value = await getDirectoryHandle()
 		history.clear()
 
 		const flatProject = await loadJson<Project<string>>(
@@ -164,21 +169,28 @@ export const useProjectStore = defineStore('project', () => {
 
 		// In case the latest project format has more properties than the saved one,
 		// merge the saved state with the default state
-		const mergedState = merge(unflatProject, emptyProject)
+		const mergedProject = defu(unflatProject, emptyProject)
 
 		for (const key of Object.keys(emptyProject)) {
-			;(project as any)[key] = (mergedState as any)[key]
+			;(project as any)[key] = (mergedProject as any)[key]
 		}
+	}
+
+	async function saveAs() {
+		const handler = await getDirectoryHandle()
+
+		directoryHandle.value = handler
+
+		if (project.name === emptyProject.name && handler.name !== '') {
+			project.name = handler.name
+		}
+
+		await save()
 	}
 
 	async function save() {
 		if (directoryHandle.value === null) {
-			const handler = await getDirectoryHandle()
-			directoryHandle.value = handler
-
-			if (project.name === emptyProject.name) {
-				project.name = handler.name
-			}
+			directoryHandle.value = await navigator.storage.getDirectory()
 		}
 
 		const flatProject: Project<string> = {
@@ -257,7 +269,13 @@ export const useProjectStore = defineStore('project', () => {
 		project.previewRange = [project.previewRange[0], outPoint]
 	}
 
-	watch(project, save, {deep: true})
+	watch(
+		project,
+		async () => {
+			await save()
+		},
+		{deep: true, flush: 'post'}
+	)
 
 	return {
 		...toRefs(project),
@@ -265,7 +283,7 @@ export const useProjectStore = defineStore('project', () => {
 		redo: history.redo,
 		hasModified,
 		open,
-		save,
+		saveAs,
 		allKomas,
 		setInPoint,
 		setOutPoint,

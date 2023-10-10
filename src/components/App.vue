@@ -76,10 +76,10 @@ actions.register([
 	{
 		id: 'save_project',
 		icon: 'mdi:content-save',
-		input: 'command+s',
+		input: 'command+shift+s',
 		menu: '',
 		async perform() {
-			await project.save()
+			await project.saveAs()
 		},
 	},
 	{
@@ -227,6 +227,10 @@ actions.register([
 				if (viewport.currentFrame < state.captureFrame) {
 					state.captureFrame -= 1
 				}
+				project.previewRange[1] = Math.min(
+					project.previewRange[1],
+					project.allKomas.length - 1
+				)
 			})
 			playSound('sound/Hit08-1.mp3')
 		},
@@ -293,7 +297,7 @@ actions.register([
 					@update:modelValue="viewport.currentFrame = $event"
 				/>
 				<Tq.InputIconToggle
-					v-model="viewport.isLooping"
+					v-model="project.isLooping"
 					icon="material-symbols:laps"
 				/>
 				<Tq.InputIconToggle
@@ -340,7 +344,7 @@ actions.register([
 									>
 										<Tq.InputNumber
 											v-model="project.onionskin"
-											:max="0"
+											:max="1"
 											:min="-1"
 											:step="0.1"
 										/>

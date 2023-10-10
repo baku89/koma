@@ -62,7 +62,10 @@ const previewRangeStyles = computed(() => {
 			@dblclick="project.captureFrame = frame"
 		>
 			<div class="koma-header tq-font-numeric">{{ frame }}</div>
-			<div class="shot">
+			<div
+				class="shot"
+				:class="{onionskin: frame === viewport.onionskin?.frame}"
+			>
 				<div v-if="frame === project.captureFrame" class="liveview">
 					<Icon icon="material-symbols:photo-camera-outline" />
 				</div>
@@ -74,7 +77,7 @@ const previewRangeStyles = computed(() => {
 					<img :src="getObjectURL(koma.shots[0].lv)" />
 				</div>
 				<div v-else class="empty" />
-				<div class="in-between" />
+				<div class="in-between transition" />
 			</div>
 		</div>
 	</div>
@@ -161,6 +164,15 @@ header-frame-text-style()
 	width calc(var(--koma-width) - 1px)
 	height var(--koma-height)
 
+
+	&.onionskin:before
+		content ''
+		display block
+		position absolute
+		inset 0
+		border 3px solid var(--md-sys-color-tertiary)
+		border-radius var(--tq-input-border-radius)
+
 	.captured, .liveview, .empty
 		width 100%
 		height 100%
@@ -203,7 +215,18 @@ header-frame-text-style()
 		position absolute
 		top 0
 		height 100%
-		width 6px
-		right -3px
-		// background blue
+		width 12px
+		right -6px
+		z-index 10
+
+		&:before
+			position absolute
+			content ''
+			display block
+			inset 0
+			transform scaleX(0)
+
+		&:hover:before
+			transform scaleX(1)
+			background var(--tq-color-primary)
 </style>

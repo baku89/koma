@@ -121,17 +121,9 @@ actions.register([
 ])
 
 const onionskinAttrs = computed(() => {
-	const {onionskin, komas} = project
+	if (!viewport.onionskin) return {style: {display: 'none'}}
 
-	const delta = onionskin < 0 ? -1 : 1
-	const shot = komas[viewport.previewFrame + delta]?.shots[0]
-	if (!shot) {
-		return {
-			style: {display: 'none'},
-		}
-	}
-
-	const opacity = onionskin % 1 === 0 ? 1 : Math.abs(onionskin) % 1
+	const {shot, opacity} = viewport.onionskin
 
 	return {
 		src: getObjectURL(viewport.enableHiRes ? shot.jpg : shot.lv),
@@ -157,8 +149,12 @@ const onionskinAttrs = computed(() => {
 					muted
 					playsinline
 				/>
-				<img class="view-photo" :src="currentFrameImage" />
-				<img class="view-photo" v-bind="onionskinAttrs" />
+				<img
+					v-show="!viewport.isLiveview"
+					class="view-photo"
+					:src="currentFrameImage"
+				/>
+				<img class="view-photo onionskin" v-bind="onionskinAttrs" />
 				<svg
 					class="overlay"
 					viewBox="0 0 1 1"
@@ -202,7 +198,7 @@ const onionskinAttrs = computed(() => {
 	position absolute
 	width 100%
 	height 100%
-	object-fit fill
+	object-fit cover
 
 .overlay
 	.line
