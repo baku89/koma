@@ -42,21 +42,53 @@ export async function saveBlob(
 ) {
 	if (!handler.value) throw new Error('No directory handler')
 
-	if (savedFilenameForBlob.get(blob) === filename) {
-		return
+	if (savedFilenameForBlob.get(blob) !== filename) {
+		const fileHandle = await handler.value.getFileHandle(filename, {
+			create: true,
+		})
+
+		await queryReadWritePermission(fileHandle)
+
+		const w = await fileHandle.createWritable()
+		await w.write(blob)
+		await w.close()
+
+		savedFilenameForBlob.set(blob, filename)
 	}
 
-	const fileHandle = await handler.value.getFileHandle(filename, {create: true})
-
-	await queryReadWritePermission(fileHandle)
-
-	const w = await fileHandle.createWritable()
-	await w.write(blob)
-	await w.close()
-
-	savedFilenameForBlob.set(blob, filename)
-
 	return filename
+}
+
+// File System Access API utils
+export async function loadJson<T>(
+	handler: Ref<FileSystemDirectoryHandle | null>,
+	filename: string
+): Promise<T> {
+	if (!handler.value) throw new Error('No directory handler')
+
+	const h = await handler.value.getFileHandle(filename)
+	const f = await h.getFile()
+	const text = await f.text()
+
+	return JSON.parse(text)
+}
+
+export async function saveJson<T>(
+	handler: Ref<FileSystemDirectoryHandle | null>,
+	data: T,
+	fileName: string
+) {
+	if (!handler.value) throw new Error('No directory handler')
+
+	const json = JSON.stringify(data)
+
+	const h = await handler.value.getFileHandle(fileName, {
+		create: true,
+	})
+
+	const w = await h.createWritable()
+	await w.write(json)
+	await w.close()
 }
 
 const savedFilenameForBlob = new WeakMap<Blob, string>()

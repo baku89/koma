@@ -1,18 +1,19 @@
 import {clamp} from 'lodash'
 import {defineStore} from 'pinia'
-import {computed, ref, watch} from 'vue'
+import {computed, ref, shallowRef, watch} from 'vue'
 
 import {refWithSetter} from '@/use/refWithSetter'
 
-import {useProjectState} from './project'
+import {useProjectStore} from './project'
+
+type ViewportPopup = null | {type: 'progress'; progress: number}
 
 export const useViewportStore = defineStore('viewport', () => {
-	const project = useProjectState()
+	const project = useProjectStore()
 
 	const liveToggle = ref(false)
 	const enableHiRes = ref(false)
 
-	const isLooping = ref(false)
 	const isPlaying = ref(false)
 
 	const isLiveview = computed(() => {
@@ -22,6 +23,8 @@ export const useViewportStore = defineStore('viewport', () => {
 	const currentFrame = refWithSetter(0, value => {
 		return clamp(value, 0, project.allKomas.length - 1)
 	})
+
+	const popup = shallowRef<ViewportPopup>(null)
 
 	// For previewing, live toggle
 	const temporalFrame = ref<null | number>(null)
@@ -47,9 +50,12 @@ export const useViewportStore = defineStore('viewport', () => {
 
 		const startTime = new Date().getTime()
 
-		const [inPoint, outPoint] = project.state.previewRange
+		const {
+			fps,
+			previewRange: [inPoint, outPoint],
+		} = project
+
 		const duration = outPoint - inPoint + 1
-		const {fps} = project.data
 
 		function update() {
 			if (!isPlaying.value) {
@@ -61,7 +67,7 @@ export const useViewportStore = defineStore('viewport', () => {
 
 			const elapsedFrames = Math.round((elapsed / 1000) * fps)
 
-			if (!isLooping.value && elapsedFrames >= duration) {
+			if (!project.isLooping && elapsedFrames >= duration) {
 				currentFrame.value = outPoint
 				isPlaying.value = false
 			} else {
@@ -79,7 +85,7 @@ export const useViewportStore = defineStore('viewport', () => {
 		currentFrame,
 		previewFrame,
 		isPlaying,
-		isLooping,
 		isLiveview,
+		popup,
 	}
 })

@@ -1,17 +1,22 @@
-import {useRefHistory, whenever} from '@vueuse/core'
-import {produce} from 'immer'
-import {clamp, merge} from 'lodash'
+import {useRefHistory} from '@vueuse/core'
+import {mat2d} from 'linearly'
+import {clamp, cloneDeep, merge} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
-import {computed, reactive, shallowRef} from 'vue'
+import {computed, reactive, ref, shallowRef, toRaw, toRefs, watch} from 'vue'
 
 import {
 	getDirectoryHandle,
+	loadJson,
 	mapToPromises,
 	openBlob,
 	queryString,
 	saveBlob,
+	saveJson,
 } from '@/util'
+
+import {Mat2d} from '../../dev_modules/linearly/src/mat2d'
+import {Vec2} from '../../dev_modules/linearly/src/vec2'
 
 /**
  * Termiology
@@ -24,29 +29,32 @@ import {
  **/
 
 interface Project<T = Blob> {
-	state: ProjectState
-	data: ProjectData<T>
-}
-
-type CameraConfigs = Partial<ConfigType>
-
-// A project-specific data that does not need to be history-tracked
-interface ProjectState {
 	previewRange: [number, number]
 	onionskin: number
 	timeline: {
 		zoomFactor: number
 	}
+	isLooping: boolean
 	cameraConfigs: CameraConfigs
-}
-
-// A project-specific data that needs to be history-tracked
-interface ProjectData<T = Blob> {
 	name: string
 	fps: number
 	captureFrame: number
 	komas: Koma<T>[]
+	resolution: Vec2
+	viewport: {
+		transform: Mat2d | 'fit'
+		liveviewTransform: Mat2d
+		shotTransform: Mat2d
+		overlay: SVGString
+		onionskinBlend: 'normal' | 'lighten' | 'darken' | 'difference'
+	}
 }
+
+type UndoableData = Pick<Project, 'komas' | 'captureFrame'>
+
+type SVGString = string
+
+type CameraConfigs = Partial<ConfigType>
 
 type Koma<T = Blob> = EmptyKoma | CapturedKoma<T>
 
@@ -65,52 +73,66 @@ export interface Shot<T = Blob> {
 }
 
 const emptyProject: Project = {
-	state: {
-		previewRange: [0, 9],
-		onionskin: 0,
-		timeline: {
-			zoomFactor: 1,
-		},
-		cameraConfigs: {
-			focalLength: 50,
-			focusDistance: 24,
-			aperture: 5.6,
-			shutterSpeed: '1/100',
-			iso: 100,
-			colorTemperature: 5500,
-		},
+	previewRange: [0, 9],
+	onionskin: 0,
+	timeline: {
+		zoomFactor: 1,
 	},
-	data: {
-		fps: 15,
-		name: 'Untitled',
-		captureFrame: 0,
-		komas: Array(10).fill(null),
+	isLooping: false,
+	cameraConfigs: {
+		focalLength: 50,
+		focusDistance: 24,
+		aperture: 5.6,
+		shutterSpeed: '1/100',
+		iso: 100,
+		colorTemperature: 5500,
+	},
+	fps: 15,
+	name: 'Untitled',
+	captureFrame: 0,
+	komas: Array(10).fill(null),
+	resolution: [1920, 1280],
+	viewport: {
+		transform: 'fit',
+		liveviewTransform: mat2d.identity,
+		shotTransform: mat2d.identity,
+		overlay: `
+			<path class="letterbox" d="m0,0v1h1V0H0Zm.9.9H.1V.1h.8v.8Z"/>
+			<line class="line" x1="0" y1=".5" x2="1" y2=".5" />
+			<line class="line" x1=".5" y1="0" x2=".5" y2="1" />
+		`,
+		onionskinBlend: 'normal',
 	},
 }
 
-export const useProjectState = defineStore('project', () => {
+export const useProjectStore = defineStore('project', () => {
 	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
 
-	const state = reactive<ProjectState>(emptyProject.state)
-	const data = shallowRef<ProjectData>(emptyProject.data)
+	const project = reactive<Project>(cloneDeep(emptyProject))
+	const hasModified = ref(false)
 
-	const lastSavedData = shallowRef<ProjectData>(emptyProject.data)
-	const hasModified = computed(() => data.value !== lastSavedData.value)
-
-	const history = useRefHistory(data, {capacity: 400})
-
-	const captureFrame = computed({
-		get: () => data.value.captureFrame,
-		set: value => ({...data.value, captureFrame: value}),
+	const undoableData = computed<UndoableData>({
+		get() {
+			return {
+				captureFrame: project.captureFrame,
+				komas: project.komas,
+			}
+		},
+		set(data) {
+			project.captureFrame = data.captureFrame
+			project.komas = data.komas
+		},
 	})
+
+	const history = useRefHistory(undoableData, {capacity: 400})
 
 	const allKomas = computed<Koma[]>(() => {
 		const komaNumberToFill = Math.max(
-			data.value.captureFrame - data.value.komas.length + 1,
+			project.captureFrame - project.komas.length + 1,
 			0
 		)
 
-		return [...data.value.komas, ...Array(komaNumberToFill).fill(null)]
+		return [...project.komas, ...Array(komaNumberToFill).fill(null)]
 	})
 
 	// Open and Save Projects
@@ -119,13 +141,14 @@ export const useProjectState = defineStore('project', () => {
 		directoryHandle.value = await getDirectoryHandle()
 		history.clear()
 
-		const {state: flatState, data: flatData} = JSON.parse(
-			await loadText('project.json')
-		) as Project<string>
+		const flatProject = await loadJson<Project<string>>(
+			directoryHandle,
+			'project.json'
+		)
 
-		const unflatData: ProjectData<Blob> = {
-			...flatData,
-			komas: await mapToPromises(flatData.komas, async koma => {
+		const unflatProject: Project<Blob> = {
+			...flatProject,
+			komas: await mapToPromises(flatProject.komas, async koma => {
 				if (koma === null) return null
 
 				const shots = await mapToPromises(koma.shots, shot => {
@@ -141,35 +164,26 @@ export const useProjectState = defineStore('project', () => {
 
 		// In case the latest project format has more properties than the saved one,
 		// merge the saved state with the default state
-		const mergedState = merge(flatState, emptyProject.state)
+		const mergedState = merge(unflatProject, emptyProject)
 
-		// Don't need to deepmerge
-		const mergedData = {...emptyProject.data, ...unflatData}
-
-		for (const key of Object.keys(emptyProject.data)) {
-			;(state as any)[key] = (mergedState as any)[key]
+		for (const key of Object.keys(emptyProject)) {
+			;(project as any)[key] = (mergedState as any)[key]
 		}
-
-		data.value = lastSavedData.value = mergedData
 	}
 
 	async function save() {
-		if (!hasModified.value) return
-
 		if (directoryHandle.value === null) {
 			const handler = await getDirectoryHandle()
 			directoryHandle.value = handler
 
-			if (data.value.name === emptyProject.data.name) {
-				data.value = produce(data.value, draft => {
-					draft.name = handler.name
-				})
+			if (project.name === emptyProject.name) {
+				project.name = handler.name
 			}
 		}
 
-		const flatData: ProjectData<string> = {
-			...data.value,
-			komas: await mapToPromises(data.value.komas, async (koma, frame) => {
+		const flatProject: Project<string> = {
+			...toRaw(project),
+			komas: await mapToPromises(project.komas, async (koma, frame) => {
 				if (koma === null) return null
 
 				const shots = await mapToPromises(koma.shots, (shot, layer) => {
@@ -186,10 +200,7 @@ export const useProjectState = defineStore('project', () => {
 			}),
 		}
 
-		const json = JSON.stringify({state, data: flatData})
-		await saveText(json, 'project.json')
-
-		lastSavedData.value = data.value
+		await saveJson(directoryHandle, flatProject, 'project.json')
 	}
 
 	async function openShot(shot: Shot<string>): Promise<Shot> {
@@ -206,7 +217,7 @@ export const useProjectState = defineStore('project', () => {
 		frame: number,
 		query: Record<string, string | number>
 	): Promise<Shot<string>> {
-		const basename = [data.value.name, queryString(query)].join('_')
+		const basename = [project.name, queryString(query)].join('_')
 
 		const lv = await saveImageSequence(shot.lv, basename + '_lv', frame, 'jpg')
 		const jpg = await saveImageSequence(shot.jpg, basename, frame, 'jpg')
@@ -217,27 +228,6 @@ export const useProjectState = defineStore('project', () => {
 		return {...shot, lv, jpg, raw}
 	}
 
-	// File System Access API utils
-	async function loadText(filename: string): Promise<string> {
-		if (!directoryHandle.value) throw new Error('No directory handler')
-
-		const h = await directoryHandle.value.getFileHandle(filename)
-		const f = await h.getFile()
-		const text = await f.text()
-		return text
-	}
-
-	async function saveText(text: string, fileName: string) {
-		if (!directoryHandle.value) throw new Error('No directory handler')
-
-		const h = await directoryHandle.value.getFileHandle(fileName, {
-			create: true,
-		})
-
-		const w = await h.createWritable()
-		await w.write(text)
-		await w.close()
-	}
 	// Save the blob image to the project directrory and returns the name of the file
 	async function saveImageSequence(
 		blob: Blob,
@@ -248,51 +238,35 @@ export const useProjectState = defineStore('project', () => {
 		const suffix = frame.toString().padStart(4, '0')
 		const filename = `${basename}_${suffix}.${extension}`
 
-		saveBlob(directoryHandle, filename, blob)
-
-		return filename
-	}
-
-	function pauseHistory() {
-		history.pause()
-	}
-
-	function pushHistory() {
-		history.resume()
-		if (data.value !== history.last.value.snapshot) {
-			history.commit()
-		}
+		return saveBlob(directoryHandle, filename, blob)
 	}
 
 	// Enable autosave
-	whenever(hasModified, save, {flush: 'post'})
-
 	function setInPoint(value: number) {
-		const inPoint = Math.min(value, state.previewRange[1])
-		state.previewRange = [inPoint, state.previewRange[1]]
+		const inPoint = Math.min(value, project.previewRange[1])
+		project.previewRange = [inPoint, project.previewRange[1]]
 	}
 
 	function setOutPoint(value: number) {
 		const outPoint = clamp(
 			value,
-			state.previewRange[0],
+			project.previewRange[0],
 			allKomas.value.length - 1
 		)
 
-		state.previewRange = [state.previewRange[0], outPoint]
+		project.previewRange = [project.previewRange[0], outPoint]
 	}
 
+	watch(project, save, {deep: true})
+
 	return {
-		state,
-		data,
-		history,
-		pauseHistory,
-		pushHistory,
+		...toRefs(project),
+		undo: history.undo,
+		redo: history.redo,
 		hasModified,
 		open,
 		save,
-		captureFrame,
-		allKomas: allKomas,
+		allKomas,
 		setInPoint,
 		setOutPoint,
 	}
