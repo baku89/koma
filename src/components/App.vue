@@ -5,20 +5,24 @@ import {Bndr} from 'bndr-js'
 import {produce} from 'immer'
 import {scalar} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
+import {useActionsStore} from 'tweeq'
 import {computed, ref, shallowRef} from 'vue'
 
 import {playSound} from '@/playSound'
 import {useCameraStore} from '@/stores/camera'
-import {getObjectURL, Shot, useProjectState} from '@/stores/project'
+import {Shot, useProjectState} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 import {useBndr} from '@/use/useBndr'
+import {getObjectURL} from '@/util'
 
 import TethrConfig from './TethrConfig.vue'
 
-const {registerActions, onBeforeActionPerform} = useTweeq('com.baku89.koma', {
+useTweeq('com.baku89.koma', {
 	colorMode: 'dark',
 	accentColor: '#ff0000',
 })
+
+const actions = useActionsStore()
 
 const viewport = useViewportStore()
 const project = useProjectState()
@@ -51,7 +55,7 @@ const viewportPopup = shallowRef<ViewportPopup>(null)
 //------------------------------------------------------------------------------
 // Playing
 
-onBeforeActionPerform(action => {
+actions.onBeforePerform(action => {
 	if (action.id !== 'toggle_play') {
 		viewport.isPlaying = false
 	}
@@ -86,7 +90,7 @@ function insertCamera(frame: number) {
 }
 
 //------------------------------------------------------------------------------
-registerActions([
+actions.register([
 	{
 		id: 'open_project',
 		icon: 'material-symbols:folder-open-rounded',
@@ -124,6 +128,8 @@ registerActions([
 
 				playSound('sound/Camera-Phone03-1.mp3')
 				const timeStart = new Date().getTime()
+
+				const cameraConfigs = await tethr.exportConfigs()
 
 				const lv = await tethr.getLiveViewImage()
 				if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
@@ -169,18 +175,18 @@ registerActions([
 						jpg,
 						raw,
 						lv: lv.value,
-						cameraConfigs: {},
+						cameraConfigs,
 					}
 
 					const koma = draft.komas[viewport.currentFrame]
 
 					if (koma) {
 						// If there is already a shot, replace it
-						koma.shots[0] = shot
+						koma.shots[0] = shot as any
 					} else {
 						// Otherwise, create a new frame
 						draft.komas[viewport.currentFrame] = {
-							shots: [shot],
+							shots: [shot as any],
 							backupShots: [],
 						}
 					}
@@ -493,14 +499,14 @@ const onionskinAttrs = computed(() => {
 								</Tq.Parameter>
 								<Tq.Parameter icon="material-symbols:width" label="Zoom">
 									<Tq.InputNumber
-										:modelValue="project.state.timeline.komaWidth * 100"
+										:modelValue="project.state.timeline.zoomFactor * 100"
 										:min="20"
 										:max="200"
 										suffix="%"
 										:barOrigin="100"
 										:step="1"
 										@update:modelValue="
-											project.state.timeline.komaWidth = $event / 100
+											project.state.timeline.zoomFactor = $event / 100
 										"
 									/>
 								</Tq.Parameter>
@@ -509,7 +515,7 @@ const onionskinAttrs = computed(() => {
 						<div
 							class="timeline"
 							:style="{
-								'--koma-width': project.state.timeline.komaWidth * 80 + 'px',
+								'--koma-width': project.state.timeline.zoomFactor * 80 + 'px',
 							}"
 						>
 							<div

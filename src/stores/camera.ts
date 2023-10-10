@@ -33,6 +33,7 @@ export function useConfig<N extends ConfigName>(
 			if (!camera) {
 				config.writable = false
 				config.value = null
+				config.set = () => null
 				config.option = undefined
 				return
 			}

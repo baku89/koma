@@ -28,21 +28,14 @@ interface Project<T = Blob> {
 	data: ProjectData<T>
 }
 
-interface CameraConfigs {
-	focalLength?: ConfigType['focalLength']
-	focusDistance?: ConfigType['focusDistance']
-	aperture?: ConfigType['aperture']
-	shutterSpeed?: ConfigType['shutterSpeed']
-	iso?: ConfigType['iso']
-	colorTemperature?: ConfigType['colorTemperature']
-}
+type CameraConfigs = Partial<ConfigType>
 
 // A project-specific data that does not need to be history-tracked
 interface ProjectState {
 	previewRange: [number, number]
 	onionskin: number
 	timeline: {
-		komaWidth: number
+		zoomFactor: number
 	}
 	cameraConfigs: CameraConfigs
 }
@@ -71,14 +64,12 @@ export interface Shot<T = Blob> {
 	cameraConfigs: CameraConfigs
 }
 
-const urlForBlob = new WeakMap<Blob, string>()
-
 const emptyProject: Project = {
 	state: {
 		previewRange: [0, 9],
 		onionskin: 0,
 		timeline: {
-			komaWidth: 1,
+			zoomFactor: 1,
 		},
 		cameraConfigs: {
 			focalLength: 50,
@@ -95,15 +86,6 @@ const emptyProject: Project = {
 		captureFrame: 0,
 		komas: Array(10).fill(null),
 	},
-}
-
-export function getObjectURL(blob: Blob) {
-	let url = urlForBlob.get(blob)
-	if (!url) {
-		url = URL.createObjectURL(blob)
-		urlForBlob.set(blob, url)
-	}
-	return url
 }
 
 export const useProjectState = defineStore('project', () => {
