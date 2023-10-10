@@ -4,7 +4,7 @@ import {mat2d} from 'linearly'
 import {clamp, cloneDeep} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
-import {computed, reactive, ref, shallowRef, toRaw, toRefs, watch} from 'vue'
+import {computed, reactive, shallowRef, toRaw, toRefs, watch} from 'vue'
 
 import {
 	getDirectoryHandle,
@@ -109,8 +109,11 @@ const emptyProject: Project = {
 export const useProjectStore = defineStore('project', () => {
 	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
 
+	const isSavedInOriginPrivateDirectory = computed(() => {
+		return directoryHandle.value?.name === ''
+	})
+
 	const project = reactive<Project>(cloneDeep(emptyProject))
-	const hasModified = ref(false)
 
 	navigator.storage.getDirectory().then(handler => {
 		open(handler)
@@ -141,6 +144,20 @@ export const useProjectStore = defineStore('project', () => {
 	})
 
 	// Open and Save Projects
+	async function createNew() {
+		for (const key of Object.keys(emptyProject)) {
+			;(project as any)[key] = (emptyProject as any)[key]
+		}
+
+		history.clear()
+
+		if (directoryHandle.value?.name === '') {
+			for await (const key of directoryHandle.value.keys()) {
+				directoryHandle.value.removeEntry(key)
+			}
+		}
+	}
+
 	async function open(handler?: FileSystemDirectoryHandle) {
 		directoryHandle.value = handler ?? (await getDirectoryHandle())
 
@@ -188,7 +205,15 @@ export const useProjectStore = defineStore('project', () => {
 		await save()
 	}
 
+	let isSaving = false
 	async function save() {
+		if (isSaving) {
+			console.warn('Saving is already in progress')
+			return
+		}
+
+		isSaving = true
+
 		if (directoryHandle.value === null) {
 			directoryHandle.value = await navigator.storage.getDirectory()
 		}
@@ -213,6 +238,8 @@ export const useProjectStore = defineStore('project', () => {
 		}
 
 		await saveJson(directoryHandle, flatProject, 'project.json')
+
+		isSaving = false
 	}
 
 	async function openShot(shot: Shot<string>): Promise<Shot> {
@@ -281,7 +308,7 @@ export const useProjectStore = defineStore('project', () => {
 		...toRefs(project),
 		undo: history.undo,
 		redo: history.redo,
-		hasModified,
+		createNew,
 		open,
 		saveAs,
 		allKomas,

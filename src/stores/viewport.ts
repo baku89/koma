@@ -44,6 +44,9 @@ export const useViewportStore = defineStore('viewport', () => {
 	// Play
 	watch(isPlaying, () => {
 		if (!isPlaying.value) {
+			if (!project.isLooping && temporalFrame.value) {
+				currentFrame.value = temporalFrame.value
+			}
 			temporalFrame.value = null
 			return
 		}

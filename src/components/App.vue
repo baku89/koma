@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import {useEventListener} from '@vueuse/core'
 import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
@@ -53,16 +52,17 @@ actions.onBeforePerform(action => {
 	}
 })
 
-useEventListener(window, 'beforeunload', e => {
-	if (project.hasModified) {
-		e.preventDefault()
-		e.returnValue =
-			'There are unsaved changes. Are you sure you want to reload?'
-	}
-})
-
 //------------------------------------------------------------------------------
 actions.register([
+	{
+		id: 'create_new',
+		icon: 'mdi:file',
+		input: 'command+n',
+		async perform() {
+			await project.createNew()
+			viewport.currentFrame = project.captureFrame
+		},
+	},
 	{
 		id: 'open_project',
 		icon: 'material-symbols:folder-open-rounded',

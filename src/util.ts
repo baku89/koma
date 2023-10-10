@@ -42,7 +42,14 @@ export async function saveBlob(
 ) {
 	if (!handler.value) throw new Error('No directory handler')
 
-	if (savedFilenameForBlob.get(blob) !== filename) {
+	let map = savedFilenameForBlob.get(handler.value)
+
+	if (!map) {
+		map = new WeakMap()
+		savedFilenameForBlob.set(handler.value, map)
+	}
+
+	if (map.get(blob) !== filename) {
 		const fileHandle = await handler.value.getFileHandle(filename, {
 			create: true,
 		})
@@ -53,11 +60,16 @@ export async function saveBlob(
 		await w.write(blob)
 		await w.close()
 
-		savedFilenameForBlob.set(blob, filename)
+		map.set(blob, filename)
 	}
 
 	return filename
 }
+
+const savedFilenameForBlob = new WeakMap<
+	FileSystemDirectoryHandle,
+	WeakMap<Blob, string>
+>()
 
 // File System Access API utils
 export async function loadJson<T>(
@@ -90,8 +102,6 @@ export async function saveJson<T>(
 	await w.write(json)
 	await w.close()
 }
-
-const savedFilenameForBlob = new WeakMap<Blob, string>()
 
 /**
  * Query and request readwrite permission for a FileSystemhandle
