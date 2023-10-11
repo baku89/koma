@@ -161,7 +161,7 @@ header-frame-text-style()
 
 .koma-header
 	header-frame-text-style()
-	width 100%
+	width var(--koma-width)
 	height var(--header-height)
 	border-left 1px solid var(--tq-color-on-background)
 	margin-bottom 6px
