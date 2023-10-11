@@ -37,4 +37,7 @@ const camera = useCameraStore()
 	<Tq.Parameter label="Quality" icon="mdi:image">
 		<TethrConfig :config="camera.imageQuality" name="imageQuality" />
 	</Tq.Parameter>
+	<Tq.Parameter label="Vol." icon="ic:baseline-volume-up">
+		<TethrConfig :config="camera.shutterSound" name="shutterSound" />
+	</Tq.Parameter>
 </template>

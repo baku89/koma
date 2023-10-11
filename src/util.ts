@@ -88,7 +88,7 @@ export function assignReactive<T extends Record<string, any>>(
 	}
 }
 
-export function debouncedAsync(fn: () => Promise<void>) {
+export function debounceAsync(fn: () => Promise<void>) {
 	const isExecuting = ref(false)
 	let willExecute = false
 
@@ -98,9 +98,12 @@ export function debouncedAsync(fn: () => Promise<void>) {
 			return
 		}
 
-		isExecuting.value = true
-		await fn()
-		isExecuting.value = false
+		try {
+			isExecuting.value = true
+			await fn()
+		} finally {
+			isExecuting.value = false
+		}
 
 		if (willExecute) {
 			willExecute = false
@@ -109,4 +112,38 @@ export function debouncedAsync(fn: () => Promise<void>) {
 	}
 
 	return {fn: debouncedFn, isExecuting: readonly(isExecuting)}
+}
+
+// Asyncな関数が重複して実行されないようにする
+export function singleAsync<T extends unknown[]>(
+	fn: (...arg: T) => Promise<void>
+) {
+	const isExecuting = ref(false)
+
+	const singleFn = async (...arg: T) => {
+		if (isExecuting.value) return
+
+		try {
+			isExecuting.value = true
+			await fn(...arg)
+		} finally {
+			isExecuting.value = false
+		}
+	}
+
+	return {fn: singleFn, isExecuting: readonly(isExecuting)}
+}
+
+export function toTime(ms: number) {
+	const sec = Math.floor(ms / 1000)
+	const min = Math.floor(sec / 60)
+	const hour = Math.floor(min / 60)
+
+	return [
+		hour ? String(hour) : false,
+		String(min % 60).padStart(2, '0'),
+		String(sec % 60).padStart(2, '0'),
+	]
+		.filter(Boolean)
+		.join(':')
 }

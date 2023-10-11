@@ -1,19 +1,20 @@
-import {useRefHistory} from '@vueuse/core'
+import {asyncComputed, pausableWatch, useRefHistory} from '@vueuse/core'
 import {defu} from 'defu'
 import {mat2d} from 'linearly'
 import {clamp, cloneDeep} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
-import {computed, reactive, shallowRef, toRaw, toRefs, watch} from 'vue'
+import {computed, reactive, shallowRef, toRaw, toRefs} from 'vue'
 
 import {
 	assignReactive,
-	debouncedAsync,
+	debounceAsync,
 	loadJson,
 	mapToPromises,
 	queryString,
 	saveJson,
 	showReadwriteDirectoryPicker,
+	singleAsync,
 } from '@/util'
 
 import {Mat2d} from '../../dev_modules/linearly/src/mat2d'
@@ -40,7 +41,7 @@ interface Project<T = Blob> {
 	cameraConfigs: CameraConfigs
 	name: string
 	fps: number
-	captureFrame: number
+	captureShot: {frame: number; layer: number}
 	komas: Koma<T>[]
 	resolution: Vec2
 	viewport: {
@@ -52,9 +53,13 @@ interface Project<T = Blob> {
 		overlayLineOpacity: number
 		onionskinBlend: 'normal' | 'lighten' | 'darken' | 'difference'
 	}
+	audio: {
+		src?: T
+		startFrame: number
+	}
 }
 
-type UndoableData = Pick<Project, 'komas' | 'captureFrame'>
+type UndoableData = Pick<Project, 'komas' | 'captureShot'>
 
 type SVGString = string
 
@@ -74,6 +79,8 @@ export interface Shot<T = Blob> {
 	jpg: T
 	raw?: T
 	cameraConfigs: CameraConfigs
+	shootTime?: number
+	captureDate?: number
 }
 
 const emptyProject: Project = {
@@ -93,7 +100,7 @@ const emptyProject: Project = {
 	},
 	fps: 15,
 	name: 'Untitled',
-	captureFrame: 0,
+	captureShot: {frame: 0, layer: 0},
 	komas: [],
 	resolution: [1920, 1280],
 	viewport: {
@@ -109,12 +116,21 @@ const emptyProject: Project = {
 		overlayLineOpacity: 1,
 		onionskinBlend: 'normal',
 	},
+	audio: {
+		startFrame: 0,
+	},
 }
 
 export const useProjectStore = defineStore('project', () => {
 	const blobCache = useBlobStore()
 
 	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
+
+	const isSavedToDisk = asyncComputed(
+		async () =>
+			directoryHandle.value &&
+			directoryHandle.value !== (await blobCache.localDir)
+	)
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
 
@@ -123,21 +139,21 @@ export const useProjectStore = defineStore('project', () => {
 	const undoableData = computed<UndoableData>({
 		get() {
 			return {
-				captureFrame: project.captureFrame,
+				captureShot: project.captureShot,
 				komas: project.komas,
 			}
 		},
 		set(data) {
-			project.captureFrame = data.captureFrame
+			project.captureShot = data.captureShot
 			project.komas = data.komas
 		},
 	})
 
-	const history = useRefHistory(undoableData, {capacity: 400})
+	const history = useRefHistory(undoableData, {capacity: 400, clone: cloneDeep})
 
 	const allKomas = computed<Koma[]>(() => {
 		const komaNumberToFill =
-			Math.max(project.captureFrame - project.komas.length + 1, 0) + 1
+			Math.max(project.captureShot.frame - project.komas.length + 1, 0) + 1
 
 		return [...project.komas, ...Array(komaNumberToFill).fill(null)]
 	})
@@ -155,38 +171,49 @@ export const useProjectStore = defineStore('project', () => {
 		}
 	}
 
-	async function open(handler?: FileSystemDirectoryHandle) {
-		directoryHandle.value = handler ?? (await showReadwriteDirectoryPicker())
+	const {fn: open, isExecuting: isOpening} = singleAsync(
+		async (handler?: FileSystemDirectoryHandle) => {
+			directoryHandle.value = handler ?? (await showReadwriteDirectoryPicker())
 
-		const flatProject = await loadJson<Project<string>>(
-			directoryHandle,
-			'project.json'
-		)
+			const flatProject = await loadJson<Project<string>>(
+				directoryHandle,
+				'project.json'
+			)
 
-		const unflatProject: Project<Blob> = {
-			...flatProject,
-			komas: await mapToPromises(flatProject.komas, async koma => {
-				if (koma === null) return null
+			const unflatProject: Project<Blob> = {
+				...flatProject,
+				komas: await mapToPromises(flatProject.komas, async koma => {
+					if (koma === null) return null
 
-				const shots = await mapToPromises(koma.shots, shot => {
-					if (shot === null) return null
-					return openShot(shot)
-				})
+					const shots = await mapToPromises(koma.shots, shot => {
+						if (shot === null) return null
+						return openShot(shot)
+					})
 
-				const backupShots = await mapToPromises(koma.backupShots, openShot)
+					const backupShots = await mapToPromises(koma.backupShots, openShot)
 
-				return {...koma, shots, backupShots}
-			}),
+					return {...koma, shots, backupShots}
+				}),
+				audio: {
+					...flatProject.audio,
+					src: flatProject.audio.src
+						? await blobCache.open(directoryHandle, flatProject.audio.src)
+						: undefined,
+				},
+			}
+
+			// In case the latest project format has more properties than the saved one,
+			// merge the saved state with the default state
+			const mergedProject = defu(unflatProject, emptyProject)
+
+			autoSave.pause()
+			{
+				assignReactive(project, mergedProject)
+				history.clear()
+			}
+			autoSave.resume()
 		}
-
-		// In case the latest project format has more properties than the saved one,
-		// merge the saved state with the default state
-		const mergedProject = defu(unflatProject, emptyProject)
-
-		assignReactive(project, mergedProject)
-
-		history.clear()
-	}
+	)
 
 	async function saveAs() {
 		const handler = await showReadwriteDirectoryPicker()
@@ -200,7 +227,12 @@ export const useProjectStore = defineStore('project', () => {
 		await save()
 	}
 
-	const {fn: save, isExecuting: isSaving} = debouncedAsync(async () => {
+	async function saveInOpfs() {
+		directoryHandle.value = await blobCache.localDir
+		await save()
+	}
+
+	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
 		console.time('save')
 
 		try {
@@ -225,6 +257,16 @@ export const useProjectStore = defineStore('project', () => {
 
 					return {...koma, shots, backupShots}
 				}),
+				audio: {
+					...project.audio,
+					src: project.audio.src
+						? await blobCache.save(
+								directoryHandle,
+								'audio.wav',
+								project.audio.src
+						  )
+						: undefined,
+				},
 			}
 
 			await saveJson(directoryHandle, flatProject, 'project.json')
@@ -274,6 +316,11 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	// Enable autosave
+	const autoSave = pausableWatch(project, save, {deep: true, flush: 'sync'})
+
+	//----------------------------------------------------------------------------
+	// Mutations
+
 	function setInPoint(value: number) {
 		const inPoint = Math.min(value, project.previewRange[1])
 		project.previewRange = [inPoint, project.previewRange[1]]
@@ -289,13 +336,32 @@ export const useProjectStore = defineStore('project', () => {
 		project.previewRange = [project.previewRange[0], outPoint]
 	}
 
-	watch(
-		project,
-		async () => {
-			await save()
-		},
-		{deep: true, flush: 'post'}
-	)
+	function shot(frame: number, layer: number): Shot | null {
+		return project.komas[frame]?.shots[layer] ?? null
+	}
+
+	function setShot(frame: number, layer: number, shot: Shot) {
+		while (frame < project.komas.length) {
+			project.komas.push(null)
+		}
+
+		let koma = project.komas[frame]
+
+		if (!koma) {
+			// If there is no frame, create a new frame
+			project.komas[frame] = koma = {
+				shots: [],
+				backupShots: [],
+			}
+		}
+
+		while (layer < koma.shots.length) {
+			// If there is not enough layer, push layers
+			koma.shots.push(null)
+		}
+
+		koma.shots[layer] = shot
+	}
 
 	return {
 		...toRefs(project),
@@ -304,9 +370,14 @@ export const useProjectStore = defineStore('project', () => {
 		createNew,
 		open,
 		saveAs,
+		saveInOpfs,
 		allKomas,
 		setInPoint,
 		setOutPoint,
+		isOpening,
 		isSaving,
+		isSavedToDisk,
+		shot,
+		setShot,
 	}
 })

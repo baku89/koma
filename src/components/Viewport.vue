@@ -24,12 +24,20 @@ const $wrapper = ref<HTMLElement | null>(null)
 
 const bound = useElementBounding($wrapper)
 
-const currentFrameImage = computed(() => {
-	const frame = project.komas[viewport.previewFrame]?.shots[0]
-	if (viewport.isLiveview || !frame) {
-		return transparent
-	}
-	return getObjectURL(viewport.enableHiRes ? frame.jpg : frame.lv)
+const currentFrameImages = computed(() => {
+	if (viewport.isLiveview) return [transparent]
+
+	const shots = project.komas[viewport.previewFrame]?.shots
+	if (!shots) return [transparent]
+
+	return shots
+		.flatMap(shot => {
+			if (!shot) return []
+			return viewport.enableHiRes ? [shot.jpg] : [shot.lv]
+		})
+		.map(getObjectURL)
+
+	// return getObjectURL(viewport.enableHiRes ? frame.jpg : frame.lv)
 })
 
 const transform = computed<Mat2d>(() => {
@@ -119,9 +127,12 @@ const onionskinAttrs = computed(() => {
 					playsinline
 				/>
 				<img
+					v-for="(src, i) in currentFrameImages"
 					v-show="!viewport.isLiveview"
+					:key="src"
 					class="view-image"
-					:src="currentFrameImage"
+					:class="{over: i > 0}"
+					:src="src"
 				/>
 				<img class="view-image onionskin" v-bind="onionskinAttrs" />
 				<svg
@@ -170,8 +181,12 @@ const onionskinAttrs = computed(() => {
 	height 100%
 	object-fit cover
 
-.view-image.no-camera
+.no-camera
 	background var(--tq-color-primary)
+
+.over
+	mix-blend-mode lighten
+
 
 .view-overlay
 	.line

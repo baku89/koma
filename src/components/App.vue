@@ -1,18 +1,19 @@
 <script lang="ts" setup>
-import {Icon} from '@iconify/vue'
 import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
 import {useActionsStore} from 'tweeq'
-import {ref} from 'vue'
+import {watch} from 'vue'
 
 import {playSound} from '@/playSound'
 import {useCameraStore} from '@/stores/camera'
 import {Shot, useProjectStore} from '@/stores/project'
+import {useTimerStore} from '@/stores/timer'
 import {useViewportStore} from '@/stores/viewport'
 
 import CameraControl from './CameraControl.vue'
 import Timeline from './Timeline.vue'
+import TitleBar from './TitleBar.vue'
 import Viewport from './Viewport.vue'
 
 useTweeq('com.baku89.koma', {
@@ -25,6 +26,7 @@ const actions = useActionsStore()
 const viewport = useViewportStore()
 const project = useProjectStore()
 const camera = useCameraStore()
+const timer = useTimerStore()
 
 Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
 	pressed => {
@@ -32,19 +34,7 @@ Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
 	}
 )
 
-//------------------------------------------------------------------------------
-// Connection
-
-const isGamepadConnected = ref(false)
-
-Bndr.gamepad()
-	.connected()
-	.on(connected => {
-		isGamepadConnected.value = connected
-	})
-
-//------------------------------------------------------------------------------
-// Viewport popup
+watch(() => project.captureShot, timer.reset)
 
 //------------------------------------------------------------------------------
 actions.onBeforePerform(action => {
@@ -61,33 +51,40 @@ actions.register([
 		input: 'command+n',
 		async perform() {
 			await project.createNew()
-			viewport.currentFrame = project.captureFrame
+			viewport.currentFrame = project.captureShot.frame
 		},
 	},
 	{
 		id: 'open_project',
+		label: 'Open Project...',
 		icon: 'material-symbols:folder-open-rounded',
-		menu: '',
 		input: 'command+o',
 		async perform() {
 			await project.open()
-			viewport.currentFrame = project.captureFrame
+			viewport.currentFrame = project.captureShot.frame
 		},
 	},
 	{
-		id: 'save_project',
+		id: 'save_project_as',
+		label: 'Save Project As...',
 		icon: 'mdi:content-save',
 		input: 'command+shift+s',
-		menu: '',
 		async perform() {
 			await project.saveAs()
+		},
+	},
+	{
+		id: 'save_project_in_opfs',
+		label: 'Save Project in OPFS',
+		icon: 'octicon:cache-16',
+		async perform() {
+			await project.saveInOpfs()
 		},
 	},
 	{
 		id: 'shoot',
 		icon: 'mdi:circle',
 		input: ['enter', 'gamepad:r'],
-		menu: '',
 		async perform() {
 			if (!camera.tethr) {
 				alert('No camera is coonnected')
@@ -144,40 +141,32 @@ actions.register([
 
 				if (!jpg) return
 
-				const shot: Shot = {
+				const newShot: Shot = {
 					jpg,
 					raw,
 					lv: lv.value,
 					cameraConfigs,
+					shootTime: timer.current,
+					captureDate: new Date().getTime(),
 				}
 
 				project.$patch(state => {
-					const f = state.captureFrame
-					const koma = state.komas[f]
+					const {frame, layer} = state.captureShot
 
-					if (koma) {
-						// If there is already a shot, replace it
-						koma.shots[0] = shot
-					} else {
-						// Otherwise, create a new frame
-						state.komas[f] = {
-							shots: [shot],
-							backupShots: [],
-						}
-					}
+					project.setShot(frame, layer, newShot)
 
 					// Find next empty frame
-					for (let i = state.captureFrame + 1; i <= state.komas.length; i++) {
-						if (!state.komas[i]) {
-							state.captureFrame = i
+					for (let i = frame + 1; i <= state.komas.length; i++) {
+						if (!state.komas[i] || !state.komas[i]?.shots[0]) {
+							state.captureShot = {frame: i, layer: 0}
 							break
 						}
 					}
 
-					project.previewRange[1] = state.captureFrame
+					state.previewRange[1] = state.captureShot.frame
 				})
 
-				viewport.currentFrame = project.captureFrame
+				viewport.currentFrame = project.captureShot.frame
 
 				if (new Date().getTime() - timeStart > 500) {
 					playSound('sound/Accent36-1.mp3')
@@ -193,7 +182,7 @@ actions.register([
 		input: 'command+z',
 		perform() {
 			project.undo()
-			viewport.currentFrame = project.captureFrame
+			viewport.currentFrame = project.captureShot.frame
 		},
 	},
 	{
@@ -202,7 +191,7 @@ actions.register([
 		input: 'command+shift+z',
 		perform() {
 			project.redo()
-			viewport.currentFrame = project.captureFrame
+			viewport.currentFrame = project.captureShot.frame
 		},
 	},
 	{
@@ -226,15 +215,14 @@ actions.register([
 		icon: 'mdi:backspace',
 		input: ['delete', 'backspace', 'gamepad:home'],
 		perform() {
-			project.$patch(state => {
-				state.komas.splice(viewport.currentFrame, 1)
-				if (viewport.currentFrame < state.captureFrame) {
-					state.captureFrame -= 1
+			project.$patch(project => {
+				project.komas.splice(viewport.currentFrame, 1)
+				if (viewport.currentFrame < project.captureShot.frame) {
+					project.captureShot.frame -= 1
 				}
-				project.previewRange[1] = Math.min(
-					project.previewRange[1],
-					project.allKomas.length - 1
-				)
+				if (viewport.currentFrame <= project.previewRange[1]) {
+					project.previewRange[1] -= 1
+				}
 			})
 			playSound('sound/Hit08-1.mp3')
 		},
@@ -243,7 +231,7 @@ actions.register([
 		id: 'insert_camera',
 		icon: 'mdi:camera-plus',
 		perform() {
-			project.captureFrame = viewport.currentFrame
+			project.captureShot.frame = viewport.currentFrame
 		},
 	},
 	{
@@ -278,54 +266,33 @@ actions.register([
 			project.isLooping = !project.isLooping
 		},
 	},
+	{
+		id: 'import_audio',
+		icon: 'material-symbols:audio-file',
+		async perform() {
+			const files = await window.showOpenFilePicker({
+				types: [
+					{
+						description: 'Audio Files',
+						accept: {'audio/*': ['.wav']},
+					},
+				],
+			})
+
+			const src = await files[0].getFile()
+
+			project.$patch({audio: {src, startFrame: 0}})
+
+			new Howl({src: [URL.createObjectURL(src)], format: ['wav']}).play()
+		},
+	},
 ])
 </script>
 
 <template>
 	<div class="App">
 		<Tq.CommandPalette />
-		<Tq.TitleBar name="Koma" class="title" icon="favicon.svg">
-			<template #left>
-				<Tq.InputString v-model="project.name" style="width: 10em" />
-				<Icon v-show="project.isSaving" icon="eos-icons:bubble-loading" />
-			</template>
-			<template #center>
-				<Tq.InputNumber
-					:modelValue="viewport.previewFrame"
-					:precision="0"
-					:min="0"
-					:max="project.allKomas.length - 1"
-					:step="1"
-					:bar="false"
-					suffix=" F"
-					style="width: 5em"
-					@update:modelValue="viewport.currentFrame = $event"
-				/>
-				<Tq.InputIconToggle
-					v-model="project.isLooping"
-					icon="material-symbols:laps"
-				/>
-				<Tq.InputIconToggle
-					v-model="viewport.isPlaying"
-					:icon="viewport.isPlaying ? 'mdi:pause' : 'mdi:play'"
-				/>
-				<Tq.InputIconToggle
-					v-model="viewport.enableHiRes"
-					icon="mdi:high-definition"
-				/>
-			</template>
-			<template #right>
-				<Tq.InputButton
-					icon="mdi:connection"
-					:label="camera.model.value ?? 'Connect'"
-					@click="camera.toggleConnection"
-				/>
-				<Tq.IconIndicator
-					:modelValue="isGamepadConnected"
-					icon="solar:gamepad-bold"
-				/>
-			</template>
-		</Tq.TitleBar>
+		<TitleBar />
 		<main class="main">
 			<Tq.PaneSplit name="vertical" direction="vertical">
 				<template #first>
@@ -354,26 +321,11 @@ actions.register([
 											:step="0.1"
 										/>
 									</Tq.Parameter>
-									<Tq.Parameter icon="material-symbols:width" label="Zoom">
-										<Tq.InputNumber
-											:modelValue="project.timeline.zoomFactor * 100"
-											:min="20"
-											:max="200"
-											suffix="%"
-											:barOrigin="100"
-											:step="1"
-											@update:modelValue="
-												project.timeline.zoomFactor = $event / 100
-											"
-										/>
-									</Tq.Parameter>
 								</Tq.ParameterGrid>
 							</div>
 						</template>
 						<template #second>
-							<div class="timeline">
-								<Timeline />
-							</div>
+							<Timeline class="timeline" />
 						</template>
 					</Tq.PaneSplit>
 				</template>

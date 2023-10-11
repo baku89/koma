@@ -1,27 +1,48 @@
 <script lang="ts" setup>
-import {Icon} from '@iconify/vue'
 import {Bndr} from 'bndr-js'
-import {ConfigType, WritableConfigNameList} from 'tethr'
+import {scalar} from 'linearly'
+import Tq from 'tweeq'
+import {useBndr} from 'tweeq'
 import {computed, ref} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
-import {useBndr} from '@/use/useBndr'
-import {getObjectURL} from '@/util'
+
+import Koma from './Koma.vue'
 
 const project = useProjectStore()
 const viewport = useViewportStore()
 
 const $frameMeasure = ref<null | HTMLElement>(null)
 
+const komaWidth = computed(() => {
+	return project.timeline.zoomFactor * 80
+})
+
+const visibleRegion = computed(() => {
+	return {left: viewport.currentFrame * komaWidth.value, width: komaWidth.value}
+})
+
 useBndr($frameMeasure, el => {
 	Bndr.pointer(el)
 		.drag({pointerCapture: true, coordinate: 'offset'})
 		.on(d => {
-			const frame = Math.floor(d.current[0] / 80)
+			const frame = Math.floor(d.current[0] / komaWidth.value)
 			viewport.currentFrame = frame
+			viewport.isPlaying = false
 		})
 })
+
+function onZoomTimeline(factor: number) {
+	const newZoomFactor = project.timeline.zoomFactor * factor
+	project.timeline.zoomFactor = scalar.quantize(
+		scalar.clamp(newZoomFactor, 0.25, 2),
+		0.001
+	)
+}
+
+//------------------------------------------------------------------------------
+// Styles
 
 const seekbarStyles = computed(() => {
 	return {
@@ -36,65 +57,40 @@ const previewRangeStyles = computed(() => {
 		width: `calc(${outPoint - inPoint + 1} * var(--koma-width) + 1px)`,
 	}
 })
-
-function printCameraConfigs(configs: Partial<ConfigType>) {
-	return Object.entries(configs)
-		.filter(([name]) => WritableConfigNameList.includes(name as any))
-		.map(([name, value]) => {
-			return `${name}: ${value}`
-		})
-		.join('<br />')
-}
 </script>
 
 <template>
-	<div
-		class="Timeline"
-		:style="{
-			'--koma-width': project.timeline.zoomFactor * 80 + 'px',
-		}"
-	>
+	<Tq.Timeline :visibleRegion="visibleRegion" @zoomHorizontal="onZoomTimeline">
 		<div
-			ref="$frameMeasure"
-			class="frameMeasure"
+			class="Timeline"
 			:style="{
+				'--koma-width': komaWidth + 'px',
 				width: `calc(${project.allKomas.length} * var(--koma-width))`,
 			}"
-		/>
-		<div class="seekbar" :style="seekbarStyles">
-			{{ viewport.previewFrame }}
-		</div>
-		<div class="previewRange" :style="previewRangeStyles" />
-		<div
-			v-for="(koma, frame) in project.allKomas"
-			:key="frame"
-			class="koma"
-			@dblclick="project.captureFrame = frame"
 		>
-			<div class="koma-header tq-font-numeric">{{ frame }}</div>
-			<div
-				class="shot"
-				:class="{onionskin: frame === viewport.onionskin?.frame}"
-			>
-				<div v-if="frame === project.captureFrame" class="liveview">
-					<Icon icon="material-symbols:photo-camera-outline" />
-				</div>
-				<div
-					v-else-if="koma && koma.shots[0]"
-					v-tooltip="{
-						content: printCameraConfigs(koma.shots[0].cameraConfigs),
-						html: true,
-					}"
-					class="captured"
-					:class="{hasRaw: koma.shots[0].raw}"
-				>
-					<img :src="getObjectURL(koma.shots[0].lv)" />
-				</div>
-				<div v-else class="empty" />
-				<div class="in-between transition" />
+			<div ref="$frameMeasure" class="frameMeasure" />
+			<div class="seekbar" :style="seekbarStyles">
+				{{ viewport.previewFrame }}
+			</div>
+			<div class="previewRange" :style="previewRangeStyles" />
+			<div v-for="(_, frame) in project.allKomas" :key="frame" class="koma">
+				<div class="koma-header tq-font-numeric">{{ frame }}</div>
+				<Koma :frame="frame" />
 			</div>
 		</div>
-	</div>
+		<template #scrollbarRight>
+			<Tq.InputNumber
+				:modelValue="project.timeline.zoomFactor * 100"
+				:min="20"
+				:max="200"
+				suffix="%"
+				:barOrigin="100"
+				:step="1"
+				style="width: 7em"
+				@update:modelValue="project.timeline.zoomFactor = $event / 100"
+			/>
+		</template>
+	</Tq.Timeline>
 </template>
 
 <style lang="stylus" scoped>
@@ -102,8 +98,7 @@ function printCameraConfigs(configs: Partial<ConfigType>) {
 	position relative
 	display flex
 	height 100%
-	overflow-x scroll
-	overflow-y hidden
+	overflow hidden
 
 	--koma-width 80px
 	--koma-height 53px
@@ -112,6 +107,7 @@ function printCameraConfigs(configs: Partial<ConfigType>) {
 .frameMeasure
 	position absolute
 	top 0
+	width 100%
 	height 24px
 	background-image linear-gradient(to right, var(--tq-color-on-background) 1px, transparent 1px, transparent var(--koma-width))
 	background-size var(--koma-width) 14px
@@ -169,78 +165,4 @@ header-frame-text-style()
 	height var(--header-height)
 	border-left 1px solid var(--tq-color-on-background)
 	margin-bottom 6px
-
-
-.shot
-	position relative
-	flex 0 0 var(--koma-width)
-	margin-left 1px
-	width calc(var(--koma-width) - 1px)
-	height var(--koma-height)
-
-
-	&.onionskin:before
-		content ''
-		display block
-		position absolute
-		inset 0
-		border 3px solid var(--md-sys-color-tertiary)
-		border-radius var(--tq-input-border-radius)
-
-	.captured, .liveview, .empty
-		width 100%
-		height 100%
-		text-align center
-		display flex
-		flex-direction column
-		justify-content center
-		align-items center
-		border-radius var(--tq-input-border-radius)
-
-	.captured
-		overflow hidden
-		box-shadow inset 0 0 0 1px var(--tq-color-surface-border)
-
-		img
-			height 100%
-			object-fit contain
-
-		&.hasRaw:before
-			content ''
-			display block
-			position absolute
-			bottom 0
-			left 2px
-			right 2px
-			height 2px
-			background var(--tq-color-on-primary)
-
-	.liveview
-		background var(--tq-color-primary-container)
-
-	.empty
-		background var(--tq-color-input)
-		opacity .2
-
-		&:hover
-			background var(--tq-color-input-hover)
-
-	.in-between
-		position absolute
-		top 0
-		height 100%
-		width 12px
-		right -6px
-		z-index 10
-
-		&:before
-			position absolute
-			content ''
-			display block
-			inset 0
-			transform scaleX(0)
-
-		&:hover:before
-			transform scaleX(1)
-			background var(--tq-color-primary)
 </style>

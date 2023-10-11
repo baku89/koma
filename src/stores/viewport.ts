@@ -1,8 +1,10 @@
+import {Howl} from 'howler'
 import {clamp} from 'lodash'
 import {defineStore} from 'pinia'
 import {computed, ref, shallowRef, watch} from 'vue'
 
 import {refWithSetter} from '@/use/refWithSetter'
+import {getObjectURL} from '@/util'
 
 import {useProjectStore} from './project'
 
@@ -14,10 +16,17 @@ export const useViewportStore = defineStore('viewport', () => {
 	const liveToggle = ref(false)
 	const enableHiRes = ref(false)
 
+	const howl = computed(() => {
+		if (!project.audio.src) return null
+
+		const src = getObjectURL(project.audio.src)
+		return new Howl({src: [src], format: ['wav']})
+	})
+
 	const isPlaying = ref(false)
 
 	const isLiveview = computed(() => {
-		return previewFrame.value === project.captureFrame
+		return previewFrame.value === project.captureShot.frame
 	})
 
 	const currentFrame = refWithSetter(0, value => {
@@ -31,10 +40,10 @@ export const useViewportStore = defineStore('viewport', () => {
 
 	const previewFrame = computed(() => {
 		if (liveToggle.value) {
-			if (currentFrame.value === project.captureFrame) {
-				return project.captureFrame - 1
+			if (currentFrame.value === project.captureShot.frame) {
+				return project.captureShot.frame - 1
 			} else {
-				return project.captureFrame
+				return project.captureShot.frame
 			}
 		}
 
@@ -48,15 +57,22 @@ export const useViewportStore = defineStore('viewport', () => {
 				currentFrame.value = temporalFrame.value
 			}
 			temporalFrame.value = null
+			howl.value?.stop()
 			return
 		}
-
-		const startTime = new Date().getTime()
 
 		const {
 			fps,
 			previewRange: [inPoint, outPoint],
 		} = project
+
+		if (howl.value) {
+			const startSec = (inPoint + 150) / fps
+			howl.value.seek(startSec)
+			howl.value.play()
+		}
+
+		const startTime = new Date().getTime()
 
 		const duration = outPoint - inPoint + 1
 

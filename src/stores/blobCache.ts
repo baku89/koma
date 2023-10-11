@@ -1,5 +1,6 @@
+import {debounce} from 'lodash'
 import {defineStore} from 'pinia'
-import {Ref} from 'vue'
+import {Ref, ref} from 'vue'
 
 import {queryPermission} from '@/util'
 
@@ -17,6 +18,18 @@ export const useBlobStore = defineStore('blobCache', () => {
 		}
 	)
 
+	// StorageManager API
+	const usage = ref(0)
+	const quota = ref(0)
+
+	const estimateStorage = debounce(async () => {
+		const estimated = await navigator.storage.estimate()
+
+		quota.value = estimated.quota ?? 0
+		usage.value = estimated.usage ?? 0
+	}, 1000)
+
+	// Initialize the Origin Private File System
 	;(async () => {
 		const root = await navigator.storage.getDirectory()
 
@@ -31,6 +44,8 @@ export const useBlobStore = defineStore('blobCache', () => {
 		}
 
 		resolveBlobCacheDir(h)
+
+		estimateStorage()
 	})()
 
 	async function open(
@@ -56,6 +71,8 @@ export const useBlobStore = defineStore('blobCache', () => {
 			const cacheWriter = await cacheHandle.createWritable()
 			await cacheWriter.write(file)
 			await cacheWriter.close()
+
+			estimateStorage()
 
 			return await cacheHandle.getFile()
 		} catch (e) {
@@ -112,8 +129,10 @@ export const useBlobStore = defineStore('blobCache', () => {
 		await w.write(blob)
 		await w.close()
 
+		estimateStorage()
+
 		return filename
 	}
 
-	return {open, save, localDir}
+	return {open, save, localDir, usage, quota}
 })

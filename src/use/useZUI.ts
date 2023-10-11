@@ -1,9 +1,8 @@
 import {Bndr} from 'bndr-js'
 import {mat2d, vec2} from 'linearly'
+import {Mat2d} from 'linearly'
+import {useBndr} from 'tweeq'
 import {Ref} from 'vue'
-
-import {Mat2d} from '../../dev_modules/linearly/src/mat2d'
-import {useBndr} from './useBndr'
 
 export function useZUI(
 	element: Ref<HTMLElement | null>,
