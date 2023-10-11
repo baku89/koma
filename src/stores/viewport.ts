@@ -3,6 +3,7 @@ import {clamp} from 'lodash'
 import {defineStore} from 'pinia'
 import {computed, ref, shallowRef, watch} from 'vue'
 
+import {scrub, seekAndPlay} from '@/playSound'
 import {refWithSetter} from '@/use/refWithSetter'
 import {getObjectURL} from '@/util'
 
@@ -51,7 +52,7 @@ export const useViewportStore = defineStore('viewport', () => {
 	})
 
 	// Play
-	watch(isPlaying, () => {
+	watch(isPlaying, async () => {
 		if (!isPlaying.value) {
 			if (!project.isLooping && temporalFrame.value) {
 				currentFrame.value = temporalFrame.value
@@ -68,34 +69,49 @@ export const useViewportStore = defineStore('viewport', () => {
 
 		if (howl.value) {
 			const startSec = (inPoint + 150) / fps
-			howl.value.seek(startSec)
-			howl.value.play()
+			await seekAndPlay(howl.value, startSec)
 		}
 
-		const startTime = new Date().getTime()
+		let startTime = new Date().getTime()
 
 		const duration = outPoint - inPoint + 1
 
-		function update() {
+		async function update() {
 			if (!isPlaying.value) {
 				temporalFrame.value = null
 				return
 			}
 
-			const elapsed = new Date().getTime() - startTime
+			const now = new Date().getTime()
+			const elapsed = now - startTime
 
-			const elapsedFrames = Math.round((elapsed / 1000) * fps)
+			let elapsedFrames = Math.round((elapsed / 1000) * fps)
 
 			if (!project.isLooping && elapsedFrames >= duration) {
 				currentFrame.value = outPoint
 				isPlaying.value = false
 			} else {
+				if (elapsedFrames >= duration) {
+					if (howl.value) {
+						await seekAndPlay(howl.value, (inPoint + 150) / fps)
+					}
+					startTime = now
+					elapsedFrames = 0
+				}
+
 				temporalFrame.value = (elapsedFrames % duration) + inPoint
 				requestAnimationFrame(update)
 			}
 		}
 
 		update()
+	})
+
+	// Audio scrub
+	watch(currentFrame, currentFrame => {
+		if (!howl.value) return
+
+		scrub(howl.value, (currentFrame + 150) / project.fps, 160)
 	})
 
 	// Onionskin information
