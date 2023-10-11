@@ -112,10 +112,9 @@ export const useCameraStore = defineStore('camera', () => {
 				...(await tethr.value?.exportConfigs()),
 			}
 		})
-		console.log(configs.value)
 		cam.importConfigs(configs.value)
 
-		await cam.startLiveview()
+		cam.startLiveview()
 
 		tethr.value = cam
 		;(window as any).cam = cam
