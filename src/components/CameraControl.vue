@@ -32,6 +32,9 @@ const camera = useCameraStore()
 		<TethrConfig :config="camera.colorTemperature" name="colorTemperature" />
 	</Tq.Parameter>
 	<Tq.Parameter label="ISO" icon="carbon:iso">
-		<TethrConfig :config="camera.iso" />
+		<TethrConfig :config="camera.iso" name="iso" />
+	</Tq.Parameter>
+	<Tq.Parameter label="Quality" icon="mdi:image">
+		<TethrConfig :config="camera.imageQuality" name="imageQuality" />
 	</Tq.Parameter>
 </template>

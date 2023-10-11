@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import {Icon} from '@iconify/vue'
 import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
@@ -88,7 +89,10 @@ actions.register([
 		input: ['enter', 'gamepad:r'],
 		menu: '',
 		async perform() {
-			if (!camera.tethr) return
+			if (!camera.tethr) {
+				alert('No camera is coonnected')
+				return
+			}
 
 			const {tethr} = camera
 
@@ -283,6 +287,7 @@ actions.register([
 		<Tq.TitleBar name="Koma" class="title" icon="favicon.svg">
 			<template #left>
 				<Tq.InputString v-model="project.name" style="width: 10em" />
+				<Icon v-show="project.isSaving" icon="eos-icons:bubble-loading" />
 			</template>
 			<template #center>
 				<Tq.InputNumber

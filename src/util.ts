@@ -1,4 +1,4 @@
-import {Ref} from 'vue'
+import {readonly, Ref, ref} from 'vue'
 
 export function mapToPromises<T, U>(
 	array: T[],
@@ -13,63 +13,13 @@ export function queryString(query: Record<string, string | number>) {
 		.join('&')
 }
 
-export async function getDirectoryHandle() {
+export async function showReadwriteDirectoryPicker() {
 	const handle = await window.showDirectoryPicker({id: 'saveFile'})
 
-	await queryReadWritePermission(handle)
+	await queryPermission(handle)
 
 	return handle
 }
-
-export async function openBlob(
-	handler: Ref<FileSystemDirectoryHandle | null>,
-	filename: string
-) {
-	if (!handler.value) throw new Error('No directory handler')
-
-	const h = await handler.value.getFileHandle(filename)
-	return await h.getFile()
-}
-
-/**
- * Memoized function for saving a blob to a file.
- * @returns The filename the blob was saved to.
- */
-export async function saveBlob(
-	handler: Ref<FileSystemDirectoryHandle | null>,
-	filename: string,
-	blob: Blob
-) {
-	if (!handler.value) throw new Error('No directory handler')
-
-	let map = savedFilenameForBlob.get(handler.value)
-
-	if (!map) {
-		map = new WeakMap()
-		savedFilenameForBlob.set(handler.value, map)
-	}
-
-	if (map.get(blob) !== filename) {
-		const fileHandle = await handler.value.getFileHandle(filename, {
-			create: true,
-		})
-
-		await queryReadWritePermission(fileHandle)
-
-		const w = await fileHandle.createWritable()
-		await w.write(blob)
-		await w.close()
-
-		map.set(blob, filename)
-	}
-
-	return filename
-}
-
-const savedFilenameForBlob = new WeakMap<
-	FileSystemDirectoryHandle,
-	WeakMap<Blob, string>
->()
 
 // File System Access API utils
 export async function loadJson<T>(
@@ -106,11 +56,14 @@ export async function saveJson<T>(
 /**
  * Query and request readwrite permission for a FileSystemhandle
  */
-async function queryReadWritePermission(handle: FileSystemHandle) {
-	const permission = await handle.queryPermission({mode: 'readwrite'})
+export async function queryPermission(
+	handle: FileSystemHandle,
+	mode: FileSystemHandlePermissionDescriptor['mode'] = 'readwrite'
+) {
+	const permission = await handle.queryPermission({mode})
 
 	if (permission !== 'granted') {
-		const permission = await handle.requestPermission({mode: 'readwrite'})
+		const permission = await handle.requestPermission({mode})
 		if (permission === 'denied') throw new Error('Permission denied')
 	}
 }
@@ -124,4 +77,36 @@ export function getObjectURL(blob: Blob) {
 		urlForBlob.set(blob, url)
 	}
 	return url
+}
+
+export function assignReactive<T extends Record<string, any>>(
+	reactive: T,
+	source: T
+) {
+	for (const key of Object.keys(source)) {
+		;(reactive as any)[key] = (source as any)[key]
+	}
+}
+
+export function debouncedAsync(fn: () => Promise<void>) {
+	const isExecuting = ref(false)
+	let willExecute = false
+
+	const debouncedFn = async () => {
+		if (isExecuting.value) {
+			willExecute = true
+			return
+		}
+
+		isExecuting.value = true
+		await fn()
+		isExecuting.value = false
+
+		if (willExecute) {
+			willExecute = false
+			debouncedFn()
+		}
+	}
+
+	return {fn: debouncedFn, isExecuting: readonly(isExecuting)}
 }

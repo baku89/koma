@@ -1,0 +1,119 @@
+import {defineStore} from 'pinia'
+import {Ref} from 'vue'
+
+import {queryPermission} from '@/util'
+
+export const useBlobStore = defineStore('blobCache', () => {
+	let resolveLocalDir: (value: FileSystemDirectoryHandle) => void = () => null
+	let resolveBlobCacheDir: (value: FileSystemDirectoryHandle) => void = () =>
+		null
+
+	const localDir: Promise<FileSystemDirectoryHandle> = new Promise(resolve => {
+		resolveLocalDir = resolve
+	})
+	const blobCacheDir: Promise<FileSystemDirectoryHandle> = new Promise(
+		resolve => {
+			resolveBlobCacheDir = resolve
+		}
+	)
+
+	;(async () => {
+		const root = await navigator.storage.getDirectory()
+
+		resolveLocalDir(await root.getDirectoryHandle('local', {create: true}))
+
+		const h = await root.getDirectoryHandle('__blobCache', {
+			create: true,
+		})
+
+		for await (const key of h.keys()) {
+			h.removeEntry(key)
+		}
+
+		resolveBlobCacheDir(h)
+	})()
+
+	async function open(
+		handler: Ref<FileSystemDirectoryHandle | null>,
+		filename: string
+	) {
+		if (!handler.value) throw new Error('No directory handler')
+
+		// Read the file
+		try {
+			const fileHandle = await handler.value.getFileHandle(filename)
+			await queryPermission(fileHandle, 'read')
+			const file = await fileHandle.getFile()
+
+			// Save it to the blob  diretory and return the blob
+			const cacheName =
+				(handler.value.name ?? 'originPrivate') + '__' + filename
+
+			const cache = await blobCacheDir
+			const cacheHandle = await cache.getFileHandle(cacheName, {create: true})
+			await queryPermission(cacheHandle)
+
+			const cacheWriter = await cacheHandle.createWritable()
+			await cacheWriter.write(file)
+			await cacheWriter.close()
+
+			return await cacheHandle.getFile()
+		} catch (e) {
+			throw new Error(
+				'Could not open the file: directory=' +
+					handler.value.name +
+					' filename=' +
+					filename
+			)
+		}
+	}
+
+	const blobToFilename = new WeakMap<
+		FileSystemDirectoryHandle,
+		Map<string, WeakRef<Blob>>
+	>()
+
+	/**
+	 * Memoized function for saving a blob to a file.
+	 * @returns The filename the blob was saved to.
+	 */
+	async function save(
+		handler: Ref<FileSystemDirectoryHandle | null>,
+		filename: string,
+		blob: Blob
+	) {
+		if (!handler.value) throw new Error('No directory handler')
+
+		// Check if the blob is already saved with the same name
+		let map = blobToFilename.get(handler.value)
+
+		if (!map) {
+			map = new Map()
+			blobToFilename.set(handler.value, map)
+		}
+
+		const savedBlob = map.get(filename)?.deref()
+
+		if (savedBlob && blob === savedBlob) {
+			return filename
+		}
+
+		// Save the blob to cache
+		map.set(filename, new WeakRef(blob))
+
+		// Save it to the destination
+		const fileHandle = await handler.value.getFileHandle(filename, {
+			create: true,
+		})
+
+		await queryPermission(fileHandle)
+
+		const w = await fileHandle.createWritable()
+		await w.write(blob)
+		await w.close()
+
+		return filename
+	}
+
+	return {open, save, localDir}
+})

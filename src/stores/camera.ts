@@ -7,7 +7,8 @@ import {
 	detectCameras,
 	Tethr,
 } from 'tethr'
-import {onUnmounted, reactive, readonly, Ref, ref, shallowRef, watch} from 'vue'
+import {useAppConfigStore} from 'tweeq'
+import {onUnmounted, reactive, readonly, Ref, shallowRef, watch} from 'vue'
 
 export interface Config<T> {
 	writable: boolean
@@ -61,9 +62,11 @@ export function useConfig<N extends ConfigName>(
 export const useCameraStore = defineStore('camera', () => {
 	const tethr = shallowRef<Tethr | null>(null)
 
+	const appConfig = useAppConfigStore()
+
 	const liveviewMediaStream = shallowRef<null | MediaStream>(null)
 
-	const configPresets = ref<Partial<ConfigType>>({
+	const configs = appConfig.ref<Partial<ConfigType>>('cameraConfigs', {
 		exposureMode: 'M',
 		aperture: 4,
 		shutterSpeed: '1/30',
@@ -104,13 +107,13 @@ export const useCameraStore = defineStore('camera', () => {
 			liveviewMediaStream.value = ms
 		})
 		cam.on('change', async () => {
-			configPresets.value = {
-				...configPresets.value,
+			configs.value = {
+				...configs.value,
 				...(await tethr.value?.exportConfigs()),
 			}
 		})
-
-		cam.importConfigs(configPresets.value)
+		console.log(configs.value)
+		cam.importConfigs(configs.value)
 
 		await cam.startLiveview()
 

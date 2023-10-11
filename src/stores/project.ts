@@ -7,17 +7,18 @@ import {ConfigType} from 'tethr'
 import {computed, reactive, shallowRef, toRaw, toRefs, watch} from 'vue'
 
 import {
-	getDirectoryHandle,
+	assignReactive,
+	debouncedAsync,
 	loadJson,
 	mapToPromises,
-	openBlob,
 	queryString,
-	saveBlob,
 	saveJson,
+	showReadwriteDirectoryPicker,
 } from '@/util'
 
 import {Mat2d} from '../../dev_modules/linearly/src/mat2d'
 import {Vec2} from '../../dev_modules/linearly/src/vec2'
+import {useBlobStore} from './blobCache'
 
 /**
  * Termiology
@@ -47,6 +48,8 @@ interface Project<T = Blob> {
 		liveviewTransform: Mat2d
 		shotTransform: Mat2d
 		overlay: SVGString
+		overlayMaskOpacity: number
+		overlayLineOpacity: number
 		onionskinBlend: 'normal' | 'lighten' | 'darken' | 'difference'
 	}
 }
@@ -102,22 +105,20 @@ const emptyProject: Project = {
 			<line class="line" x1="0" y1=".5" x2="1" y2=".5" />
 			<line class="line" x1=".5" y1="0" x2=".5" y2="1" />
 		`,
+		overlayMaskOpacity: 0.5,
+		overlayLineOpacity: 1,
 		onionskinBlend: 'normal',
 	},
 }
 
 export const useProjectStore = defineStore('project', () => {
-	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
+	const blobCache = useBlobStore()
 
-	const isSavedInOriginPrivateDirectory = computed(() => {
-		return directoryHandle.value?.name === ''
-	})
+	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
 
-	navigator.storage.getDirectory().then(handler => {
-		open(handler)
-	})
+	blobCache.localDir.then(handler => open(handler))
 
 	const undoableData = computed<UndoableData>({
 		get() {
@@ -135,19 +136,15 @@ export const useProjectStore = defineStore('project', () => {
 	const history = useRefHistory(undoableData, {capacity: 400})
 
 	const allKomas = computed<Koma[]>(() => {
-		const komaNumberToFill = Math.max(
-			project.captureFrame - project.komas.length + 1,
-			0
-		)
+		const komaNumberToFill =
+			Math.max(project.captureFrame - project.komas.length + 1, 0) + 1
 
 		return [...project.komas, ...Array(komaNumberToFill).fill(null)]
 	})
 
 	// Open and Save Projects
 	async function createNew() {
-		for (const key of Object.keys(emptyProject)) {
-			;(project as any)[key] = (emptyProject as any)[key]
-		}
+		assignReactive(project, cloneDeep(emptyProject))
 
 		history.clear()
 
@@ -159,9 +156,7 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	async function open(handler?: FileSystemDirectoryHandle) {
-		directoryHandle.value = handler ?? (await getDirectoryHandle())
-
-		history.clear()
+		directoryHandle.value = handler ?? (await showReadwriteDirectoryPicker())
 
 		const flatProject = await loadJson<Project<string>>(
 			directoryHandle,
@@ -188,13 +183,13 @@ export const useProjectStore = defineStore('project', () => {
 		// merge the saved state with the default state
 		const mergedProject = defu(unflatProject, emptyProject)
 
-		for (const key of Object.keys(emptyProject)) {
-			;(project as any)[key] = (mergedProject as any)[key]
-		}
+		assignReactive(project, mergedProject)
+
+		history.clear()
 	}
 
 	async function saveAs() {
-		const handler = await getDirectoryHandle()
+		const handler = await showReadwriteDirectoryPicker()
 
 		directoryHandle.value = handler
 
@@ -205,18 +200,12 @@ export const useProjectStore = defineStore('project', () => {
 		await save()
 	}
 
-	let isSaving = false
-	async function save() {
-		if (isSaving) {
-			console.warn('Saving is already in progress')
-			return
-		}
-
-		isSaving = true
+	const {fn: save, isExecuting: isSaving} = debouncedAsync(async () => {
+		console.time('save')
 
 		try {
 			if (directoryHandle.value === null) {
-				directoryHandle.value = await navigator.storage.getDirectory()
+				directoryHandle.value = await blobCache.localDir
 			}
 
 			const flatProject: Project<string> = {
@@ -240,14 +229,16 @@ export const useProjectStore = defineStore('project', () => {
 
 			await saveJson(directoryHandle, flatProject, 'project.json')
 		} finally {
-			isSaving = false
+			console.timeEnd('save')
 		}
-	}
+	})
 
 	async function openShot(shot: Shot<string>): Promise<Shot> {
-		const lv = await openBlob(directoryHandle, shot.lv)
-		const jpg = await openBlob(directoryHandle, shot.jpg)
-		const raw = shot.raw ? await openBlob(directoryHandle, shot.raw) : undefined
+		const lv = await blobCache.open(directoryHandle, shot.lv)
+		const jpg = await blobCache.open(directoryHandle, shot.jpg)
+		const raw = shot.raw
+			? await blobCache.open(directoryHandle, shot.raw)
+			: undefined
 
 		return {...shot, lv, jpg, raw}
 	}
@@ -279,7 +270,7 @@ export const useProjectStore = defineStore('project', () => {
 		const suffix = frame.toString().padStart(4, '0')
 		const filename = `${basename}_${suffix}.${extension}`
 
-		return saveBlob(directoryHandle, filename, blob)
+		return blobCache.save(directoryHandle, filename, blob)
 	}
 
 	// Enable autosave
@@ -316,5 +307,6 @@ export const useProjectStore = defineStore('project', () => {
 		allKomas,
 		setInPoint,
 		setOutPoint,
+		isSaving,
 	}
 })

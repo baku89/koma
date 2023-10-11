@@ -1,14 +1,13 @@
 <script lang="ts" setup>
 import {useElementBounding} from '@vueuse/core'
-import {Bndr} from 'bndr-js'
-import {mat2d, Vec2, vec2} from 'linearly'
+import {mat2d, Vec2} from 'linearly'
 import {useActionsStore} from 'tweeq'
 import {computed, ref} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
-import {useBndr} from '@/use/useBndr'
+import {useZUI} from '@/use/useZUI'
 import {getObjectURL} from '@/util'
 
 import {Mat2d} from '../../dev_modules/linearly/src/mat2d'
@@ -74,39 +73,8 @@ const frameStyles = computed(() => {
 	}
 })
 
-function onTransform(delta: Mat2d) {
+useZUI($wrapper, delta => {
 	project.viewport.transform = mat2d.mul(delta, transform.value)
-}
-
-useBndr($wrapper, $wrapper => {
-	const pointer = Bndr.pointer($wrapper)
-	const keyboard = Bndr.keyboard()
-
-	const lmbPressed = pointer.left.pressed({pointerCapture: true})
-	const mmbPressed = pointer.middle.pressed({pointerCapture: true})
-	const position = pointer.position()
-	const scroll = pointer.scroll({preventDefault: true})
-
-	const altPressed = keyboard.pressed('alt')
-
-	// Pan
-	const panByDrag = position.while(mmbPressed).delta(vec2.delta)
-	const panByScroll = scroll.map(vec2.negate).while(altPressed.not, false)
-
-	Bndr.combine(panByDrag, panByScroll)
-		.map(mat2d.fromTranslation)
-		.on(onTransform)
-
-	// Zoom
-	const zoomOrigin = position.stash(
-		Bndr.combine(lmbPressed.down(), scroll.constant(true as const))
-	)
-
-	const zoomByScroll = scroll.while(altPressed, false).map(([, y]) => y)
-
-	Bndr.combine(zoomByScroll)
-		.map(delta => mat2d.fromScaling(vec2.of(1.003 ** delta), zoomOrigin.value))
-		.on(onTransform)
 })
 
 actions.register([
@@ -140,7 +108,8 @@ const onionskinAttrs = computed(() => {
 		<div ref="$wrapper" class="wrapper">
 			<div class="frame" :style="frameStyles">
 				<video
-					class="view-photo"
+					class="view-image"
+					:class="{'no-camera': !camera.tethr}"
 					:style="{
 						visibility: viewport.isLiveview ? 'visible' : 'hidden',
 					}"
@@ -151,12 +120,12 @@ const onionskinAttrs = computed(() => {
 				/>
 				<img
 					v-show="!viewport.isLiveview"
-					class="view-photo"
+					class="view-image"
 					:src="currentFrameImage"
 				/>
-				<img class="view-photo onionskin" v-bind="onionskinAttrs" />
+				<img class="view-image onionskin" v-bind="onionskinAttrs" />
 				<svg
-					class="overlay"
+					class="view-overlay"
 					viewBox="0 0 1 1"
 					preserveAspectRatio="none"
 					v-html="project.viewport.overlay"
@@ -192,15 +161,19 @@ const onionskinAttrs = computed(() => {
 .frame
 	position absolute
 	transform-origin 0 0
+	background black
 
-.view-photo
-.overlay
+.view-image
+.view-overlay
 	position absolute
 	width 100%
 	height 100%
 	object-fit cover
 
-.overlay
+.view-image.no-camera
+	background var(--tq-color-primary)
+
+.view-overlay
 	.line
 		stroke var(--tq-color-on-background)
 		stroke-width 2px

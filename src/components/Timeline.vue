@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import {Icon} from '@iconify/vue'
 import {Bndr} from 'bndr-js'
+import {ConfigType, WritableConfigNameList} from 'tethr'
 import {computed, ref} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
@@ -35,6 +36,15 @@ const previewRangeStyles = computed(() => {
 		width: `calc(${outPoint - inPoint + 1} * var(--koma-width) + 1px)`,
 	}
 })
+
+function printCameraConfigs(configs: Partial<ConfigType>) {
+	return Object.entries(configs)
+		.filter(([name]) => WritableConfigNameList.includes(name as any))
+		.map(([name, value]) => {
+			return `${name}: ${value}`
+		})
+		.join('<br />')
+}
 </script>
 
 <template>
@@ -71,6 +81,10 @@ const previewRangeStyles = computed(() => {
 				</div>
 				<div
 					v-else-if="koma && koma.shots[0]"
+					v-tooltip="{
+						content: printCameraConfigs(koma.shots[0].cameraConfigs),
+						html: true,
+					}"
 					class="captured"
 					:class="{hasRaw: koma.shots[0].raw}"
 				>
