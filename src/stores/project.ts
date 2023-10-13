@@ -1,5 +1,4 @@
 import {asyncComputed, pausableWatch, useRefHistory} from '@vueuse/core'
-import {defu} from 'defu'
 import {mat2d} from 'linearly'
 import {clamp, cloneDeep} from 'lodash'
 import {defineStore} from 'pinia'
@@ -9,6 +8,7 @@ import {computed, reactive, shallowRef, toRaw, toRefs} from 'vue'
 import {
 	assignReactive,
 	debounceAsync,
+	deepMergeExceptArray,
 	loadJson,
 	mapToPromises,
 	queryString,
@@ -31,6 +31,15 @@ import {useBlobStore} from './blobCache'
  * - unflatten data: A data that contains Blob objects
  **/
 
+export const MixBlendModeValues: MixBlendMode[] = [
+	'normal',
+	'lighten',
+	'darken',
+	'difference',
+]
+
+type MixBlendMode = 'normal' | 'lighten' | 'darken' | 'difference'
+
 interface Project<T = Blob> {
 	previewRange: [number, number]
 	onionskin: number
@@ -39,6 +48,7 @@ interface Project<T = Blob> {
 	}
 	isLooping: boolean
 	cameraConfigs: CameraConfigs
+	visibleProperties: Record<string, {visible: boolean; color: string}>
 	name: string
 	fps: number
 	captureShot: {frame: number; layer: number}
@@ -51,8 +61,12 @@ interface Project<T = Blob> {
 		overlay: SVGString
 		overlayMaskOpacity: number
 		overlayLineOpacity: number
-		onionskinBlend: 'normal' | 'lighten' | 'darken' | 'difference'
+		onionskinBlend: MixBlendMode
 	}
+	layers: {
+		opacity: number
+		mixBlendMode: MixBlendMode
+	}[]
 	audio: {
 		src?: T
 		startFrame: number
@@ -98,6 +112,15 @@ const emptyProject: Project = {
 		iso: 100,
 		colorTemperature: 5500,
 	},
+	visibleProperties: {
+		shootTime: {visible: true, color: '#ffffff'},
+		focalLength: {visible: true, color: '#ff0000'},
+		focusDistance: {visible: true, color: '#00ff00'},
+		aperture: {visible: true, color: '#0000ff'},
+		shutterSpeed: {visible: true, color: '#ffff00'},
+		iso: {visible: true, color: '#00ffff'},
+		colorTemperature: {visible: true, color: '#ff00ff'},
+	},
 	fps: 15,
 	name: 'Untitled',
 	captureShot: {frame: 0, layer: 0},
@@ -116,6 +139,7 @@ const emptyProject: Project = {
 		overlayLineOpacity: 1,
 		onionskinBlend: 'normal',
 	},
+	layers: [],
 	audio: {
 		startFrame: 0,
 	},
@@ -204,7 +228,7 @@ export const useProjectStore = defineStore('project', () => {
 
 			// In case the latest project format has more properties than the saved one,
 			// merge the saved state with the default state
-			const mergedProject = defu(unflatProject, emptyProject)
+			const mergedProject = deepMergeExceptArray(unflatProject, emptyProject)
 
 			autoSave.pause()
 			{
@@ -341,7 +365,7 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	function setShot(frame: number, layer: number, shot: Shot) {
-		while (frame < project.komas.length) {
+		while (frame >= project.komas.length) {
 			project.komas.push(null)
 		}
 
@@ -355,12 +379,26 @@ export const useProjectStore = defineStore('project', () => {
 			}
 		}
 
-		while (layer < koma.shots.length) {
+		while (layer >= koma.shots.length) {
 			// If there is not enough layer, push layers
 			koma.shots.push(null)
 		}
 
 		koma.shots[layer] = shot
+	}
+
+	function layer(layer: number) {
+		while (layer >= project.layers.length) {
+			project.layers.push({opacity: 1, mixBlendMode: 'normal'})
+		}
+
+		return project.layers[layer]
+	}
+
+	function setDuration(frames: number) {
+		while (frames >= project.komas.length) {
+			project.komas.push(null)
+		}
 	}
 
 	return {
@@ -379,5 +417,7 @@ export const useProjectStore = defineStore('project', () => {
 		isSavedToDisk,
 		shot,
 		setShot,
+		layer,
+		setDuration,
 	}
 })

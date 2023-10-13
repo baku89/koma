@@ -65,10 +65,11 @@ export const useViewportStore = defineStore('viewport', () => {
 		const {
 			fps,
 			previewRange: [inPoint, outPoint],
+			audio: {startFrame},
 		} = project
 
 		if (howl.value) {
-			const startSec = (inPoint + 150) / fps
+			const startSec = (inPoint - startFrame) / fps
 			await seekAndPlay(howl.value, startSec)
 		}
 
@@ -93,7 +94,7 @@ export const useViewportStore = defineStore('viewport', () => {
 			} else {
 				if (elapsedFrames >= duration) {
 					if (howl.value) {
-						await seekAndPlay(howl.value, (inPoint + 150) / fps)
+						await seekAndPlay(howl.value, (inPoint - startFrame) / fps)
 					}
 					startTime = now
 					elapsedFrames = 0
@@ -111,31 +112,33 @@ export const useViewportStore = defineStore('viewport', () => {
 	watch(currentFrame, currentFrame => {
 		if (!howl.value) return
 
-		scrub(howl.value, (currentFrame + 150) / project.fps, 160)
+		scrub(
+			howl.value,
+			(currentFrame - project.audio.startFrame) / project.fps,
+			1000 / 15
+		)
 	})
 
 	// Onionskin information
-	const onionskin = computed(() => {
+	const onionskin = computed<{frame: number; opacity: number}[]>(() => {
 		if (isPlaying.value || liveToggle.value || project.onionskin === 0) {
-			return null
+			return []
 		}
 
-		const frameDelta = project.onionskin < 0 ? -1 : 1
-		const frame = currentFrame.value + frameDelta
-		const shot = project.komas[frame]?.shots[0]
+		const {onionskin} = project
 
-		if (!shot) {
-			return null
+		const o = Math.abs(onionskin)
+
+		if (o <= 1) {
+			return [
+				{
+					frame: currentFrame.value + Math.sign(onionskin),
+					opacity: o,
+				},
+			]
 		}
 
-		const opacity =
-			project.onionskin % 1 === 0 ? 1 : Math.abs(project.onionskin) % 1
-
-		return {
-			opacity,
-			frame,
-			shot,
-		}
+		throw new Error('Not implemented yet')
 	})
 
 	return {

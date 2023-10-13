@@ -1,3 +1,4 @@
+import {createDefu} from 'defu'
 import {readonly, Ref, ref} from 'vue'
 
 export function mapToPromises<T, U>(
@@ -147,3 +148,10 @@ export function toTime(ms: number) {
 		.filter(Boolean)
 		.join(':')
 }
+
+export const deepMergeExceptArray = createDefu((obj, key, value) => {
+	if (Array.isArray(obj[key]) && Array.isArray(value)) {
+		obj[key] = value
+		return true
+	}
+})

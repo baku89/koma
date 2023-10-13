@@ -6282,6 +6282,11 @@ walker@^1.0.8:
   dependencies:
     makeerror "1.0.12"
 
+wavesurfer.js@^7.3.4:
+  version "7.3.4"
+  resolved "https://registry.yarnpkg.com/wavesurfer.js/-/wavesurfer.js-7.3.4.tgz#294a322b70ae3748f59bc9b0e9de92413f21f49c"
+  integrity sha512-x2Ue4Dh+4RoaWay3LOLHhXgkdxPAIoC/BcbXh0yk8WNhQH2NboPoa52XXoCo4jEfjSe1bc7nxuM5vBIxUMZyBA==
+
 webidl-conversions@^4.0.2:
   version "4.0.2"
   resolved "https://registry.yarnpkg.com/webidl-conversions/-/webidl-conversions-4.0.2.tgz#a855980b1f0b6b359ba1d5d9fb39ae941faa63ad"

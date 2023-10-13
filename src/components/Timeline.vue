@@ -5,10 +5,12 @@ import Tq from 'tweeq'
 import {useBndr} from 'tweeq'
 import {computed, ref} from 'vue'
 
-import {useProjectStore} from '@/stores/project'
+import {MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 
 import Koma from './Koma.vue'
+import TimelineGraph from './TimelineGraph.vue'
+import TimelineWaveform from './TimelineWaveform.vue'
 
 const project = useProjectStore()
 const viewport = useViewportStore()
@@ -20,7 +22,7 @@ const komaWidth = computed(() => {
 })
 
 const visibleRegion = computed(() => {
-	return {left: viewport.currentFrame * komaWidth.value, width: komaWidth.value}
+	return {left: viewport.previewFrame * komaWidth.value, width: komaWidth.value}
 })
 
 useBndr($frameMeasure, el => {
@@ -41,6 +43,15 @@ function onZoomTimeline(factor: number) {
 	)
 }
 
+const layers = computed(() => {
+	const komaLayerCounts = project.komas.map(koma => koma?.shots.length ?? 0)
+	const layerCount = Math.max(...komaLayerCounts, project.captureShot.layer + 1)
+
+	return Array(layerCount)
+		.fill(0)
+		.map((_, i) => project.layer(i))
+})
+
 //------------------------------------------------------------------------------
 // Styles
 
@@ -57,58 +68,107 @@ const previewRangeStyles = computed(() => {
 		width: `calc(${outPoint - inPoint + 1} * var(--koma-width) + 1px)`,
 	}
 })
+
+const vizStyles = computed(() => {
+	return {
+		top: `calc(var(--header-height) + var(--header-margin-bottom) + var(--koma-height) * ${layers.value.length})`,
+	}
+})
 </script>
 
 <template>
-	<Tq.Timeline :visibleRegion="visibleRegion" @zoomHorizontal="onZoomTimeline">
-		<div
-			class="Timeline"
-			:style="{
-				'--koma-width': komaWidth + 'px',
-				width: `calc(${project.allKomas.length} * var(--koma-width))`,
-			}"
+	<div class="Timeline">
+		<aside>
+			<div v-for="(layer, i) in layers" :key="i" class="layer-control">
+				<Tq.InputDropdown
+					:modelValue="layer.mixBlendMode"
+					:options="MixBlendModeValues"
+					@update:modelValue="project.layers[i].mixBlendMode = $event"
+				/>
+				<Tq.InputNumber
+					:modelValue="layer.opacity * 100"
+					:min="0"
+					:max="100"
+					:precision="0"
+					suffix="%"
+					@update:modelValue="project.layers[i].opacity = $event / 100"
+				/>
+			</div>
+		</aside>
+		<Tq.Timeline
+			:visibleRegion="visibleRegion"
+			@zoomHorizontal="onZoomTimeline"
 		>
-			<div ref="$frameMeasure" class="frameMeasure" />
-			<div class="seekbar" :style="seekbarStyles">
-				{{ viewport.previewFrame }}
+			<div
+				class="komas"
+				:style="{
+					'--koma-width': komaWidth + 'px',
+					width: `calc(${project.allKomas.length} * var(--koma-width))`,
+				}"
+			>
+				<div ref="$frameMeasure" class="frameMeasure" />
+				<div class="seekbar" :style="seekbarStyles">
+					{{ viewport.previewFrame }}
+				</div>
+				<div class="previewRange" :style="previewRangeStyles" />
+				<div v-for="(_, frame) in project.allKomas" :key="frame" class="koma">
+					<div class="koma-header tq-font-numeric">{{ frame }}</div>
+					<Koma :frame="frame" />
+				</div>
 			</div>
-			<div class="previewRange" :style="previewRangeStyles" />
-			<div v-for="(_, frame) in project.allKomas" :key="frame" class="koma">
-				<div class="koma-header tq-font-numeric">{{ frame }}</div>
-				<Koma :frame="frame" />
+			<div class="viz" :style="vizStyles">
+				<TimelineWaveform />
+				<TimelineGraph />
 			</div>
-		</div>
-		<template #scrollbarRight>
-			<Tq.InputNumber
-				:modelValue="project.timeline.zoomFactor * 100"
-				:min="20"
-				:max="200"
-				suffix="%"
-				:barOrigin="100"
-				:step="1"
-				style="width: 7em"
-				@update:modelValue="project.timeline.zoomFactor = $event / 100"
-			/>
-		</template>
-	</Tq.Timeline>
+			<template #scrollbarRight>
+				<Tq.InputNumber
+					:modelValue="project.timeline.zoomFactor * 100"
+					:min="10"
+					:max="200"
+					suffix="%"
+					:barOrigin="100"
+					:step="1"
+					style="width: 7em"
+					@update:modelValue="project.timeline.zoomFactor = $event / 100"
+				/>
+			</template>
+		</Tq.Timeline>
+	</div>
 </template>
 
 <style lang="stylus" scoped>
+
 .Timeline
-	position relative
-	display flex
-	height 100%
-	overflow hidden
+	display grid
+	grid-template-columns 100px 1fr
 
 	--koma-width 80px
 	--koma-height 53px
 	--header-height 14px
+	--header-margin-bottom 6px
+
+aside
+	padding-top calc(var(--header-height) + var(--header-margin-bottom))
+
+.layer-control
+	--tq-input-height 20px
+	height var(--koma-height)
+	padding 0 9px
+	display flex
+	flex-direction column
+	gap 4px
+	justify-content center
+
+.komas
+	position relative
+	display flex
+	height 100%
 
 .frameMeasure
 	position absolute
 	top 0
 	width 100%
-	height 24px
+	height var(--header-height)
 	background-image linear-gradient(to right, var(--tq-color-on-background) 1px, transparent 1px, transparent var(--koma-width))
 	background-size var(--koma-width) 14px
 	background-repeat repeat-x
@@ -140,7 +200,6 @@ header-frame-text-style()
 		width var(--koma-width)
 		background var(--tq-color-primary)
 		z-index -1
-		border-radius 0 999px 0 0
 
 .previewRange
 	position absolute
@@ -164,5 +223,11 @@ header-frame-text-style()
 	width var(--koma-width)
 	height var(--header-height)
 	border-left 1px solid var(--tq-color-on-background)
-	margin-bottom 6px
+	margin-bottom var(--header-margin-bottom)
+
+.viz
+	position absolute
+	bottom 0
+	width 100%
+	z-index -1
 </style>

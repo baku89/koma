@@ -10,6 +10,9 @@ const camera = useCameraStore()
 
 <template>
 	<Tq.ParameterHeading>Camera Control</Tq.ParameterHeading>
+	<Tq.Parameter label="Mode" icon="material-symbols:settings-photo-camera">
+		<TethrConfig :config="camera.exposureMode" />
+	</Tq.Parameter>
 	<Tq.Parameter label="Exp." icon="material-symbols:exposure">
 		<TethrConfig :config="camera.exposureComp" />
 	</Tq.Parameter>

@@ -4,41 +4,20 @@ import {mat2d, Vec2} from 'linearly'
 import {useActionsStore} from 'tweeq'
 import {computed, ref} from 'vue'
 
-import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 import {useZUI} from '@/use/useZUI'
-import {getObjectURL} from '@/util'
 
 import {Mat2d} from '../../dev_modules/linearly/src/mat2d'
+import ViewportKoma from './ViewportKoma.vue'
 
 const actions = useActionsStore()
 const project = useProjectStore()
 const viewport = useViewportStore()
-const camera = useCameraStore()
-
-const transparent =
-	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
 
 const $wrapper = ref<HTMLElement | null>(null)
 
 const bound = useElementBounding($wrapper)
-
-const currentFrameImages = computed(() => {
-	if (viewport.isLiveview) return [transparent]
-
-	const shots = project.komas[viewport.previewFrame]?.shots
-	if (!shots) return [transparent]
-
-	return shots
-		.flatMap(shot => {
-			if (!shot) return []
-			return viewport.enableHiRes ? [shot.jpg] : [shot.lv]
-		})
-		.map(getObjectURL)
-
-	// return getObjectURL(viewport.enableHiRes ? frame.jpg : frame.lv)
-})
 
 const transform = computed<Mat2d>(() => {
 	if (project.viewport.transform === 'fit') {
@@ -95,46 +74,13 @@ actions.register([
 		},
 	},
 ])
-
-const onionskinAttrs = computed(() => {
-	if (!viewport.onionskin) return {style: {display: 'none'}}
-
-	const {shot, opacity} = viewport.onionskin
-
-	return {
-		src: getObjectURL(viewport.enableHiRes ? shot.jpg : shot.lv),
-		style: {
-			opacity,
-			mixBlendMode: 'normal' as any,
-		},
-	}
-})
 </script>
 
 <template>
 	<div class="Viewport" :class="{liveview: viewport.isLiveview}">
 		<div ref="$wrapper" class="wrapper">
 			<div class="frame" :style="frameStyles">
-				<video
-					class="view-image"
-					:class="{'no-camera': !camera.tethr}"
-					:style="{
-						visibility: viewport.isLiveview ? 'visible' : 'hidden',
-					}"
-					:srcObject.prop="camera.liveviewMediaStream"
-					autoplay
-					muted
-					playsinline
-				/>
-				<img
-					v-for="(src, i) in currentFrameImages"
-					v-show="!viewport.isLiveview"
-					:key="src"
-					class="view-image"
-					:class="{over: i > 0}"
-					:src="src"
-				/>
-				<img class="view-image onionskin" v-bind="onionskinAttrs" />
+				<ViewportKoma class="koma" :frame="viewport.previewFrame" />
 				<svg
 					class="view-overlay"
 					viewBox="0 0 1 1"
@@ -174,21 +120,14 @@ const onionskinAttrs = computed(() => {
 	transform-origin 0 0
 	background black
 
-.view-image
 .view-overlay
 	position absolute
+	top 0
+	left 0
 	width 100%
 	height 100%
-	object-fit cover
+	pointer-events none
 
-.no-camera
-	background var(--tq-color-primary)
-
-.over
-	mix-blend-mode lighten
-
-
-.view-overlay
 	.line
 		stroke var(--tq-color-on-background)
 		stroke-width 2px

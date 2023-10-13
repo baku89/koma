@@ -44,6 +44,80 @@ actions.onBeforePerform(action => {
 })
 
 //------------------------------------------------------------------------------
+
+async function shoot(): Promise<Shot> {
+	if (!camera.tethr) {
+		throw new Error('No camera is coonnected')
+	}
+
+	const {tethr} = camera
+
+	try {
+		viewport.popup = {
+			type: 'progress',
+			progress: 0,
+		}
+
+		playSound('sound/Camera-Phone03-1.mp3')
+		const captureDate = new Date().getTime()
+
+		const cameraConfigs = await tethr.exportConfigs()
+
+		const lv = await tethr.getLiveViewImage()
+		if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
+
+		viewport.popup = {
+			type: 'progress',
+			progress: 0.1,
+		}
+
+		const onProgress = ({progress}: {progress: number}) => {
+			viewport.popup = {
+				type: 'progress',
+				progress: scalar.lerp(0.1, 1, progress),
+			}
+		}
+		tethr.on('progress', onProgress)
+
+		const result = await tethr.takePhoto()
+
+		tethr.off('progress', onProgress)
+
+		let jpg: Blob | undefined
+		let raw: Blob | undefined
+
+		if (result.status === 'ok') {
+			for (const object of result.value) {
+				const format = String(object.format)
+
+				if (/jpe?g/.test(format)) {
+					jpg = object.blob
+				} else {
+					raw = object.blob
+				}
+			}
+		}
+
+		if (!jpg) throw new Error('No JPEG image found')
+
+		if (new Date().getTime() - captureDate > 500) {
+			playSound('sound/Accent36-1.mp3')
+		}
+
+		return {
+			jpg,
+			raw,
+			lv: lv.value,
+			cameraConfigs,
+			shootTime: timer.current,
+			captureDate,
+		}
+	} finally {
+		viewport.popup = null
+	}
+}
+
+//------------------------------------------------------------------------------
 actions.register([
 	{
 		id: 'create_new',
@@ -86,94 +160,24 @@ actions.register([
 		icon: 'mdi:circle',
 		input: ['enter', 'gamepad:r'],
 		async perform() {
-			if (!camera.tethr) {
-				alert('No camera is coonnected')
-				return
-			}
+			const newShot = await shoot()
 
-			const {tethr} = camera
+			project.$patch(state => {
+				const {frame, layer} = state.captureShot
+				project.setShot(frame, layer, newShot)
 
-			try {
-				viewport.popup = {
-					type: 'progress',
-					progress: 0,
-				}
-
-				playSound('sound/Camera-Phone03-1.mp3')
-				const timeStart = new Date().getTime()
-
-				const cameraConfigs = await tethr.exportConfigs()
-
-				const lv = await tethr.getLiveViewImage()
-				if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
-
-				viewport.popup = {
-					type: 'progress',
-					progress: 0.1,
-				}
-
-				const onProgress = ({progress}: {progress: number}) => {
-					viewport.popup = {
-						type: 'progress',
-						progress: scalar.lerp(0.1, 1, progress),
-					}
-				}
-				tethr.on('progress', onProgress)
-
-				const result = await tethr.takePhoto()
-
-				tethr.off('progress', onProgress)
-
-				let jpg: Blob | undefined
-				let raw: Blob | undefined
-
-				if (result.status === 'ok') {
-					for (const object of result.value) {
-						const format = String(object.format)
-
-						if (/jpe?g/.test(format)) {
-							jpg = object.blob
-						} else {
-							raw = object.blob
-						}
+				// Find next empty frame
+				for (let i = frame + 1; i <= state.komas.length; i++) {
+					if (!state.komas[i] || !state.komas[i]?.shots[0]) {
+						state.captureShot = {frame: i, layer: 0}
+						break
 					}
 				}
 
-				if (!jpg) return
+				state.previewRange[1] = state.captureShot.frame
+			})
 
-				const newShot: Shot = {
-					jpg,
-					raw,
-					lv: lv.value,
-					cameraConfigs,
-					shootTime: timer.current,
-					captureDate: new Date().getTime(),
-				}
-
-				project.$patch(state => {
-					const {frame, layer} = state.captureShot
-
-					project.setShot(frame, layer, newShot)
-
-					// Find next empty frame
-					for (let i = frame + 1; i <= state.komas.length; i++) {
-						if (!state.komas[i] || !state.komas[i]?.shots[0]) {
-							state.captureShot = {frame: i, layer: 0}
-							break
-						}
-					}
-
-					state.previewRange[1] = state.captureShot.frame
-				})
-
-				viewport.currentFrame = project.captureShot.frame
-
-				if (new Date().getTime() - timeStart > 500) {
-					playSound('sound/Accent36-1.mp3')
-				}
-			} finally {
-				viewport.popup = null
-			}
+			viewport.currentFrame = project.captureShot.frame
 		},
 	},
 	{
@@ -282,8 +286,14 @@ actions.register([
 			const src = await files[0].getFile()
 
 			project.$patch({audio: {src, startFrame: 0}})
-
-			new Howl({src: [URL.createObjectURL(src)], format: ['wav']}).play()
+		},
+	},
+	{
+		id: 'set_project_duration',
+		icon: 'tabler:keyframes-filled',
+		async perform() {
+			const duration = parseInt(window.prompt('Set project duration') ?? '0')
+			project.setDuration(duration)
 		},
 	},
 ])
@@ -348,6 +358,7 @@ actions.register([
 
 .timeline
 	padding-top var(--tq-pane-padding)
+	padding-left var(--tq-pane-padding)
 	width 100%
 	height 100%
 </style>

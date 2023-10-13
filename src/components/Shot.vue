@@ -6,11 +6,9 @@ import {WritableConfigNameList} from 'tethr'
 import {computed} from 'vue'
 
 import {Shot, useProjectStore} from '@/stores/project'
-import {useViewportStore} from '@/stores/viewport'
 import {getObjectURL, toTime} from '@/util'
 
 const project = useProjectStore()
-const viewport = useViewportStore()
 
 interface Props {
 	frame: number
@@ -57,11 +55,7 @@ function printShotInfo(shot: Shot) {
 </script>
 
 <template>
-	<div
-		class="shot"
-		:class="{onionskin: frame === viewport.onionskin?.frame}"
-		@dblclick="project.captureShot = {frame, layer}"
-	>
+	<div class="Shot" @dblclick="project.captureShot = {frame, layer}">
 		<div
 			v-if="
 				frame === project.captureShot.frame &&
@@ -92,7 +86,7 @@ function printShotInfo(shot: Shot) {
 </template>
 
 <style scoped lang="stylus">
-.shot
+.Shot
 	position relative
 	flex 0 0 var(--koma-width)
 	margin-left 1px

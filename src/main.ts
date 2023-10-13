@@ -14,13 +14,14 @@ app.use(pinia)
 app.use(FloatingVue)
 app.mount('#app')
 
-// Prevent pinch zooming on tablets
-window.addEventListener(
-	'touchstart',
-	e => {
-		if (e.touches.length > 1) {
-			e.preventDefault()
-		}
-	},
-	{passive: false}
-)
+const xr = navigator.xr
+
+console.log(xr)
+
+const session = await xr.requestSession('inline')
+
+console.log(session)
+
+session.addEventListener('inputsourceschange', event => {
+	console.log(event)
+})
