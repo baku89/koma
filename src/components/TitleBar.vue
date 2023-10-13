@@ -5,6 +5,7 @@ import prettyBytes from 'pretty-bytes'
 import Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 
+import {useAuxStore} from '@/stores/aux'
 import {useBlobStore} from '@/stores/blobCache'
 import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
@@ -17,6 +18,7 @@ const viewport = useViewportStore()
 const project = useProjectStore()
 const camera = useCameraStore()
 const timer = useTimerStore()
+const aux = useAuxStore()
 
 const gamepads = ref<string[]>([])
 
@@ -116,9 +118,22 @@ const destinationInfo = computed(() => {
 				@click="camera.toggleConnection"
 			/>
 			<Tq.IconIndicator
-				v-tooltip="{content: gamepads.join('<br />'), html: true}"
+				v-tooltip="{
+					content:
+						gamepads.length > 0
+							? gamepads.join('<br />')
+							: 'No Gamepad Connected',
+					html: true,
+				}"
 				:active="gamepads.length > 0"
 				icon="solar:gamepad-bold"
+			/>
+			<Tq.IconIndicator
+				v-tooltip="
+					aux.tracker.enabled ? 'Tracker Connected' : 'No Tracker Available'
+				"
+				icon="tabler:gizmo"
+				:active="aux.tracker.enabled"
 			/>
 		</template>
 	</Tq.TitleBar>

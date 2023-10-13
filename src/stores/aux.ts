@@ -1,5 +1,6 @@
 import {quat} from 'linearly'
 import {defineStore} from 'pinia'
+import {computed} from 'vue'
 
 import {useOscStore} from './osc'
 
@@ -25,6 +26,9 @@ export const useAuxStore = defineStore('aux', () => {
 	})
 
 	return {
-		tracker,
+		tracker: {
+			...tracker,
+			enabled: computed(() => osc.connected && tracker.enabled.value),
+		},
 	}
 })

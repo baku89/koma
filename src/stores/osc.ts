@@ -31,8 +31,6 @@ export const useOscStore = defineStore('osc', () => {
 	const osc = new OSC()
 	const oscRef = ref<OSC | null>(null)
 
-	console.log('!!!')
-
 	let reconnectTimer: NodeJS.Timeout
 
 	watch(
@@ -51,7 +49,6 @@ export const useOscStore = defineStore('osc', () => {
 	)
 
 	osc.on('open', () => {
-		console.log('OPEN!!')
 		clearInterval(reconnectTimer)
 		oscRef.value = osc
 	})
@@ -80,8 +77,6 @@ export const useOscStore = defineStore('osc', () => {
 		scheme: S
 	): OscMessageResult<S> {
 		return mapValues(scheme, option => {
-			console.log(scheme)
-
 			return computed(() => {
 				// TODO: check if the type of messages is correct
 				return (receivedMessages as any).value[option.address] ?? option.default
