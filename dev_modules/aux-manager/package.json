@@ -1,0 +1,17 @@
+{
+	"name": "aux-manager",
+	"version": "0.0.0",
+	"description": "\"A Node.js module to manage auxillary devices for Koma app, which includes OSC forwarding and VR device fetching\"",
+	"author": "Baku Hashimoto <mail@baku89.com>",
+	"scripts": {
+		"start": "node index.js"
+	},
+	"license": "MIT",
+	"private": true,
+	"dependencies": {
+		"fps": "^0.0.3",
+		"linearly": "^0.17.0",
+		"lodash": "^4.17.21",
+		"osc-js": "^2.4.0"
+	}
+}

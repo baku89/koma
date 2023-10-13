@@ -12,6 +12,7 @@ import {useTimerStore} from '@/stores/timer'
 import {useViewportStore} from '@/stores/viewport'
 
 import CameraControl from './CameraControl.vue'
+import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer.vue'
 import Timeline from './Timeline.vue'
 import TitleBar from './TitleBar.vue'
 import Viewport from './Viewport.vue'
@@ -310,7 +311,9 @@ actions.register([
 						<template #first>
 							<Viewport class="viewport" />
 						</template>
-						<template #second> 3D View </template>
+						<template #second>
+							<CameraTrajectoryVisualizer />
+						</template>
 					</Tq.PaneSplit>
 				</template>
 				<template #second>
