@@ -47,7 +47,6 @@ const position = computed(() => {
 
 const euler = computed(() => {
 	const q = new THREE.Quaternion(...tracker.rotation)
-
 	const euler = new THREE.Euler().setFromQuaternion(q)
 	const [x, y, z] = euler.toArray().slice(0, 3) as any
 	return {x, y, z}
@@ -80,23 +79,6 @@ const origin = appConfig.ref<Mat4>('tracker.origin', mat4.ident)
 const cameraAxisY = appConfig.ref<Vec3>('tracker.yAxis', vec3.unitY)
 const cameraAxisX = appConfig.ref<Vec3>('tracker.xAxis', vec3.unitX)
 
-// const calibrationMatrix = computed(() => {
-// const zAxis = vec3.cross(cameraAxisX.value, cameraAxisY.value)
-
-// 	const m = mat4.of(
-// 		...cameraAxisX.value,
-// 		0,
-// 		...cameraAxisY.value,
-// 		0,
-// 		...zAxis,
-// 		0,
-// 		...origin.value,
-// 		1
-// 	)
-
-// 	return mat4.invert(m) ?? mat4.identity
-// })
-
 function setOrigin() {
 	origin.value = matrix.value
 }
@@ -113,7 +95,6 @@ function setPan() {
 	originInv[14] = 0
 
 	cameraAxisY.value = vec3.transformMat4(up, originInv)
-	// cameraAxisY.value = up
 }
 
 function setTilt() {
