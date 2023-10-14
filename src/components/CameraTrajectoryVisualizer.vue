@@ -73,11 +73,11 @@ onMounted(() => {
 // Calibration
 
 const groundLevel = appConfig.ref('groundLevel', 0)
-const origin = appConfig.ref<Mat4>('tracker.origin', mat4.ident)
+const origin = appConfig.ref<Mat4>('tracker.origin', mat4.identity)
 
 // Camera coordinate system relative to the tracker
-const cameraAxisY = appConfig.ref<Vec3>('tracker.yAxis', vec3.unitY)
-const cameraAxisX = appConfig.ref<Vec3>('tracker.xAxis', vec3.unitX)
+const cameraAxisY = appConfig.ref<Vec3>('tracker.yAxis', [0, 1, 0])
+const cameraAxisX = appConfig.ref<Vec3>('tracker.xAxis', [1, 0, 0])
 
 function setOrigin() {
 	origin.value = matrix.value

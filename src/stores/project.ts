@@ -406,7 +406,7 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	function shot(frame: number, layer: number): Shot | null {
-		return project.komas[frame].shots?.at(layer) ?? null
+		return project.komas[frame]?.shots?.at(layer) ?? null
 	}
 
 	function setShot(frame: number, layer: number, shot: Shot) {
