@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import {useElementBounding} from '@vueuse/core'
-import {mat2d, Vec2} from 'linearly'
+import {Mat2d, mat2d, Vec2} from 'linearly'
 import {useActionsStore} from 'tweeq'
 import {computed, ref} from 'vue'
 
@@ -8,7 +8,6 @@ import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 import {useZUI} from '@/use/useZUI'
 
-import {Mat2d} from '../../dev_modules/linearly/src/mat2d'
 import ViewportKoma from './ViewportKoma.vue'
 
 const actions = useActionsStore()

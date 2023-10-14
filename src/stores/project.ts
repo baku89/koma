@@ -1,5 +1,5 @@
 import {asyncComputed, pausableWatch, useRefHistory} from '@vueuse/core'
-import {mat2d} from 'linearly'
+import {Mat2d, mat2d, Vec2} from 'linearly'
 import {clamp, cloneDeep} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
@@ -17,8 +17,6 @@ import {
 	singleAsync,
 } from '@/util'
 
-import {Mat2d} from '../../dev_modules/linearly/src/mat2d'
-import {Vec2} from '../../dev_modules/linearly/src/vec2'
 import {useBlobStore} from './blobCache'
 
 /**

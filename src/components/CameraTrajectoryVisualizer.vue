@@ -20,7 +20,6 @@ import {computed, onMounted, shallowRef} from 'vue'
 import {useAuxStore} from '@/stores/aux'
 import {useOscStore} from '@/stores/osc'
 
-import {MutableMat4} from '../../dev_modules/linearly/src/mat4'
 import Axis from './Axis.vue'
 
 const {tracker} = useAuxStore()
@@ -78,8 +77,8 @@ const groundLevel = appConfig.ref('groundLevel', 0)
 const origin = appConfig.ref<Mat4>('tracker.origin', mat4.ident)
 
 // Camera coordinate system relative to the tracker
-const cameraAxisY = appConfig.ref<Vec3>('tracker.yAxis', vec3.yAxis)
-const cameraAxisX = appConfig.ref<Vec3>('tracker.xAxis', vec3.xAxis)
+const cameraAxisY = appConfig.ref<Vec3>('tracker.yAxis', vec3.unitY)
+const cameraAxisX = appConfig.ref<Vec3>('tracker.xAxis', vec3.unitX)
 
 // const calibrationMatrix = computed(() => {
 // const zAxis = vec3.cross(cameraAxisX.value, cameraAxisY.value)
@@ -102,14 +101,12 @@ function setOrigin() {
 	origin.value = matrix.value
 }
 function setPan() {
-	const p0 = vec3.transformQuat(vec3.xAxis, mat4.getRotation(origin.value))
-	const p1 = vec3.transformQuat(vec3.xAxis, mat4.getRotation(matrix.value))
+	const p0 = vec3.transformQuat(vec3.unitX, mat4.getRotation(origin.value))
+	const p1 = vec3.transformQuat(vec3.unitX, mat4.getRotation(matrix.value))
 
 	const up = vec3.normalize(vec3.cross(p0, p1))
 
-	const originInv = [
-		...(mat4.invert(origin.value) ?? mat4.identity),
-	] as MutableMat4
+	const originInv = mat4.clone(mat4.invert(origin.value) ?? mat4.identity)
 
 	originInv[12] = 0
 	originInv[13] = 0
