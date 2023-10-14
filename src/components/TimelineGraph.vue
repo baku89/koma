@@ -12,50 +12,49 @@ const timer = useTimerStore()
 const camera = useCameraStore()
 
 const shootTime = computed(() => {
-	return project.allKomas.map(
-		koma =>
-			koma?.shots.reduce((acc, shot) => acc + (shot?.shootTime ?? 0), 0) ?? null
+	return project.allKomas.map(koma =>
+		koma.shots.reduce((acc, shot) => acc + (shot?.shootTime ?? 0), 0)
 	)
 })
 
 const focalLength = computed(() => {
 	return project.allKomas.map(koma => {
-		const value = koma?.shots[0]?.cameraConfigs.focalLength
+		const value = koma.shots[0]?.cameraConfigs.focalLength
 		return typeof value === 'number' ? value : null
 	})
 })
 
 const focusDistance = computed(() => {
 	return project.allKomas.map(koma => {
-		const value = koma?.shots[0]?.cameraConfigs.focusDistance
+		const value = koma.shots[0]?.cameraConfigs.focusDistance
 		return typeof value === 'number' ? value : null
 	})
 })
 
 const aperture = computed(() => {
 	return project.allKomas.map(koma => {
-		const value = koma?.shots[0]?.cameraConfigs.aperture
+		const value = koma.shots[0]?.cameraConfigs.aperture
 		return logValue(value, true)
 	})
 })
 
 const shutterSpeed = computed(() => {
 	return project.allKomas.map(koma => {
-		const value = koma?.shots[0]?.cameraConfigs.shutterSpeed
+		const value = koma.shots[0]?.cameraConfigs.shutterSpeed
 		return shutterSpeedToString(value)
 	})
 })
 
 const iso = computed(() => {
 	return project.allKomas.map(koma => {
-		const value = koma?.shots[0]?.cameraConfigs.iso
+		const value = koma.shots[0]?.cameraConfigs.iso
 		return logValue(value)
 	})
 })
 
 const colorTemperature = computed(() => {
 	return project.allKomas.map(koma => {
-		return koma?.shots[0]?.cameraConfigs.colorTemperature ?? null
+		return koma.shots[0]?.cameraConfigs.colorTemperature ?? null
 	})
 })
 

@@ -5,7 +5,7 @@ import {ConfigName, WhiteBalance} from 'tethr'
 import Tq from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
-import {Config} from '@/use/useTethr'
+import {Config} from '@/stores/camera'
 
 interface Props {
 	config: Config<T>

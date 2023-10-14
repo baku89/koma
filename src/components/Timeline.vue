@@ -44,7 +44,7 @@ function onZoomTimeline(factor: number) {
 }
 
 const layers = computed(() => {
-	const komaLayerCounts = project.komas.map(koma => koma?.shots.length ?? 0)
+	const komaLayerCounts = project.komas.map((_, i) => project.layerCount(i))
 	const layerCount = Math.max(...komaLayerCounts, project.captureShot.layer + 1)
 
 	return Array(layerCount)

@@ -1,11 +1,24 @@
 import {createDefu} from 'defu'
 import {readonly, Ref, ref} from 'vue'
 
-export function mapToPromises<T, U>(
+export function mapPromises<T, U>(
 	array: T[],
 	fn: (item: T, index: number) => Promise<U> | U
 ): Promise<U[]> {
 	return Promise.all(array.map(fn))
+}
+
+export async function mapValuePromises<T, U>(
+	object: Record<string, T>,
+	fn: (item: T, key: string) => Promise<U> | U
+): Promise<Record<string, U>> {
+	const entries = await Promise.all(
+		Object.entries(object).map(async ([key_1, value_1]) => {
+			const result = await fn(value_1, key_1)
+			return [key_1, result] as const
+		})
+	)
+	return Object.fromEntries(entries)
 }
 
 export function queryString(query: Record<string, string | number>) {

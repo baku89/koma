@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import {range} from 'lodash'
 import {computed} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
@@ -13,12 +14,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const layerIndices = computed(() => {
-	const count = project.allKomas[props.frame]?.shots.length ?? 0
-	return Array(count + 1)
-		.fill(0)
-		.map((_, i) => i)
-})
+const layerIndices = computed(() => range(project.layerCount(props.frame)))
 </script>
 
 <template>

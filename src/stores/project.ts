@@ -1,5 +1,5 @@
 import {asyncComputed, pausableWatch, useRefHistory} from '@vueuse/core'
-import {Mat2d, mat2d, Vec2} from 'linearly'
+import {Mat2d, mat2d, Quat, Vec2, Vec3} from 'linearly'
 import {clamp, cloneDeep} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
@@ -10,7 +10,8 @@ import {
 	debounceAsync,
 	deepMergeExceptArray,
 	loadJson,
-	mapToPromises,
+	mapPromises,
+	mapValuePromises,
 	queryString,
 	saveJson,
 	showReadwriteDirectoryPicker,
@@ -39,19 +40,22 @@ export const MixBlendModeValues: MixBlendMode[] = [
 type MixBlendMode = 'normal' | 'lighten' | 'darken' | 'difference'
 
 interface Project<T = Blob> {
-	previewRange: [number, number]
-	onionskin: number
-	timeline: {
-		zoomFactor: number
-	}
-	isLooping: boolean
-	cameraConfigs: CameraConfigs
-	visibleProperties: Record<string, {visible: boolean; color: string}>
 	name: string
 	fps: number
 	captureShot: {frame: number; layer: number}
+	previewRange: [number, number]
+	onionskin: number
 	komas: Koma<T>[]
 	resolution: Vec2
+	timeline: {
+		zoomFactor: number
+		markerSounds: Record<string, T>
+		drawing: PaperJSData
+	}
+	isLooping: boolean
+	ShootCondition: JSCode
+	cameraConfigs: CameraConfigs
+	visibleProperties: Record<string, {visible: boolean; color: string}>
 	viewport: {
 		transform: Mat2d | 'fit'
 		liveviewTransform: Mat2d
@@ -74,16 +78,31 @@ interface Project<T = Blob> {
 type UndoableData = Pick<Project, 'komas' | 'captureShot'>
 
 type SVGString = string
+type PaperJSData = any
+type JSCode = string
 
 type CameraConfigs = Partial<ConfigType>
 
-type Koma<T = Blob> = EmptyKoma | CapturedKoma<T>
-
-type EmptyKoma = null
-
-interface CapturedKoma<T = Blob> {
+interface Koma<T = Blob> {
 	shots: (Shot<T> | null)[]
-	backupShots: Shot<T>[]
+	backupShots?: Shot<T>[]
+	target?: {
+		cameraConfigs?: CameraConfigs
+		tracker?: {
+			position: Vec3
+			rotation: Quat
+		}
+		dmx?: number[]
+	}
+	markers?: Marker[]
+}
+
+interface Marker {
+	label: string
+	verticalPosition: number
+	duration: number
+	color: string
+	sound?: string
 }
 
 export interface Shot<T = Blob> {
@@ -91,17 +110,27 @@ export interface Shot<T = Blob> {
 	jpg: T
 	raw?: T
 	cameraConfigs: CameraConfigs
+	tracker?: {
+		position: Vec3
+		rotation: Quat
+	}
+	dmx?: number[]
 	shootTime?: number
 	captureDate?: number
 }
 
 const emptyProject: Project = {
+	name: 'Untitled',
+	fps: 15,
 	previewRange: [0, 0],
 	onionskin: 0,
 	timeline: {
 		zoomFactor: 1,
+		markerSounds: {},
+		drawing: null,
 	},
 	isLooping: false,
+	ShootCondition: '() => true',
 	cameraConfigs: {
 		focalLength: 50,
 		focusDistance: 24,
@@ -119,8 +148,6 @@ const emptyProject: Project = {
 		iso: {visible: true, color: '#00ffff'},
 		colorTemperature: {visible: true, color: '#ff00ff'},
 	},
-	fps: 15,
-	name: 'Untitled',
 	captureShot: {frame: 0, layer: 0},
 	komas: [],
 	resolution: [1920, 1280],
@@ -177,7 +204,12 @@ export const useProjectStore = defineStore('project', () => {
 		const komaNumberToFill =
 			Math.max(project.captureShot.frame - project.komas.length + 1, 0) + 1
 
-		return [...project.komas, ...Array(komaNumberToFill).fill(null)]
+		return [
+			...project.komas,
+			...Array(komaNumberToFill)
+				.fill(null)
+				.map(() => ({shots: []})),
+		]
 	})
 
 	// Open and Save Projects
@@ -204,15 +236,23 @@ export const useProjectStore = defineStore('project', () => {
 
 			const unflatProject: Project<Blob> = {
 				...flatProject,
-				komas: await mapToPromises(flatProject.komas, async koma => {
-					if (koma === null) return null
+				timeline: {
+					...flatProject.timeline,
 
-					const shots = await mapToPromises(koma.shots, shot => {
+					markerSounds: await mapValuePromises(
+						flatProject.timeline.markerSounds,
+						src => blobCache.open(directoryHandle, src)
+					),
+				},
+				komas: await mapPromises(flatProject.komas, async koma => {
+					const shots = await mapPromises(koma.shots, shot => {
 						if (shot === null) return null
 						return openShot(shot)
 					})
 
-					const backupShots = await mapToPromises(koma.backupShots, openShot)
+					const backupShots = koma.backupShots
+						? await mapPromises(koma.backupShots, openShot)
+						: undefined
 
 					return {...koma, shots, backupShots}
 				}),
@@ -264,18 +304,25 @@ export const useProjectStore = defineStore('project', () => {
 
 			const flatProject: Project<string> = {
 				...toRaw(project),
-				komas: await mapToPromises(project.komas, async (koma, frame) => {
-					if (koma === null) return null
-
-					const shots = await mapToPromises(koma.shots, (shot, layer) => {
+				timeline: {
+					...project.timeline,
+					markerSounds: await mapValuePromises(
+						project.timeline.markerSounds,
+						(src, name) =>
+							blobCache.save(directoryHandle, `marker_${name}.wav`, src)
+					),
+				},
+				komas: await mapPromises(project.komas, async (koma, frame) => {
+					const shots = await mapPromises(koma.shots, (shot, layer) => {
 						if (shot === null) return null
 						return saveShot(shot, frame, {layer})
 					})
 
-					const backupShots = await mapToPromises(
-						koma.backupShots,
-						(shot, index) => saveShot(shot, frame, {backup: index})
-					)
+					const backupShots = koma.backupShots
+						? await mapPromises(koma.backupShots, (shot, index) =>
+								saveShot(shot, frame, {backup: index})
+						  )
+						: undefined
 
 					return {...koma, shots, backupShots}
 				}),
@@ -359,22 +406,19 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	function shot(frame: number, layer: number): Shot | null {
-		return project.komas[frame]?.shots[layer] ?? null
+		return project.komas[frame].shots?.at(layer) ?? null
 	}
 
 	function setShot(frame: number, layer: number, shot: Shot) {
 		while (frame >= project.komas.length) {
-			project.komas.push(null)
+			project.komas.push({shots: []})
 		}
 
-		let koma = project.komas[frame]
+		let koma = project.komas[frame] ?? {}
 
-		if (!koma) {
+		if (!koma.shots) {
 			// If there is no frame, create a new frame
-			project.komas[frame] = koma = {
-				shots: [],
-				backupShots: [],
-			}
+			project.komas[frame] = koma = {...koma, shots: []}
 		}
 
 		while (layer >= koma.shots.length) {
@@ -393,9 +437,13 @@ export const useProjectStore = defineStore('project', () => {
 		return project.layers[layer]
 	}
 
+	function layerCount(frame: number) {
+		return project.komas[frame]?.shots?.length ?? 0
+	}
+
 	function setDuration(frames: number) {
 		while (frames >= project.komas.length) {
-			project.komas.push(null)
+			project.komas.push({shots: []})
 		}
 	}
 
@@ -416,6 +464,7 @@ export const useProjectStore = defineStore('project', () => {
 		shot,
 		setShot,
 		layer,
+		layerCount,
 		setDuration,
 	}
 })

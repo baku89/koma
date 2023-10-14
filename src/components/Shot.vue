@@ -21,7 +21,7 @@ const shot = computed(() => project.shot(props.frame, props.layer))
 
 function insertEmptyFrame(frame: number) {
 	project.$patch(state => {
-		state.komas.splice(frame, 0, null)
+		state.komas.splice(frame, 0, {shots: []})
 		if (frame <= state.captureShot.frame) {
 			state.captureShot.frame += 1
 		}
