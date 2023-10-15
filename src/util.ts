@@ -129,17 +129,22 @@ export function debounceAsync(fn: () => Promise<void>) {
 }
 
 // Asyncな関数が重複して実行されないようにする
-export function singleAsync<T extends unknown[]>(
-	fn: (...arg: T) => Promise<void>
+export function preventConcurrentExecution<T extends unknown[], R>(
+	fn: (...arg: T) => Promise<R>,
+	onConcurrentExecution: () => R = () => {
+		throw new Error('Function is already executed')
+	}
 ) {
 	const isExecuting = ref(false)
 
-	const singleFn = async (...arg: T) => {
-		if (isExecuting.value) return
+	const singleFn = async (...arg: T): Promise<R> => {
+		if (isExecuting.value) {
+			return onConcurrentExecution()
+		}
 
 		try {
 			isExecuting.value = true
-			await fn(...arg)
+			return await fn(...arg)
 		} finally {
 			isExecuting.value = false
 		}

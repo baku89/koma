@@ -10,6 +10,7 @@ import {useCameraStore} from '@/stores/camera'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
 import {useViewportStore} from '@/stores/viewport'
+import {preventConcurrentExecution} from '@/util'
 
 import CameraControl from './CameraControl.vue'
 import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer.vue'
@@ -46,77 +47,83 @@ actions.onBeforePerform(action => {
 
 //------------------------------------------------------------------------------
 
-async function shoot(): Promise<Shot> {
-	if (!camera.tethr) {
-		throw new Error('No camera is coonnected')
-	}
-
-	const {tethr} = camera
-
-	try {
-		viewport.popup = {
-			type: 'progress',
-			progress: 0,
+const {fn: shoot} = preventConcurrentExecution(
+	async (): Promise<Shot> => {
+		if (!camera.tethr) {
+			throw new Error('No camera is coonnected')
 		}
 
-		playSound('sound/Camera-Phone03-1.mp3')
-		const captureDate = new Date().getTime()
+		const {tethr} = camera
 
-		const cameraConfigs = await tethr.exportConfigs()
-
-		const lv = await tethr.getLiveViewImage()
-		if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
-
-		viewport.popup = {
-			type: 'progress',
-			progress: 0.1,
-		}
-
-		const onProgress = ({progress}: {progress: number}) => {
+		try {
 			viewport.popup = {
 				type: 'progress',
-				progress: scalar.lerp(0.1, 1, progress),
+				progress: 0,
 			}
-		}
-		tethr.on('progress', onProgress)
 
-		const result = await tethr.takePhoto()
+			playSound('sound/Camera-Phone03-1.mp3')
+			const captureDate = new Date().getTime()
 
-		tethr.off('progress', onProgress)
+			const cameraConfigs = await tethr.exportConfigs()
 
-		let jpg: Blob | undefined
-		let raw: Blob | undefined
+			const lv = await tethr.getLiveViewImage()
+			if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
 
-		if (result.status === 'ok') {
-			for (const object of result.value) {
-				const format = String(object.format)
+			viewport.popup = {
+				type: 'progress',
+				progress: 0.1,
+			}
 
-				if (/jpe?g/.test(format)) {
-					jpg = object.blob
-				} else {
-					raw = object.blob
+			const onProgress = ({progress}: {progress: number}) => {
+				viewport.popup = {
+					type: 'progress',
+					progress: scalar.lerp(0.1, 1, progress),
 				}
 			}
-		}
+			tethr.on('progress', onProgress)
 
-		if (!jpg) throw new Error('No JPEG image found')
+			const result = await tethr.takePhoto()
 
-		if (new Date().getTime() - captureDate > 500) {
-			playSound('sound/Accent36-1.mp3')
-		}
+			tethr.off('progress', onProgress)
 
-		return {
-			jpg,
-			raw,
-			lv: lv.value,
-			cameraConfigs,
-			shootTime: timer.current,
-			captureDate,
+			let jpg: Blob | undefined
+			let raw: Blob | undefined
+
+			if (result.status === 'ok') {
+				for (const object of result.value) {
+					const format = String(object.format)
+
+					if (/jpe?g/.test(format)) {
+						jpg = object.blob
+					} else {
+						raw = object.blob
+					}
+				}
+			}
+
+			if (!jpg) throw new Error('No JPEG image found')
+
+			if (new Date().getTime() - captureDate > 500) {
+				playSound('sound/Accent36-1.mp3')
+			}
+
+			return {
+				jpg,
+				raw,
+				lv: lv.value,
+				cameraConfigs,
+				shootTime: timer.current,
+				captureDate,
+			}
+		} finally {
+			viewport.popup = null
 		}
-	} finally {
-		viewport.popup = null
+	},
+	() => {
+		alert('The shooting is already executed')
+		throw new Error('The Shooting is already executed')
 	}
-}
+)
 
 //------------------------------------------------------------------------------
 actions.register([

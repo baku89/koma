@@ -12,10 +12,10 @@ import {
 	loadJson,
 	mapPromises,
 	mapValuePromises,
+	preventConcurrentExecution,
 	queryString,
 	saveJson,
 	showReadwriteDirectoryPicker,
-	singleAsync,
 } from '@/util'
 
 import {useBlobStore} from './blobCache'
@@ -225,7 +225,7 @@ export const useProjectStore = defineStore('project', () => {
 		}
 	}
 
-	const {fn: open, isExecuting: isOpening} = singleAsync(
+	const {fn: open, isExecuting: isOpening} = preventConcurrentExecution(
 		async (handler?: FileSystemDirectoryHandle) => {
 			directoryHandle.value = handler ?? (await showReadwriteDirectoryPicker())
 
@@ -274,7 +274,8 @@ export const useProjectStore = defineStore('project', () => {
 				history.clear()
 			}
 			autoSave.resume()
-		}
+		},
+		() => undefined
 	)
 
 	async function saveAs() {
