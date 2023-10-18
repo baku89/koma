@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
+		"aux-manager": "yarn workspace aux-manager run start",
 		"lint": "eslint \"src/**/*.{ts,vue}\"",
 		"test": "echo 'No test'",
 		"build": "vite build",
