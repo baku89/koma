@@ -1,13 +1,12 @@
 <script setup lang="ts">
+import {useThemeStore} from 'tweeq'
 import {onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import WaveSurfer from 'wavesurfer.js'
 
 import {useProjectStore} from '@/stores/project'
 
-import {useTheme} from '../../dev_modules/tweeq/src/useTheme'
-
 const project = useProjectStore()
-const theme = useTheme()
+const theme = useThemeStore()
 
 const $container = ref<HTMLDivElement | null>(null)
 
@@ -23,7 +22,7 @@ onMounted(() => {
 		height: 'auto',
 		mediaControls: false,
 		fillParent: false,
-		waveColor: theme.value.colorGrayOnBackground,
+		waveColor: theme.colorGrayOnBackground,
 		cursorWidth: 0,
 	})
 

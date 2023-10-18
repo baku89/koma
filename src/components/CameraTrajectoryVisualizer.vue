@@ -13,7 +13,7 @@ import {
 	Scene,
 	Sphere,
 } from 'troisjs'
-import {useAppConfigStore, useTheme} from 'tweeq'
+import {useAppConfigStore, useThemeStore} from 'tweeq'
 import Tq from 'tweeq'
 import {computed, onMounted, shallowRef} from 'vue'
 
@@ -25,7 +25,7 @@ import Axis from './Axis.vue'
 const {tracker} = useAuxStore()
 const osc = useOscStore()
 const appConfig = useAppConfigStore()
-const theme = useTheme()
+const theme = useThemeStore()
 
 const cameraControlPosition = appConfig.ref('cameraControl.position', [
 	2, 2, 2,
@@ -160,7 +160,6 @@ function toThree(v: Vec3) {
 	position relative
 	width 100%
 	height 100%
-	background blue
 
 .info
 	position absolute
