@@ -3,7 +3,7 @@ import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
 import {useActionsStore} from 'tweeq'
-import {watch} from 'vue'
+import {ref, watch} from 'vue'
 
 import {playSound} from '@/playSound'
 import {useCameraStore} from '@/stores/camera'
@@ -29,6 +29,8 @@ const viewport = useViewportStore()
 const project = useProjectStore()
 const camera = useCameraStore()
 const timer = useTimerStore()
+
+const $modal = ref<typeof Tq.PaneModalComplex | null>(null)
 
 Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
 	pressed => {
@@ -304,12 +306,31 @@ actions.register([
 			project.setDuration(duration)
 		},
 	},
+	{
+		id: 'project_settings',
+		icon: 'mdi:gear',
+		input: 'command+,',
+		async perform() {
+			const result = await $modal.value!.show(
+				{name: project.name, fps: project.fps},
+				{
+					name: {type: 'string'},
+					fps: {type: 'number', min: 1, max: 60, step: 1},
+				},
+				{
+					title: 'Project Settings',
+				}
+			)
+			project.$patch(result)
+		},
+	},
 ])
 </script>
 
 <template>
 	<div class="App">
 		<Tq.CommandPalette />
+		<Tq.PaneModalComplex ref="$modal" />
 		<TitleBar />
 		<main class="main">
 			<Tq.PaneSplit name="vertical" direction="vertical">
