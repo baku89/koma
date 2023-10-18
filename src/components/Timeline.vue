@@ -130,6 +130,7 @@ const vizStyles = computed(() => {
 					:step="1"
 					style="width: 7em"
 					@update:modelValue="project.timeline.zoomFactor = $event / 100"
+					@dblclick="project.timeline.zoomFactor = 1"
 				/>
 			</template>
 		</Tq.Timeline>
