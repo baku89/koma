@@ -1,56 +1,33 @@
 <script setup lang="ts">
-import {Mat4, mat4, Vec3, vec3} from 'linearly'
+import {Mat4, mat4, quat, Vec3, vec3} from 'linearly'
 import * as THREE from 'three'
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
 import {
 	AmbientLight,
-	BasicMaterial,
 	Camera,
 	FbxModel,
 	Group,
 	PointLight,
 	Renderer,
 	Scene,
-	Sphere,
 } from 'troisjs'
 import {useAppConfigStore, useThemeStore} from 'tweeq'
 import Tq from 'tweeq'
-import {computed, onMounted, shallowRef} from 'vue'
+import {computed, onMounted, ref, shallowRef} from 'vue'
 
 import {useAuxStore} from '@/stores/aux'
-import {useOscStore} from '@/stores/osc'
 
 import Axis from './Axis.vue'
 
 const {tracker} = useAuxStore()
-const osc = useOscStore()
 const appConfig = useAppConfigStore()
 const theme = useThemeStore()
+//------------------------------------------------------------------------------
+// ThreeJS
 
 const cameraControlPosition = appConfig.ref('cameraControl.position', [
 	2, 2, 2,
 ] as const)
-
-//------------------------------------------------------------------------------
-// Tracker
-
-const matrix = computed(() => {
-	return mat4.mul(
-		mat4.fromTranslation(tracker.position),
-		mat4.fromQuat(tracker.rotation)
-	)
-})
-
-const position = computed(() => {
-	return toThree(tracker.position)
-})
-
-const euler = computed(() => {
-	const q = new THREE.Quaternion(...tracker.rotation)
-	const euler = new THREE.Euler().setFromQuaternion(q)
-	const [x, y, z] = euler.toArray().slice(0, 3) as any
-	return {x, y, z}
-})
 
 const $trois = shallowRef<any>()
 const $guide = shallowRef<any>()
@@ -72,49 +49,107 @@ onMounted(() => {
 //------------------------------------------------------------------------------
 // Calibration
 
+const matrix = computed(() => {
+	return mat4.fromRotationTranslation(tracker.rotation, tracker.position)
+})
+
 const groundLevel = appConfig.ref('groundLevel', 0)
+
 const origin = appConfig.ref<Mat4>('tracker.origin', mat4.identity)
 
 // Camera coordinate system relative to the tracker
 const cameraAxisY = appConfig.ref<Vec3>('tracker.yAxis', [0, 1, 0])
 const cameraAxisX = appConfig.ref<Vec3>('tracker.xAxis', [1, 0, 0])
 
+const trackerToCameraMatrix = computed(() => {
+	const z = vec3.normalize(vec3.cross(cameraAxisX.value, cameraAxisY.value))
+	const x = vec3.normalize(vec3.cross(cameraAxisY.value, z))
+
+	return mat4.of(...x, 0, ...cameraAxisY.value, 0, ...z, 0, 0, 0, 0, 1)
+})
+
+const calibratedMatrix = computed(() => {
+	const McInv = mat4.invert(trackerToCameraMatrix.value) ?? mat4.ident
+	const MoInv = mat4.invert(origin.value) ?? mat4.ident
+
+	const inv = mat4.mul(McInv, MoInv)
+
+	return mat4.mul(inv, matrix.value, trackerToCameraMatrix.value)
+})
+
 function setOrigin() {
 	origin.value = matrix.value
 }
+
+const panOrigin = ref<Mat4 | null>(null)
+const tiltOrigin = ref<Mat4 | null>(null)
+
 function setPan() {
-	const p0 = vec3.transformQuat(vec3.unitX, mat4.getRotation(origin.value))
-	const p1 = vec3.transformQuat(vec3.unitX, mat4.getRotation(matrix.value))
+	if (!panOrigin.value) {
+		panOrigin.value = mat4.invert(matrix.value) ?? mat4.ident
+	} else {
+		const delta = mat4.mul(matrix.value, panOrigin.value)
+		const q = mat4.getRotation(delta)
 
-	const up = vec3.normalize(vec3.cross(p0, p1))
+		const up = quat.axisAngle(q).axis
 
-	const originInv = mat4.clone(mat4.invert(origin.value) ?? mat4.identity)
+		const matrixInv = [...(mat4.invert(matrix.value) ?? mat4.ident)] as any
+		matrixInv[12] = matrixInv[13] = matrixInv[14] = 0
 
-	originInv[12] = 0
-	originInv[13] = 0
-	originInv[14] = 0
-
-	cameraAxisY.value = vec3.transformMat4(up, originInv)
+		cameraAxisY.value = vec3.transformMat4(up, matrixInv)
+		panOrigin.value = null
+	}
 }
 
 function setTilt() {
-	const p0 = vec3.transformQuat(
-		cameraAxisY.value,
-		mat4.getRotation(origin.value)
-	)
-	const p1 = vec3.transformQuat(
-		cameraAxisY.value,
-		mat4.getRotation(matrix.value)
-	)
+	if (!tiltOrigin.value) {
+		tiltOrigin.value = mat4.invert(matrix.value) ?? mat4.ident
+	} else {
+		const delta = mat4.mul(matrix.value, tiltOrigin.value)
+		const q = quat.invert(mat4.getRotation(delta))
 
-	const left = vec3.normalize(vec3.cross(p0, p1))
+		const left = quat.axisAngle(q).axis
 
-	cameraAxisX.value = left
+		const matrixInv = [...(mat4.invert(matrix.value) ?? mat4.ident)] as any
+		matrixInv[12] = matrixInv[13] = matrixInv[14] = 0
+
+		cameraAxisX.value = vec3.transformMat4(left, matrixInv)
+		tiltOrigin.value = null
+	}
 }
 
-function toThree(v: Vec3) {
+//------------------------------------------------------------------------------
+// Linearly to ThreeJS conversions
+
+function positionToThree(v: Vec3) {
 	return new THREE.Vector3(...v)
 }
+
+function matrixToThree(m: Mat4) {
+	const q = mat4.getRotation(m)
+	const t = mat4.getTranslation(m)
+	const quat = new THREE.Quaternion(...q)
+
+	const euler = new THREE.Euler().setFromQuaternion(quat)
+	const [x, y, z] = euler.toArray() as number[]
+	return {
+		position: positionToThree(t),
+		rotation: {x, y, z},
+	}
+}
+
+//------------------------------------------------------------------------------
+const calibrationPanePosition = ref({
+	anchor: 'right-top' as const,
+	width: 'minimized' as const,
+	height: 200 as number | 'minimized',
+})
+
+const paneMinimized = computed(
+	() =>
+		calibrationPanePosition.value.width === 'minimized' ||
+		calibrationPanePosition.value.height === 'minimized'
+)
 </script>
 
 <template>
@@ -130,26 +165,52 @@ function toThree(v: Vec3) {
 			<Scene ref="$scene" :background="theme.colorBackground">
 				<PointLight :color="theme.colorOnBackground" :position="{y: 10}" />
 				<AmbientLight :color="theme.colorOnBackground" :intensity="0.5" />
-				<Sphere :radius="0.02" :position="toThree(cameraAxisY)">
-					<BasicMaterial color="#00ff00" />
-				</Sphere>
-				<Axis :matrix="origin" />
-				<Axis :matrix="matrix" />
-				<Sphere :radius="0.02" :position="toThree(cameraAxisX)">
-					<BasicMaterial color="#ff0000" />
-				</Sphere>
-				<Group :rotation="euler" :position="position">
+				<Group v-bind="matrixToThree(calibratedMatrix)">
 					<FbxModel src="./camera.fbx" />
 				</Group>
 				<Group ref="$guide" :position="{y: groundLevel}" />
+
+				<template v-if="!paneMinimized">
+					<Axis :matrix="origin" />
+					<Axis :matrix="matrix" />
+					<Axis :matrix="trackerToCameraMatrix" />
+					<Sphere :radius="0.02" :position="positionToThree(cameraAxisX)">
+						<BasicMaterial color="#ff0000" />
+					</Sphere>
+					<Sphere :radius="0.02" :position="positionToThree(cameraAxisY)">
+						<BasicMaterial color="#00ff00" />
+					</Sphere>
+				</template>
 			</Scene>
 		</Renderer>
 		<div class="info tq-font-numeric">
-			<Tq.InputButton label="Set Origin" @click="setOrigin" />
-			<Tq.InputButton label="Set Pan" @click="setPan" />
-			<Tq.InputButton label="Set Tilt" @click="setTilt" />
-			OSC Connected = {{ osc.connected }} <br />
-			Tracker Enabled = {{ tracker.enabled }} <br />
+			<Tq.PaneFloating
+				v-model:position="calibrationPanePosition"
+				name="camera.calibration"
+				icon="mdi:gear"
+			>
+				<Tq.ParameterGrid>
+					<Tq.ParameterHeading>Calibration</Tq.ParameterHeading>
+					<Tq.Parameter label="Ground" icon="tabler:circuit-ground">
+						<Tq.InputNumber v-model="groundLevel" :min="-2" :max="2" />
+					</Tq.Parameter>
+					<Tq.Parameter label="Origin" icon="carbon:center-circle">
+						<Tq.InputButton label="Set" @click="setOrigin" />
+					</Tq.Parameter>
+					<Tq.Parameter label="Up" icon="mdi:axis-z-rotate-counterclockwise">
+						<Tq.InputButton
+							:label="panOrigin ? 'Set Pan-Left' : 'Set Pan-Right'"
+							@click="setPan"
+						/>
+					</Tq.Parameter>
+					<Tq.Parameter label="X Axis" icon="mdi:axis-x-arrow">
+						<Tq.InputButton
+							:label="tiltOrigin ? 'Set Tilt-Down' : 'Set Tilt-Up'"
+							@click="setTilt"
+						/>
+					</Tq.Parameter>
+				</Tq.ParameterGrid>
+			</Tq.PaneFloating>
 		</div>
 	</div>
 </template>
