@@ -4864,20 +4864,10 @@ line-intersect@^3.0.0:
   resolved "https://registry.yarnpkg.com/line-intersect/-/line-intersect-3.0.0.tgz#7e0808c80edda012586e125374af2db4dd62c987"
   integrity sha512-MAkwgBwwpyJhTWZ9EppTTFD6JxzYgh3BZxgI41CA2vSlANu4s5CXyTEJxKU3LRHitcF2vObHvE/s/lHxvKl2Kw==
 
-linearly@^0.13.0:
-  version "0.13.0"
-  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.13.0.tgz#98feeb6e582a27508ade1e1f7a7843c65f371a94"
-  integrity sha512-sqEwq0m/prg9xpAg0zoFlkDcR+EUQPWXYBoEx+ewbzY6oSpb5FSrnilrY1GuqBSsoIeO3jrMBLRBDk5cbsRrMg==
-
-linearly@^0.17.0:
-  version "0.17.0"
-  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.17.0.tgz#0b587f7eb31999eeac750079de546d414bf8f88f"
-  integrity sha512-RUOBwr8p0nx7CguxOYu8ro0WgLlf7pFiYCw1A2aCa4774+zpCSX13BAF1E48BI63gkxtVBIrnjewaVWGriVlWQ==
-
-linearly@^0.18.0:
-  version "0.18.0"
-  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.18.0.tgz#07d624ba27c6069230c39248d1af3b9cb1431fa9"
-  integrity sha512-byuyr9SBAwi2gv24ogejt8Rq3OEqsSlLncCNqAFzyJ1mOcXGaEXiXqeTYEBp+9WXb03oJedAF4jdAEohWPoxxw==
+linearly@^0.20.1:
+  version "0.20.1"
+  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.20.1.tgz#b49caaf40d2dc6ae0fad4f0ee5f8b5246b9b9845"
+  integrity sha512-gxS/td/YpLBYjnRRJID85Ei4/MKn8s9srWwqSn/UhzZUooyAfLnExcp8fP5LRObM+pYWTAuX8+YlObm8FXjMtw==
 
 lines-and-columns@^1.1.6:
   version "1.2.4"

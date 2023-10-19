@@ -1,5 +1,5 @@
 import {asyncComputed, pausableWatch, useRefHistory} from '@vueuse/core'
-import {Mat2d, mat2d, Quat, Vec2, Vec3} from 'linearly'
+import {mat2d, quat, vec2, vec3} from 'linearly'
 import {clamp, cloneDeep} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
@@ -46,7 +46,7 @@ interface Project<T = Blob> {
 	previewRange: [number, number]
 	onionskin: number
 	komas: Koma<T>[]
-	resolution: Vec2
+	resolution: vec2
 	timeline: {
 		zoomFactor: number
 		markerSounds: Record<string, T>
@@ -57,9 +57,9 @@ interface Project<T = Blob> {
 	cameraConfigs: CameraConfigs
 	visibleProperties: Record<string, {visible: boolean; color: string}>
 	viewport: {
-		transform: Mat2d | 'fit'
-		liveviewTransform: Mat2d
-		shotTransform: Mat2d
+		transform: mat2d | 'fit'
+		liveviewTransform: mat2d
+		shotTransform: mat2d
 		overlay: SVGString
 		overlayMaskOpacity: number
 		overlayLineOpacity: number
@@ -89,8 +89,8 @@ interface Koma<T = Blob> {
 	target?: {
 		cameraConfigs?: CameraConfigs
 		tracker?: {
-			position: Vec3
-			rotation: Quat
+			position: vec3
+			rotation: quat
 		}
 		dmx?: number[]
 	}
@@ -111,8 +111,8 @@ export interface Shot<T = Blob> {
 	raw?: T
 	cameraConfigs: CameraConfigs
 	tracker?: {
-		position: Vec3
-		rotation: Quat
+		position: vec3
+		rotation: quat
 	}
 	dmx?: number[]
 	shootTime?: number

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Mat4, mat4, quat, Vec3, vec3} from 'linearly'
+import {mat4, quat, vec3} from 'linearly'
 import * as THREE from 'three'
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
 import {
@@ -13,7 +13,7 @@ import {
 } from 'troisjs'
 import {useAppConfigStore, useThemeStore} from 'tweeq'
 import Tq from 'tweeq'
-import {computed, onMounted, ref, shallowRef} from 'vue'
+import {computed, onMounted, ref, shallowRef, toRaw} from 'vue'
 
 import {useAuxStore} from '@/stores/aux'
 
@@ -55,17 +55,18 @@ const matrix = computed(() => {
 
 const groundLevel = appConfig.ref('groundLevel', 0)
 
-const origin = appConfig.ref<Mat4>('tracker.origin', mat4.identity)
+const origin = appConfig.ref<mat4>('tracker.origin', mat4.identity)
 
 // Camera coordinate system relative to the tracker
-const cameraAxisY = appConfig.ref<Vec3>('tracker.yAxis', [0, 1, 0])
-const cameraAxisX = appConfig.ref<Vec3>('tracker.xAxis', [1, 0, 0])
+const cameraAxisY = appConfig.ref<vec3>('tracker.yAxis', vec3.unitY)
+const cameraAxisX = appConfig.ref<vec3>('tracker.xAxis', vec3.unitX)
 
 const trackerToCameraMatrix = computed(() => {
-	const z = vec3.normalize(vec3.cross(cameraAxisX.value, cameraAxisY.value))
-	const x = vec3.normalize(vec3.cross(cameraAxisY.value, z))
+	const y = toRaw(cameraAxisY.value)
+	const z = vec3.normalize(vec3.cross(cameraAxisX.value, y))
+	const x = vec3.normalize(vec3.cross(y, z))
 
-	return mat4.of(...x, 0, ...cameraAxisY.value, 0, ...z, 0, 0, 0, 0, 1)
+	return mat4.fromAxesTranslation(x, y, z)
 })
 
 const calibratedMatrix = computed(() => {
@@ -81,8 +82,8 @@ function setOrigin() {
 	origin.value = matrix.value
 }
 
-const panOrigin = ref<Mat4 | null>(null)
-const tiltOrigin = ref<Mat4 | null>(null)
+const panOrigin = ref<mat4 | null>(null)
+const tiltOrigin = ref<mat4 | null>(null)
 
 function setPan() {
 	if (!panOrigin.value) {
@@ -121,11 +122,11 @@ function setTilt() {
 //------------------------------------------------------------------------------
 // Linearly to ThreeJS conversions
 
-function positionToThree(v: Vec3) {
+function positionToThree(v: vec3) {
 	return new THREE.Vector3(...v)
 }
 
-function matrixToThree(m: Mat4) {
+function matrixToThree(m: mat4) {
 	const q = mat4.getRotation(m)
 	const t = mat4.getTranslation(m)
 	const quat = new THREE.Quaternion(...q)

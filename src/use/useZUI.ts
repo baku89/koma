@@ -1,12 +1,11 @@
 import {Bndr} from 'bndr-js'
 import {mat2d, vec2} from 'linearly'
-import {Mat2d} from 'linearly'
 import {useBndr} from 'tweeq'
 import {Ref} from 'vue'
 
 export function useZUI(
 	element: Ref<HTMLElement | null>,
-	onTransform: (delta: Mat2d) => void
+	onTransform: (delta: mat2d) => void
 ) {
 	useBndr(element, element => {
 		const pointer = Bndr.pointer(element)

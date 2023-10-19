@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import {useElementBounding} from '@vueuse/core'
-import {Mat2d, mat2d, Vec2} from 'linearly'
+import {mat2d, vec2} from 'linearly'
 import {useActionsStore} from 'tweeq'
 import {computed, ref} from 'vue'
 
@@ -18,7 +18,7 @@ const $wrapper = ref<HTMLElement | null>(null)
 
 const bound = useElementBounding($wrapper)
 
-const transform = computed<Mat2d>(() => {
+const transform = computed<mat2d>(() => {
 	if (project.viewport.transform === 'fit') {
 		const {
 			resolution: [resx, resy],
@@ -32,7 +32,7 @@ const transform = computed<Mat2d>(() => {
 			const scale = bound.width.value / resx
 			const frameHeight = resy * scale
 
-			const offset: Vec2 = [0, (bound.height.value - frameHeight) / 2]
+			const offset: vec2 = [0, (bound.height.value - frameHeight) / 2]
 
 			return mat2d.mul(mat2d.fromTranslation(offset), mat2d.fromScaling(scale))
 		} else {
@@ -40,7 +40,7 @@ const transform = computed<Mat2d>(() => {
 			const scale = bound.height.value / resy
 			const frameWidth = resx * scale
 
-			const offset: Vec2 = [(bound.width.value - frameWidth) / 2, 0]
+			const offset: vec2 = [(bound.width.value - frameWidth) / 2, 0]
 
 			return mat2d.mul(mat2d.fromTranslation(offset), mat2d.fromScaling(scale))
 		}

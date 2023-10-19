@@ -41,7 +41,7 @@
 		"floating-vue": "^2.0.0-beta.24",
 		"howler": "^2.2.4",
 		"immer": "^10.0.3",
-		"linearly": "^0.18.0",
+		"linearly": "^0.20.1",
 		"lodash": "^4.17.21",
 		"osc-js": "^2.4.0",
 		"paper": "^0.12.17",

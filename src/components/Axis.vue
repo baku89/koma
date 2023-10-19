@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import {Mat4, mat4} from 'linearly'
+import {mat4} from 'linearly'
 import {Euler, Quaternion, Vector3} from 'three'
 import {BasicMaterial, Box} from 'troisjs'
 import {computed} from 'vue'
 
 interface Props {
-	matrix: Mat4
+	matrix: mat4
 }
 
 const props = defineProps<Props>()
