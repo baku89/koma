@@ -143,7 +143,7 @@ function matrixToThree(m: mat4) {
 const calibrationPanePosition = ref({
 	anchor: 'right-top' as const,
 	width: 'minimized' as const,
-	height: 200 as number | 'minimized',
+	height: 400 as number | 'minimized',
 })
 
 const paneMinimized = computed(
@@ -199,14 +199,18 @@ const paneMinimized = computed(
 						<Tq.InputButton label="Set" @click="setOrigin" />
 					</Tq.Parameter>
 					<Tq.Parameter label="Up" icon="mdi:axis-z-rotate-counterclockwise">
+						<Tq.InputVec v-model="cameraAxisY" :min="-1" :max="1" />
 						<Tq.InputButton
 							:label="panOrigin ? 'Set Pan-Left' : 'Set Pan-Right'"
+							:blink="panOrigin"
 							@click="setPan"
 						/>
 					</Tq.Parameter>
 					<Tq.Parameter label="X Axis" icon="mdi:axis-x-arrow">
+						<Tq.InputVec v-model="cameraAxisX" :min="-1" :max="1" />
 						<Tq.InputButton
 							:label="tiltOrigin ? 'Set Tilt-Down' : 'Set Tilt-Up'"
+							:blink="tiltOrigin"
 							@click="setTilt"
 						/>
 					</Tq.Parameter>

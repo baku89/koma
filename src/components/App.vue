@@ -13,7 +13,7 @@ import {useViewportStore} from '@/stores/viewport'
 import {preventConcurrentExecution} from '@/util'
 
 import CameraControl from './CameraControl.vue'
-import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer.vue'
+import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
 import Timeline from './Timeline.vue'
 import TitleBar from './TitleBar.vue'
 import Viewport from './Viewport.vue'
