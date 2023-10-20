@@ -59,7 +59,7 @@ function valuesToPath(values: (number | null)[], min: number, max: number) {
 
 <style lang="stylus" scoped>
 .TimelineGraphPolyline
-	stroke-width 1px
+	stroke-width 2px
 	fill none
 	stroke-linejoin round
 	stroke-linecap round

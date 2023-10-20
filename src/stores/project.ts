@@ -439,7 +439,7 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	function layerCount(frame: number) {
-		return project.komas[frame]?.shots?.length ?? 0
+		return allKomas.value[frame]?.shots?.length ?? 0
 	}
 
 	function setDuration(frames: number) {

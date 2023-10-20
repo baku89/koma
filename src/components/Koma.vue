@@ -14,7 +14,9 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const layerIndices = computed(() => range(project.layerCount(props.frame)))
+const layerIndices = computed(() =>
+	range(Math.max(1, project.layerCount(props.frame)))
+)
 </script>
 
 <template>

@@ -168,7 +168,7 @@ actions.register([
 	{
 		id: 'shoot',
 		icon: 'mdi:circle',
-		input: ['enter', 'gamepad:r'],
+		input: ['enter', 'gamepad:a'],
 		async perform() {
 			const newShot = await shoot()
 
@@ -188,6 +188,40 @@ actions.register([
 			})
 
 			viewport.currentFrame = project.captureShot.frame
+		},
+	},
+	{
+		id: 'nudge_focus_far',
+		icon: 'material-symbols:landscape-outline',
+		input: ['2', 'gamepad:zr'],
+		perform() {
+			if (camera.focusDistance.value === null) return
+			camera.focusDistance.set(camera.focusDistance.value + 0.01)
+		},
+	},
+	{
+		id: 'nudge_focus_near',
+		icon: 'tabler:macro',
+		input: ['1', 'gamepad:zl'],
+		perform() {
+			if (camera.focusDistance.value === null) return
+			camera.focusDistance.set(camera.focusDistance.value - 0.01)
+		},
+	},
+	{
+		id: 'onion_increase',
+		icon: 'fluent-emoji-high-contrast:onion',
+		input: ['gamepad:r'],
+		perform() {
+			project.$patch({onionskin: project.onionskin + 0.1})
+		},
+	},
+	{
+		id: 'onion_decrease',
+		icon: 'fluent-emoji-high-contrast:onion',
+		input: ['gamepad:l'],
+		perform() {
+			project.$patch({onionskin: project.onionskin - 0.1})
 		},
 	},
 	{
@@ -211,7 +245,7 @@ actions.register([
 	{
 		id: 'go_forward_1_frame',
 		icon: 'lucide:step-forward',
-		input: ['f', 'right'],
+		input: ['f', 'right', 'gamepad:right'],
 		perform() {
 			viewport.currentFrame += 1
 		},
@@ -219,7 +253,7 @@ actions.register([
 	{
 		id: 'go_backward_1_frame',
 		icon: 'lucide:step-back',
-		input: ['d', 'left'],
+		input: ['d', 'left', 'gamepad:left'],
 		perform() {
 			viewport.currentFrame = Math.max(0, viewport.currentFrame - 1)
 		},
@@ -227,7 +261,7 @@ actions.register([
 	{
 		id: 'delete_current_frame',
 		icon: 'mdi:backspace',
-		input: ['delete', 'backspace', 'gamepad:home'],
+		input: ['delete', 'backspace', 'gamepad:b'],
 		perform() {
 			project.$patch(project => {
 				project.komas.splice(viewport.currentFrame, 1)
@@ -267,7 +301,7 @@ actions.register([
 	{
 		id: 'toggle_play',
 		icon: 'mdi:play',
-		input: 'space',
+		input: ['space', 'gamepad:y'],
 		perform() {
 			viewport.isPlaying = !viewport.isPlaying
 		},

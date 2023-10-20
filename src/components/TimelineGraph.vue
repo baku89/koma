@@ -13,7 +13,9 @@ const camera = useCameraStore()
 
 const shootTime = computed(() => {
 	return project.allKomas.map(koma =>
-		koma.shots.reduce((acc, shot) => acc + (shot?.shootTime ?? 0), 0)
+		koma.shots.length > 0
+			? koma.shots.reduce((acc, shot) => acc + (shot?.shootTime ?? 0), 0)
+			: null
 	)
 })
 
@@ -64,7 +66,7 @@ function logValue(value: unknown, invert = false) {
 }
 
 function isPropertyVisible(name: string) {
-	return Object.keys(project.visibleProperties).includes(name)
+	return project.visibleProperties[name]?.visible ?? false
 }
 
 function shutterSpeedToString(ss?: string | null) {
@@ -84,43 +86,44 @@ function shutterSpeedToString(ss?: string | null) {
 			v-if="isPropertyVisible('shootTime')"
 			:values="shootTime"
 			:valueAtCaptureFrame="timer.current"
-			color="#fff"
+			:color="project.visibleProperties.shootTime?.color"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('focalLength')"
 			:values="focalLength"
 			:valueAtCaptureFrame="camera.focalLength.value"
-			color="#f0f"
+			:color="project.visibleProperties.focalLength?.color"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('focusDistance')"
 			:values="focusDistance"
 			:valueAtCaptureFrame="camera.focusDistance.value"
-			color="#0ff"
+			:color="project.visibleProperties.focusDistance?.color"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('aperture')"
 			:values="aperture"
 			:valueAtCaptureFrame="logValue(camera.aperture.value, true)"
-			color="#ff0"
+			:color="project.visibleProperties.aperture?.color"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('shutterSpeed')"
 			:values="shutterSpeed"
 			:valueAtCaptureFrame="shutterSpeedToString(camera.shutterSpeed.value)"
-			color="green"
+			:color="project.visibleProperties.shutterSpeed?.color"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('iso')"
 			:values="iso"
 			:valueAtCaptureFrame="logValue(camera.iso.value)"
-			color="#0f0"
+			:color="project.visibleProperties.iso?.color"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('colorTemperature')"
 			:values="colorTemperature"
 			:valueAtCaptureFrame="camera.colorTemperature.value"
-			color="tomato"
+			:color="project.visibleProperties.colorTemperature?.color"
+		/>
 		/>
 	</svg>
 </template>

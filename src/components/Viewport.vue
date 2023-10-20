@@ -80,6 +80,13 @@ actions.register([
 		<div ref="$wrapper" class="wrapper">
 			<div class="frame" :style="frameStyles">
 				<ViewportKoma class="koma" :frame="viewport.previewFrame" />
+				<ViewportKoma
+					v-for="({frame, opacity}, i) in viewport.onionskin"
+					:key="i"
+					class="koma"
+					:frame="frame"
+					:style="{opacity}"
+				/>
 				<svg
 					class="view-overlay"
 					viewBox="0 0 1 1"

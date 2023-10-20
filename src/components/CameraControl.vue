@@ -1,46 +1,140 @@
 <script lang="ts" setup>
-import Tq from 'tweeq'
+import {Icon} from '@iconify/vue'
+import {ConfigName} from 'tethr'
+import Tq, {useThemeStore} from 'tweeq'
+import {ref} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
+import {useProjectStore} from '@/stores/project'
 
 import TethrConfig from './TethrConfig.vue'
 
 const camera = useCameraStore()
+const project = useProjectStore()
+const theme = useThemeStore()
+
+const showAll = ref(true)
+
+const configNames: ConfigName[] = [
+	'exposureMode',
+	'exposureComp',
+	'focalLength',
+	'focusDistance',
+	'aperture',
+	'shutterSpeed',
+	'whiteBalance',
+	'colorTemperature',
+	'iso',
+	'imageQuality',
+	'shutterSound',
+]
+
+const configLabels = {
+	exposureMode: {label: 'Mode', icon: 'material-symbols:settings-photo-camera'},
+	exposureComp: {label: 'Exp.', icon: 'material-symbols:exposure'},
+	focalLength: {label: 'F.L.', icon: 'lucide:focus'},
+	focusDistance: {label: 'F.D.', icon: 'tabler:frustum'},
+	aperture: {label: 'Apr.', icon: 'ph:aperture'},
+	shutterSpeed: {label: 'SS', icon: 'material-symbols:shutter-speed'},
+	whiteBalance: {label: 'WB', icon: 'subway:black-white'},
+	colorTemperature: {label: 'C.Temp.', icon: 'mdi:temperature'},
+	iso: {label: 'ISO', icon: 'carbon:iso'},
+	imageQuality: {label: 'Quality', icon: 'mdi:image'},
+	shutterSound: {label: 'Vol.', icon: 'ic:baseline-volume-up'},
+} as Record<ConfigName, {label: string; icon: string}>
+
+function getConfigVisibility(name: ConfigName) {
+	return project.visibleProperties[name]?.visible ?? false
+}
+
+function toggleConfigVisibility(name: ConfigName) {
+	project.$patch({
+		visibleProperties: {
+			[name]: {visible: !(project.visibleProperties[name]?.visible ?? false)},
+		},
+	})
+}
+
+function getConfigColor(name: ConfigName) {
+	return project.visibleProperties[name]?.color ?? theme.colorGrayOnBackground
+}
+
+function setConfigColor(name: ConfigName, value: string) {
+	project.$patch({
+		visibleProperties: {
+			[name]: {color: value},
+		},
+	})
+}
 </script>
 
 <template>
-	<Tq.ParameterHeading>Camera Control</Tq.ParameterHeading>
-	<Tq.Parameter label="Mode" icon="material-symbols:settings-photo-camera">
-		<TethrConfig :config="camera.exposureMode" />
-	</Tq.Parameter>
-	<Tq.Parameter label="Exp." icon="material-symbols:exposure">
-		<TethrConfig :config="camera.exposureComp" />
-	</Tq.Parameter>
-	<Tq.Parameter label="F.L." icon="lucide:focus">
-		<TethrConfig :config="camera.focalLength" name="focalLength" />
-	</Tq.Parameter>
-	<Tq.Parameter label="F.D." icon="tabler:frustum">
-		<TethrConfig :config="camera.focusDistance" name="focusDistance" />
-	</Tq.Parameter>
-	<Tq.Parameter label="Apr." icon="ph:aperture">
-		<TethrConfig :config="camera.aperture" name="aperture" />
-	</Tq.Parameter>
-	<Tq.Parameter label="SS" icon="material-symbols:shutter-speed">
-		<TethrConfig :config="camera.shutterSpeed" name="shutterSpeed" />
-	</Tq.Parameter>
-	<Tq.Parameter label="WB" icon="subway:black-white">
-		<TethrConfig :config="camera.whiteBalance" name="whiteBalance" />
-	</Tq.Parameter>
-	<Tq.Parameter label="C.Temp" icon="mdi:temperature">
-		<TethrConfig :config="camera.colorTemperature" name="colorTemperature" />
-	</Tq.Parameter>
-	<Tq.Parameter label="ISO" icon="carbon:iso">
-		<TethrConfig :config="camera.iso" name="iso" />
-	</Tq.Parameter>
-	<Tq.Parameter label="Quality" icon="mdi:image">
-		<TethrConfig :config="camera.imageQuality" name="imageQuality" />
-	</Tq.Parameter>
-	<Tq.Parameter label="Vol." icon="ic:baseline-volume-up">
-		<TethrConfig :config="camera.shutterSound" name="shutterSound" />
-	</Tq.Parameter>
+	<Tq.ParameterHeading>
+		Camera Control
+		<template #right>
+			<button class="show-all-button" @click="showAll = !showAll">
+				{{ showAll ? 'Collapse' : 'Show All' }}
+			</button>
+		</template>
+	</Tq.ParameterHeading>
+
+	<template v-for="name in configNames">
+		<Tq.Parameter
+			v-if="showAll || getConfigVisibility(name)"
+			:key="name"
+			:label="configLabels[name].label"
+		>
+			<template #label>
+				<Icon
+					v-if="showAll"
+					class="visibility"
+					:icon="getConfigVisibility(name) ? 'mdi:eye' : 'mdi:eye-closed'"
+					@click="toggleConfigVisibility(name)"
+				/>
+				<Tq.InputColor
+					class="color"
+					:modelValue="getConfigColor(name)"
+					@update:modelValue="setConfigColor(name, $event)"
+				>
+					<Icon
+						:icon="configLabels[name].icon"
+						:style="{color: getConfigColor(name)}"
+					/>
+				</Tq.InputColor>
+				{{ configLabels[name].label }}
+			</template>
+			<TethrConfig :config="(camera as any)[name]" :name="name" />
+		</Tq.Parameter>
+	</template>
 </template>
+
+<style lang="stylus" scoped>
+@import '../../dev_modules/tweeq/src/common.styl'
+
+.show-all-button
+	background var(--tq-color-input)
+	height var(--tq-input-height)
+	padding 0 1em
+	border-radius 9999px
+	hover-transition(background)
+
+	&:hover
+		background var(--tq-color-input-hover)
+
+.visibility
+	width 16px
+	height 16px
+	margin-right 2px
+	hover-transition(color)
+
+	&:hover
+		color var(--tq-color-on-background)
+
+.color .iconify
+	hover-transition(background)
+	background transparent
+	border-radius var(--tq-input-border-radius)
+
+	&:hover
+		background var(--tq-color-input-hover)
+</style>
