@@ -335,7 +335,11 @@ actions.register([
 		<main class="main">
 			<Tq.PaneSplit name="vertical" direction="vertical">
 				<template #first>
-					<Tq.PaneSplit name="preview" direction="horizontal">
+					<Tq.PaneSplit
+						name="preview"
+						direction="horizontal"
+						:scroll="[false, false]"
+					>
 						<template #first>
 							<Viewport class="viewport" />
 						</template>
@@ -385,7 +389,7 @@ actions.register([
 	height 100%
 
 .control
-	padding var(--tq-pane-padding)
+	padding var(--tq-pane-padding) calc(var(--tq-pane-padding) - var(--tq-scrollbar-width)) var(--tq-pane-padding) var(--tq-pane-padding)
 
 .timeline
 	padding-top var(--tq-pane-padding)
