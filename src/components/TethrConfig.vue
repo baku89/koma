@@ -1,9 +1,9 @@
 <script lang="ts" setup generic="T">
 import {capital} from 'case'
-import {throttle} from 'lodash'
+import {scalar} from 'linearly'
 import {ConfigName, WhiteBalance} from 'tethr'
 import Tq from 'tweeq'
-import {computed, ref, watch} from 'vue'
+import {computed, ref} from 'vue'
 
 import {Config} from '@/stores/camera'
 
@@ -25,25 +25,11 @@ interface InputAttrs {
 
 const props = withDefaults(defineProps<Props>(), {prefix: '', suffix: ''})
 
-const targetValue = ref<any>(props.config.value)
-
 const focusing = ref(false)
 
-const setterDebounced = computed(() => {
-	return throttle(props.config.set, 50)
-})
-
 function update(value: any) {
-	targetValue.value = value
-	setterDebounced.value(value)
+	props.config.set(value)
 }
-
-watch(
-	() => [props.config.value, focusing.value] as const,
-	([value, focusing]) => {
-		if (!focusing) targetValue.value = value as any
-	}
-)
 
 const inputAttrs = computed<InputAttrs>(() => {
 	switch (props.name) {
@@ -103,47 +89,99 @@ const whiteBalanceIcons = new Map<WhiteBalance, string>([
 	['manual', 'mdi:temperature-kelvin'],
 	['custom', 'material-symbols:settings'],
 ])
+
+const canIncrement = computed(() => {
+	if (!props.config.writable) return false
+	return true
+})
+
+function increment(dir: 1 | -1) {
+	if (!props.config.writable) return
+
+	const {option, value} = props.config
+
+	if (!option || value === null) return
+
+	if (option.type === 'range') {
+		if (
+			typeof option.min !== 'number' ||
+			typeof option.max !== 'number' ||
+			typeof option.step !== 'number'
+		) {
+			return
+		}
+
+		const step = option.step || ((option.max - option.min) / 100) * dir
+
+		if (typeof value !== 'number') return
+
+		update(scalar.clamp(value + step, option.min, option.max))
+	} else if (option.type === 'enum') {
+		const values = option.values as string[]
+
+		const index = values.indexOf(value as any)
+
+		if (index === -1) return
+
+		const nextIndex = scalar.clamp(index + dir, 0, values.length - 1)
+
+		update(values[nextIndex])
+	}
+}
 </script>
 
 <template>
-	<Tq.InputString
-		v-if="config.value === null || !config.option"
-		:modelValue="config.value ? String(config.value) : '-'"
-		font="monospace"
-		align="center"
-		disabled
-	/>
-	<Tq.InputDropdown
-		v-else-if="config.option.type === 'enum'"
-		:modelValue="targetValue"
-		:options="config.option.values"
-		:disabled="config.writable"
-		font="monospace"
-		align="center"
-		v-bind="inputAttrs"
-		@focus="focusing = true"
-		@blur="focusing = false"
-		@update:modelValue="update"
-	/>
-	<Tq.InputNumber
-		v-else-if="config.option?.type === 'range'"
-		:modelValue="targetValue"
-		:min="config.option.min"
-		:max="config.option.max"
-		:step="config.option.step"
-		:disabled="!config.writable"
-		:prefix="prefix"
-		:suffix="suffix"
-		v-bind="inputAttrs"
-		@focus="focusing = true"
-		@blur="focusing = false"
-		@update:modelValue="update"
-	/>
+	<div class="TethrConfig">
+		<Tq.InputButton
+			v-if="canIncrement"
+			icon="ic:round-minus"
+			@click="increment(-1)"
+		/>
+		<Tq.InputString
+			v-if="config.value === null || !config.option"
+			:modelValue="config.value ? String(config.value) : '-'"
+			font="monospace"
+			align="center"
+			disabled
+		/>
+		<Tq.InputDropdown
+			v-else-if="config.option.type === 'enum'"
+			:modelValue="config.value"
+			:options="config.option.values"
+			:disabled="config.writable"
+			font="monospace"
+			align="center"
+			v-bind="inputAttrs"
+			@focus="focusing = true"
+			@blur="focusing = false"
+			@update:modelValue="update"
+		/>
+		<Tq.InputNumber
+			v-else-if="
+				typeof config.value === 'number' && config.option?.type === 'range'
+			"
+			:modelValue="config.value"
+			:min="config.option.min"
+			:max="config.option.max"
+			:step="config.option.step"
+			:disabled="!config.writable"
+			:prefix="prefix"
+			:suffix="suffix"
+			v-bind="inputAttrs"
+			@focus="focusing = true"
+			@blur="focusing = false"
+			@update:modelValue="update"
+		/>
+		<Tq.InputButton
+			v-if="canIncrement"
+			icon="ic:round-plus"
+			@click="increment(1)"
+		/>
+	</div>
 </template>
 
 <style lang="stylus" scoped>
 .TethrConfig
-	display grid
-	grid-column 1 / 3
-	grid-template-columns subgrid
+	display flex
+	gap 6px
 </style>

@@ -5,39 +5,51 @@ import {computed} from 'vue'
 import {useProjectStore} from '@/stores/project'
 
 interface Props {
-	values: (number | null)[]
+	values: unknown[]
 	color: string
 	valueAtCaptureFrame?: unknown
+	fn?: (v: number) => number
 }
 
 const props = defineProps<Props>()
 
 const project = useProjectStore()
 
-const realtimeValues = computed(() => {
-	if (typeof props.valueAtCaptureFrame !== 'number') return props.values
+const mappedValues = computed(() => {
+	const {fn} = props
+	if (!fn) return props.values.map(v => (typeof v === 'number' ? v : null))
+	return props.values.map(v => (typeof v === 'number' ? fn(v) : null))
+})
 
-	const values = [...props.values]
-	values[project.captureShot.frame] = props.valueAtCaptureFrame
+const realtimeValues = computed(() => {
+	if (typeof props.valueAtCaptureFrame !== 'number') return mappedValues.value
+
+	const v =
+		typeof props.valueAtCaptureFrame === 'number'
+			? props.fn?.(props.valueAtCaptureFrame) ?? props.valueAtCaptureFrame
+			: null
+
+	const values = [...mappedValues.value]
+	values[project.captureShot.frame] = v
 	return values
 })
 
-const range = computed<[min: number, max: number]>(() => {
+const valueRange = computed<[min: number, max: number]>(() => {
 	const [inPoint, outPoint] = project.previewRange
 
 	const sliced = realtimeValues.value.slice(inPoint, outPoint + 1)
 
 	return sliced.reduce(
 		(acc, v) => {
-			if (v === null) return acc
+			if (typeof v !== 'number') return acc
 			return [Math.min(acc[0], v), Math.max(acc[1], v)]
 		},
-		[Infinity, -Infinity]
+		[Infinity, -Infinity] as [number, number]
 	)
 })
 
 const points = computed(() => {
-	const [min, max] = range.value
+	const [min, max] = valueRange.value
 	return valuesToPath(realtimeValues.value, min, max)
 })
 

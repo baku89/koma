@@ -13,15 +13,17 @@ import {
 } from 'troisjs'
 import {useAppConfigStore, useThemeStore} from 'tweeq'
 import Tq from 'tweeq'
-import {computed, onMounted, ref, shallowRef, toRaw} from 'vue'
+import {computed, ref, shallowRef, watch} from 'vue'
 
-import {useAuxStore} from '@/stores/aux'
+import {useTrackerStore} from '@/stores/tracker'
 
 import Axis from './Axis.vue'
+import CameraTrajectory from './CameraTrajectory.vue'
 
-const {tracker} = useAuxStore()
 const appConfig = useAppConfigStore()
 const theme = useThemeStore()
+const tracker = useTrackerStore()
+
 //------------------------------------------------------------------------------
 // ThreeJS
 
@@ -29,97 +31,85 @@ const cameraControlPosition = appConfig.ref('cameraControl.position', [
 	2, 2, 2,
 ] as const)
 
-const $trois = shallowRef<any>()
 const $guide = shallowRef<any>()
 
-onMounted(() => {
-	const cameraControl: OrbitControls = $trois.value.three.cameraCtrl
+function onLoadCameraModel(group: THREE.Group) {
+	const mesh = group.children[0] as THREE.Mesh
+	const material = mesh.material as THREE.MeshPhongMaterial
+	material.opacity = 0.7
+	material.transparent = true
+}
+
+function onRendererReady(trois: any) {
+	const cameraControl: OrbitControls = trois.three.cameraCtrl
 	const guide: THREE.Group = $guide.value.group
 
-	cameraControl.object.position.set(...cameraControlPosition.value)
+	const camera = cameraControl.object as THREE.PerspectiveCamera
 
+	camera.position.set(...cameraControlPosition.value)
+	camera.near = 0.001
+	camera.far = 100
+	camera.updateProjectionMatrix()
+
+	cameraControl.enablePan = false
 	cameraControl.addEventListener('end', () => {
-		cameraControlPosition.value = cameraControl.object.position.toArray() as any
+		cameraControlPosition.value = camera.position.toArray() as any
 	})
 
 	guide.add(new THREE.GridHelper(10, 10))
 	guide.add(new THREE.AxesHelper(5))
-})
+
+	watch(
+		() => tracker.position,
+		(curt, prev) => {
+			const delta = new THREE.Vector3(...vec3.sub(curt, prev ?? curt))
+			cameraControl.target = new THREE.Vector3(...curt)
+			camera.position.add(delta)
+		},
+		{immediate: true}
+	)
+}
 
 //------------------------------------------------------------------------------
 // Calibration
 
-const matrix = computed(() => {
-	return mat4.fromRotationTranslation(tracker.rotation, tracker.position)
-})
-
-const groundLevel = appConfig.ref('groundLevel', 0)
-
-const origin = appConfig.ref<mat4>('tracker.origin', mat4.identity)
-
-const cameraOffset = appConfig.ref<vec3>('tracker.offset', vec3.zero)
-
-// Camera coordinate system relative to the tracker
-const cameraAxisY = appConfig.ref<vec3>('tracker.yAxis', vec3.unitY)
-const cameraAxisX = appConfig.ref<vec3>('tracker.xAxis', vec3.unitX)
-
-const trackerToCameraMatrix = computed(() => {
-	const y = toRaw(cameraAxisY.value)
-	const z = vec3.normalize(vec3.cross(cameraAxisX.value, y))
-	const x = vec3.normalize(vec3.cross(y, z))
-
-	return mat4.mul(
-		mat4.fromAxesTranslation(x, y, z),
-		mat4.fromTranslation(cameraOffset.value)
-	)
-})
-
-const calibratedMatrix = computed(() => {
-	const McInv = mat4.invert(trackerToCameraMatrix.value) ?? mat4.ident
-	const MoInv = mat4.invert(origin.value) ?? mat4.ident
-
-	const inv = mat4.mul(McInv, MoInv)
-
-	return mat4.mul(inv, matrix.value, trackerToCameraMatrix.value)
-})
-
-function setOrigin() {
-	origin.value = matrix.value
-}
-
 const panOrigin = ref<mat4 | null>(null)
 const tiltOrigin = ref<mat4 | null>(null)
 
+function setOrigin() {
+	tracker.origin = tracker.rawMatrix
+}
+
 function setPan() {
 	if (!panOrigin.value) {
-		panOrigin.value = mat4.invert(matrix.value) ?? mat4.ident
+		panOrigin.value = mat4.invert(tracker.rawMatrix) ?? mat4.ident
 	} else {
-		const delta = mat4.mul(matrix.value, panOrigin.value)
+		const delta = mat4.mul(tracker.rawMatrix, panOrigin.value)
 		const q = mat4.getRotation(delta)
 
 		const up = quat.axisAngle(q).axis
 
-		const matrixInv = [...(mat4.invert(matrix.value) ?? mat4.ident)] as any
+		const matrixInv = [...(mat4.invert(tracker.rawMatrix) ?? mat4.ident)] as any
 		matrixInv[12] = matrixInv[13] = matrixInv[14] = 0
 
-		cameraAxisY.value = vec3.transformMat4(up, matrixInv)
+		tracker.cameraAxisY = vec3.transformMat4(up, matrixInv)
 		panOrigin.value = null
 	}
 }
 
 function setTilt() {
 	if (!tiltOrigin.value) {
-		tiltOrigin.value = mat4.invert(matrix.value) ?? mat4.ident
+		tiltOrigin.value = mat4.invert(tracker.rawMatrix) ?? mat4.ident
 	} else {
-		const delta = mat4.mul(matrix.value, tiltOrigin.value)
+		const delta = mat4.mul(tracker.rawMatrix, tiltOrigin.value)
 		const q = quat.invert(mat4.getRotation(delta))
 
 		const left = quat.axisAngle(q).axis
 
-		const matrixInv = [...(mat4.invert(matrix.value) ?? mat4.ident)] as any
+		const matrixInv = [...(mat4.invert(tracker.rawMatrix) ?? mat4.ident)] as any
 		matrixInv[12] = matrixInv[13] = matrixInv[14] = 0
 
-		cameraAxisX.value = vec3.transformMat4(left, matrixInv)
+		tracker.cameraAxisX = vec3.transformMat4(left, matrixInv)
 		tiltOrigin.value = null
 	}
 }
@@ -145,6 +135,8 @@ function matrixToThree(m: mat4) {
 }
 
 //------------------------------------------------------------------------------
+// Pane
+
 const calibrationPanePosition = ref({
 	anchor: 'right-top' as const,
 	width: 'minimized' as const,
@@ -166,24 +158,32 @@ const paneMinimized = computed(
 			:alpha="true"
 			:antialias="true"
 			:orbitCtrl="true"
+			@ready="onRendererReady"
 		>
 			<Camera />
 			<Scene ref="$scene" :background="theme.colorBackground">
 				<PointLight :color="theme.colorOnBackground" :position="{y: 10}" />
 				<AmbientLight :color="theme.colorOnBackground" :intensity="0.5" />
-				<Group v-bind="matrixToThree(calibratedMatrix)">
-					<FbxModel src="./camera.fbx" />
+				<Group v-bind="matrixToThree(tracker.matrix)">
+					<FbxModel src="./camera.fbx" @load="onLoadCameraModel" />
 				</Group>
-				<Group ref="$guide" :position="{y: groundLevel}" />
+				<Group ref="$guide" :position="{y: tracker.groundLevel}" />
+				<CameraTrajectory />
 
 				<template v-if="!paneMinimized">
-					<Axis :matrix="origin" />
-					<Axis :matrix="matrix" />
-					<Axis :matrix="trackerToCameraMatrix" />
-					<Sphere :radius="0.02" :position="positionToThree(cameraAxisX)">
+					<Axis :matrix="tracker.origin" />
+					<Axis :matrix="tracker.rawMatrix" />
+					<Axis :matrix="tracker.trackerToCameraMatrix" />
+					<Sphere
+						:radius="0.02"
+						:position="positionToThree(tracker.cameraAxisX)"
+					>
 						<BasicMaterial color="#ff0000" />
 					</Sphere>
-					<Sphere :radius="0.02" :position="positionToThree(cameraAxisY)">
+					<Sphere
+						:radius="0.02"
+						:position="positionToThree(tracker.cameraAxisY)"
+					>
 						<BasicMaterial color="#00ff00" />
 					</Sphere>
 				</template>
@@ -198,16 +198,16 @@ const paneMinimized = computed(
 				<Tq.ParameterGrid>
 					<Tq.ParameterHeading>Calibration</Tq.ParameterHeading>
 					<Tq.Parameter label="Ground" icon="tabler:circuit-ground">
-						<Tq.InputNumber v-model="groundLevel" :min="-2" :max="2" />
+						<Tq.InputNumber v-model="tracker.groundLevel" :min="-2" :max="2" />
 					</Tq.Parameter>
 					<Tq.Parameter label="Origin" icon="carbon:center-circle">
 						<Tq.InputButton label="Set" @click="setOrigin" />
 					</Tq.Parameter>
 					<Tq.Parameter label="Offset" icon="mdi:axis-arrow">
-						<Tq.InputVec v-model="cameraOffset" />
+						<Tq.InputVec v-model="tracker.cameraOffset" />
 					</Tq.Parameter>
 					<Tq.Parameter label="Up" icon="mdi:axis-z-rotate-counterclockwise">
-						<Tq.InputVec v-model="cameraAxisY" :min="-1" :max="1" />
+						<Tq.InputVec v-model="tracker.cameraAxisY" :min="-1" :max="1" />
 						<Tq.InputButton
 							:label="panOrigin ? 'Set Pan-Left' : 'Set Pan-Right'"
 							:blink="!!panOrigin"
@@ -215,7 +215,7 @@ const paneMinimized = computed(
 						/>
 					</Tq.Parameter>
 					<Tq.Parameter label="X Axis" icon="mdi:axis-x-arrow">
-						<Tq.InputVec v-model="cameraAxisX" :min="-1" :max="1" />
+						<Tq.InputVec v-model="tracker.cameraAxisX" :min="-1" :max="1" />
 						<Tq.InputButton
 							:label="tiltOrigin ? 'Set Tilt-Up' : 'Set Tilt-Down'"
 							:blink="!!tiltOrigin"

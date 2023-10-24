@@ -1,20 +1,15 @@
 import {defineStore} from 'pinia'
-import {
-	ConfigDesc,
-	ConfigDescOption,
-	ConfigName,
-	ConfigType,
-	detectCameras,
-	Tethr,
-} from 'tethr'
+import {ConfigDesc, ConfigName, ConfigType, detectCameras, Tethr} from 'tethr'
 import {useAppConfigStore} from 'tweeq'
 import {onUnmounted, reactive, readonly, Ref, shallowRef, watch} from 'vue'
+
+import {debounceAsync} from '@/util'
 
 export interface Config<T> {
 	writable: boolean
 	value: T | null
-	set: (value: T) => void
-	option?: ConfigDescOption<T>
+	set: (value: T) => Promise<void>
+	option: ConfigDesc<T>['option']
 }
 
 export function useConfig<N extends ConfigName>(
@@ -24,7 +19,7 @@ export function useConfig<N extends ConfigName>(
 	const config = reactive({
 		writable: false,
 		value: null,
-		set: () => null,
+		set: async () => undefined,
 		option: undefined,
 	}) as Config<ConfigType[N]>
 
@@ -34,7 +29,7 @@ export function useConfig<N extends ConfigName>(
 			if (!camera) {
 				config.writable = false
 				config.value = null
-				config.set = () => null
+				config.set = async () => undefined
 				config.option = undefined
 				return
 			}
@@ -45,9 +40,32 @@ export function useConfig<N extends ConfigName>(
 			config.value = desc.value
 			config.option = desc.option
 
-			config.set = (value: ConfigType[N]) => camera.set(name, value)
+			let targetValue: ConfigType[N] | null = null
+
+			const setProp = debounceAsync(
+				async (value: ConfigType[N]) => {
+					await camera.set(name, value)
+				},
+				{
+					onQueue(value) {
+						targetValue = value
+					},
+					onFinish() {
+						targetValue = null
+					},
+				}
+			).fn
+
+			config.set = async (value: ConfigType[N]) => {
+				config.value = value
+				setProp(value)
+			}
 
 			camera.on(`${name}Change` as any, (desc: ConfigDesc<ConfigType[N]>) => {
+				const doSkip = targetValue !== null && targetValue !== desc.value
+
+				if (doSkip) return
+
 				config.value = desc.value
 				config.writable = desc.writable
 				config.option = desc.option
@@ -107,17 +125,20 @@ export const useCameraStore = defineStore('camera', () => {
 			liveviewMediaStream.value = ms
 		})
 		cam.on('change', async () => {
+			const exportedConfigs = (await tethr.value?.exportConfigs()) ?? {}
+
 			configs.value = {
 				...configs.value,
-				...(await tethr.value?.exportConfigs()),
+				...exportedConfigs,
 			}
 		})
-		cam.importConfigs(configs.value)
-
-		cam.startLiveview()
 
 		tethr.value = cam
 		;(window as any).cam = cam
+
+		await cam.importConfigs(configs.value)
+
+		cam.startLiveview()
 	}
 
 	onUnmounted(() => {

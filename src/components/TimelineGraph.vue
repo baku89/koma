@@ -21,49 +21,39 @@ const shootTime = computed(() => {
 
 const focalLength = computed(() => {
 	return project.allKomas.map(koma => {
-		const value = koma.shots[0]?.cameraConfigs.focalLength
-		return typeof value === 'number' ? value : null
+		return koma.shots[0]?.cameraConfigs.focalLength
 	})
 })
 
 const focusDistance = computed(() => {
 	return project.allKomas.map(koma => {
-		const value = koma.shots[0]?.cameraConfigs.focusDistance
-		return typeof value === 'number' ? value : null
+		return koma.shots[0]?.cameraConfigs.focusDistance
 	})
 })
 
 const aperture = computed(() => {
 	return project.allKomas.map(koma => {
-		const value = koma.shots[0]?.cameraConfigs.aperture
-		return logValue(value, true)
+		return koma.shots[0]?.cameraConfigs.aperture
 	})
 })
 
 const shutterSpeed = computed(() => {
 	return project.allKomas.map(koma => {
-		const value = koma.shots[0]?.cameraConfigs.shutterSpeed
-		return shutterSpeedToString(value)
+		return koma.shots[0]?.cameraConfigs.shutterSpeed
 	})
 })
 
-const iso = computed(() => {
-	return project.allKomas.map(koma => {
-		const value = koma.shots[0]?.cameraConfigs.iso
-		return logValue(value)
+const iso = computed(() =>
+	project.allKomas.map(koma => {
+		return koma.shots[0]?.cameraConfigs.iso
 	})
-})
+)
 
 const colorTemperature = computed(() => {
 	return project.allKomas.map(koma => {
 		return koma.shots[0]?.cameraConfigs.colorTemperature ?? null
 	})
 })
-
-function logValue(value: unknown, invert = false) {
-	const sign = invert ? -1 : 1
-	return typeof value === 'number' ? sign * Math.log(value) : null
-}
 
 function isPropertyVisible(name: string) {
 	return project.visibleProperties[name]?.visible ?? false
@@ -73,11 +63,13 @@ function shutterSpeedToString(ss?: string | null) {
 	if (typeof ss !== 'string') {
 		return null
 	} else if (ss.startsWith('1/')) {
-		return logValue(1 / parseInt(ss.slice(2)))
+		return 1 / parseInt(ss.slice(2))
 	} else {
-		return /^[0-9]+$/.test(ss) ? logValue(parseInt(ss)) : null
+		return /^[0-9]+$/.test(ss) ? parseInt(ss) : null
 	}
 }
+
+const invLog = (v: number) => -Math.log(v)
 </script>
 
 <template>
@@ -87,42 +79,52 @@ function shutterSpeedToString(ss?: string | null) {
 			:values="shootTime"
 			:valueAtCaptureFrame="timer.current"
 			:color="project.visibleProperties.shootTime?.color"
+			transform="translate(0, 0.2) scale(1, 0.8)"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('focalLength')"
 			:values="focalLength"
 			:valueAtCaptureFrame="camera.focalLength.value"
 			:color="project.visibleProperties.focalLength?.color"
+			transform="translate(0, 0) scale(1, 0.8)"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('focusDistance')"
 			:values="focusDistance"
 			:valueAtCaptureFrame="camera.focusDistance.value"
 			:color="project.visibleProperties.focusDistance?.color"
+			transform="translate(0, 0.025) scale(1, 0.8)"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('aperture')"
 			:values="aperture"
-			:valueAtCaptureFrame="logValue(camera.aperture.value, true)"
+			:valueAtCaptureFrame="camera.aperture.value"
 			:color="project.visibleProperties.aperture?.color"
+			:fn="invLog"
+			transform="translate(0, 0.05) scale(1, 0.8)"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('shutterSpeed')"
 			:values="shutterSpeed"
 			:valueAtCaptureFrame="shutterSpeedToString(camera.shutterSpeed.value)"
 			:color="project.visibleProperties.shutterSpeed?.color"
+			:fn="Math.log"
+			transform="translate(0, 0.075) scale(1, 0.8)"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('iso')"
 			:values="iso"
-			:valueAtCaptureFrame="logValue(camera.iso.value)"
+			:valueAtCaptureFrame="camera.iso.value"
 			:color="project.visibleProperties.iso?.color"
+			:fn="Math.log"
+			transform="translate(0, 0.1) scale(1, 0.8)"
 		/>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('colorTemperature')"
 			:values="colorTemperature"
 			:valueAtCaptureFrame="camera.colorTemperature.value"
 			:color="project.visibleProperties.colorTemperature?.color"
+			transform="translate(0, 0.125) scale(1, 0.8)"
 		/>
 		/>
 	</svg>

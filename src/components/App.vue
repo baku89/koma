@@ -10,6 +10,7 @@ import {useCameraStore} from '@/stores/camera'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
 import {useTimerStore} from '@/stores/timer'
+import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
 import {preventConcurrentExecution} from '@/util'
 
@@ -30,6 +31,7 @@ const viewport = useViewportStore()
 const project = useProjectStore()
 const camera = useCameraStore()
 const timer = useTimerStore()
+const tracker = useTrackerStore()
 const shootAlerts = useShootAlertsStore()
 
 const $modal = ref<typeof Tq.PaneModalComplex | null>(null)
@@ -75,6 +77,10 @@ const {fn: shoot} = preventConcurrentExecution(
 			const captureDate = new Date().getTime()
 
 			const cameraConfigs = await tethr.exportConfigs()
+
+			const trackerData = tracker.enabled
+				? {position: tracker.position, rotation: tracker.rotation}
+				: undefined
 
 			const lv = await tethr.getLiveViewImage()
 			if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
@@ -124,13 +130,14 @@ const {fn: shoot} = preventConcurrentExecution(
 				cameraConfigs,
 				shootTime: timer.current,
 				captureDate,
+				tracker: trackerData,
 			}
 		} finally {
 			viewport.popup = null
 		}
 	},
 	() => {
-		alert('The shooting is already executed')
+		playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
 		throw new Error('The Shooting is already executed')
 	}
 )
@@ -203,8 +210,8 @@ actions.register([
 		icon: 'material-symbols:landscape-outline',
 		input: ['2', 'gamepad:zr'],
 		perform() {
-			if (camera.focusDistance.value === null) return
-			camera.focusDistance.set(camera.focusDistance.value + 0.01)
+			if (camera.focusDistance.currentValue === null) return
+			camera.focusDistance.set(camera.focusDistance.currentValue + 0.01)
 		},
 	},
 	{
@@ -212,8 +219,8 @@ actions.register([
 		icon: 'tabler:macro',
 		input: ['1', 'gamepad:zl'],
 		perform() {
-			if (camera.focusDistance.value === null) return
-			camera.focusDistance.set(camera.focusDistance.value - 0.01)
+			if (camera.focusDistance.currentValue === null) return
+			camera.focusDistance.set(camera.focusDistance.currentValue - 0.01)
 		},
 	},
 	{
