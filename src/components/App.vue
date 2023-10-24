@@ -278,12 +278,29 @@ actions.register([
 		icon: 'mdi:backspace',
 		input: ['delete', 'backspace', 'gamepad:b'],
 		perform() {
+			const isDeletingCaptureFrame =
+				viewport.currentFrame === project.captureShot.frame
+
+			const frameToDelete = isDeletingCaptureFrame
+				? viewport.currentFrame - 1
+				: viewport.currentFrame
+
+			if (frameToDelete < 0 || project.duration <= frameToDelete) {
+				return
+			}
+
 			project.$patch(project => {
-				project.komas.splice(viewport.currentFrame, 1)
-				if (viewport.currentFrame < project.captureShot.frame) {
+				project.komas.splice(frameToDelete, 1)
+				if (
+					isDeletingCaptureFrame &&
+					viewport.currentFrame === project.captureShot.frame
+				) {
+					viewport.currentFrame -= 1
+				}
+				if (frameToDelete < project.captureShot.frame) {
 					project.captureShot.frame -= 1
 				}
-				if (viewport.currentFrame <= project.previewRange[1]) {
+				if (frameToDelete <= project.previewRange[1]) {
 					project.previewRange[1] -= 1
 				}
 			})

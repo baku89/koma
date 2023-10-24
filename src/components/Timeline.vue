@@ -74,7 +74,16 @@ const vizStyles = computed(() => {
 </script>
 
 <template>
-	<div class="Timeline">
+	<div
+		class="Timeline"
+		:style="{
+			'--koma-width': komaWidth + 'px',
+			'--duration': project.allKomas.length,
+			'--in-point': project.previewRange[0],
+			'--out-point': project.previewRange[1],
+			'--onionskin': project.onionskin,
+		}"
+	>
 		<aside>
 			<div v-for="(layer, i) in layers" :key="i" class="layer-control">
 				<Tq.InputDropdown
@@ -96,16 +105,11 @@ const vizStyles = computed(() => {
 			:visibleRegion="visibleRegion"
 			@zoomHorizontal="onZoomTimeline"
 		>
-			<div
-				class="komas"
-				:style="{
-					'--koma-width': komaWidth + 'px',
-					width: `calc(${project.allKomas.length} * var(--koma-width))`,
-				}"
-			>
+			<div class="komas">
 				<div ref="$frameMeasure" class="frameMeasure" />
 				<div class="seekbar" :style="seekbarStyles">
 					{{ viewport.previewFrame }}
+					<div class="onionskin" :class="{pos: project.onionskin > 0}" />
 				</div>
 				<div class="previewRange" :style="previewRangeStyles" />
 				<div v-for="(_, frame) in project.allKomas" :key="frame" class="koma">
@@ -160,6 +164,7 @@ aside
 .komas
 	position relative
 	display flex
+	width calc(var(--duration) * var(--koma-width))
 	height 100%
 
 .frameMeasure
@@ -198,6 +203,22 @@ header-frame-text-style()
 		width var(--koma-width)
 		background var(--tq-color-primary)
 		z-index -1
+
+.onionskin
+	position absolute
+	top 0
+	left calc(var(--koma-width) * var(--onionskin))
+	right 100%
+	height var(--header-height)
+	background var(--md-sys-color-on-tertiary-container)
+	opacity .5
+	border-radius 99px 0 0 99px
+
+	&.pos
+		left var(--koma-width)
+		right auto
+		width calc(var(--koma-width) * var(--onionskin))
+		border-radius 0 99px 99px 0
 
 .previewRange
 	position absolute

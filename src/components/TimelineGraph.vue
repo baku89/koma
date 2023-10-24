@@ -11,8 +11,13 @@ const project = useProjectStore()
 const timer = useTimerStore()
 const camera = useCameraStore()
 
+const previewKomas = computed(() => {
+	const [inPoint, outPoint] = project.previewRange
+	return project.allKomas.slice(inPoint, outPoint + 1)
+})
+
 const shootTime = computed(() => {
-	return project.allKomas.map(koma =>
+	return previewKomas.value.map(koma =>
 		koma.shots.length > 0
 			? koma.shots.reduce((acc, shot) => acc + (shot?.shootTime ?? 0), 0)
 			: null
@@ -20,37 +25,37 @@ const shootTime = computed(() => {
 })
 
 const focalLength = computed(() => {
-	return project.allKomas.map(koma => {
+	return previewKomas.value.map(koma => {
 		return koma.shots[0]?.cameraConfigs.focalLength
 	})
 })
 
 const focusDistance = computed(() => {
-	return project.allKomas.map(koma => {
+	return previewKomas.value.map(koma => {
 		return koma.shots[0]?.cameraConfigs.focusDistance
 	})
 })
 
 const aperture = computed(() => {
-	return project.allKomas.map(koma => {
+	return previewKomas.value.map(koma => {
 		return koma.shots[0]?.cameraConfigs.aperture
 	})
 })
 
 const shutterSpeed = computed(() => {
-	return project.allKomas.map(koma => {
+	return previewKomas.value.map(koma => {
 		return koma.shots[0]?.cameraConfigs.shutterSpeed
 	})
 })
 
-const iso = computed(() =>
-	project.allKomas.map(koma => {
+const iso = computed(() => {
+	return previewKomas.value.map(koma => {
 		return koma.shots[0]?.cameraConfigs.iso
 	})
-)
+})
 
 const colorTemperature = computed(() => {
-	return project.allKomas.map(koma => {
+	return previewKomas.value.map(koma => {
 		return koma.shots[0]?.cameraConfigs.colorTemperature ?? null
 	})
 })
@@ -70,10 +75,29 @@ function shutterSpeedToString(ss?: string | null) {
 }
 
 const invLog = (v: number) => -Math.log(v)
+
+const viewBox = computed(() => {
+	const [inPoint, outPoint] = project.previewRange
+	return `${inPoint} 0 ${outPoint - inPoint + 1} 1`
+})
 </script>
 
 <template>
-	<svg class="TimelineGraph" viewBox="0 0 1 1" preserveAspectRatio="none">
+	<svg class="TimelineGraph" :viewBox="viewBox" preserveAspectRatio="none">
+		<defs>
+			<marker
+				id="circle"
+				viewBox="0 0 12 12"
+				refX="6"
+				refY="6"
+				markerWidth="30"
+				markerHeight="5"
+				markerUnits="strokeWidth"
+				fill="red"
+			>
+				<circle cx="6" cy="6" r="5" />
+			</marker>
+		</defs>
 		<TimelineGraphPolyline
 			v-if="isPropertyVisible('shootTime')"
 			:values="shootTime"
@@ -134,8 +158,8 @@ const invLog = (v: number) => -Math.log(v)
 .TimelineGraph
 	position absolute
 	top 0
-	left 0
-	width 100%
+	left calc(var(--in-point) * var(--koma-width))
+	width calc((var(--out-point) - var(--in-point) + 1) * var(--koma-width))
 	height 100%
 	object-fit fill
 	overflow visible

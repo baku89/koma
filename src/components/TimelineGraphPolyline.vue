@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {scalar} from 'linearly'
+import {scalar, vec2} from 'linearly'
 import {computed} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
@@ -17,12 +17,23 @@ const project = useProjectStore()
 
 const mappedValues = computed(() => {
 	const {fn} = props
-	if (!fn) return props.values.map(v => (typeof v === 'number' ? v : null))
-	return props.values.map(v => (typeof v === 'number' ? fn(v) : null))
+	if (fn) {
+		return props.values.map(v => (typeof v === 'number' ? fn(v) : null))
+	} else {
+		return props.values.map(v => (typeof v === 'number' ? v : null))
+	}
 })
 
 const realtimeValues = computed(() => {
-	if (typeof props.valueAtCaptureFrame !== 'number') return mappedValues.value
+	const captureFrame = project.captureShot.frame
+
+	if (
+		typeof props.valueAtCaptureFrame !== 'number' ||
+		captureFrame < project.previewRange[0] ||
+		project.previewRange[1] < captureFrame
+	) {
+		return mappedValues.value
+	}
 
 	const v =
 		typeof props.valueAtCaptureFrame === 'number'
@@ -30,16 +41,12 @@ const realtimeValues = computed(() => {
 			: null
 
 	const values = [...mappedValues.value]
-	values[project.captureShot.frame] = v
+	values[captureFrame - project.previewRange[0]] = v
 	return values
 })
 
 const valueRange = computed<[min: number, max: number]>(() => {
-	const [inPoint, outPoint] = project.previewRange
-
-	const sliced = realtimeValues.value.slice(inPoint, outPoint + 1)
-
-	return sliced.reduce(
+	return realtimeValues.value.reduce(
 		(acc, v) => {
 			if (typeof v !== 'number') return acc
 			return [Math.min(acc[0], v), Math.max(acc[1], v)]
@@ -50,30 +57,40 @@ const valueRange = computed<[min: number, max: number]>(() => {
 
 const points = computed(() => {
 	const [min, max] = valueRange.value
-	return valuesToPath(realtimeValues.value, min, max)
+	const [inPoint] = project.previewRange
+
+	return realtimeValues.value.flatMap((v, x) => {
+		if (v === null) return []
+		const y = scalar.invlerp(min, max, v)
+		return [[x + inPoint, scalar.lerp(0.95, 0.05, y)]] as vec2[]
+	})
 })
 
-function valuesToPath(values: (number | null)[], min: number, max: number) {
-	const len = values.length || 1
-	return values
-		.map((v, x) => {
-			if (v === null) return
-			const y = scalar.invlerp(min, max, v)
-			return `${x / len},${scalar.lerp(0.95, 0.05, y)}`
-		})
-		.join(' ')
-}
+const polylinePoints = computed(() => {
+	return points.value.join(' ')
+})
+
+const dotsPath = computed(() => {
+	return points.value.map(([x, y]) => `M${x},${y} L${x},${y}`).join(' ')
+})
 </script>
 
 <template>
-	<polyline class="TimelineGraphPolyline" :stroke="color" :points="points" />
+	<g>
+		<polyline class="polyline" :stroke="color" :points="polylinePoints" />
+		<path :d="dotsPath" :stroke="color" class="dots" />
+	</g>
 </template>
 
 <style lang="stylus" scoped>
-.TimelineGraphPolyline
-	stroke-width 2px
+.polyline, .dots
 	fill none
 	stroke-linejoin round
 	stroke-linecap round
 	vector-effect non-scaling-stroke
+
+.polyline
+	stroke-width 1px
+.dots
+	stroke-width 5px
 </style>
