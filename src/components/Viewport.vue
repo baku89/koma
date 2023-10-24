@@ -1,10 +1,12 @@
 <script lang="ts" setup>
+import {Icon} from '@iconify/vue'
 import {useElementBounding} from '@vueuse/core'
 import {mat2d, vec2} from 'linearly'
 import {useActionsStore} from 'tweeq'
 import {computed, ref} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
+import {useShootAlertsStore} from '@/stores/shootAlerts'
 import {useViewportStore} from '@/stores/viewport'
 import {useZUI} from '@/use/useZUI'
 
@@ -13,6 +15,7 @@ import ViewportKoma from './ViewportKoma.vue'
 const actions = useActionsStore()
 const project = useProjectStore()
 const viewport = useViewportStore()
+const shootAlerts = useShootAlertsStore()
 
 const $wrapper = ref<HTMLElement | null>(null)
 
@@ -103,10 +106,18 @@ actions.register([
 				}"
 			/>
 		</div>
+		<ul class="shootAlerts">
+			<li v-for="(alert, i) in shootAlerts.alerts" :key="i">
+				<Icon icon="material-symbols:error" />
+				<span>{{ alert }}</span>
+			</li>
+		</ul>
 	</div>
 </template>
 
 <style lang="stylus" scope>
+@import '../../dev_modules/tweeq/src/common.styl'
+
 .Viewport
 	position relative
 	border 4px solid transparent
@@ -167,4 +178,27 @@ actions.register([
 		background var(--tq-color-on-background)
 		border-radius 9999px
 		transition width .5s ease
+
+.shootAlerts
+	position absolute
+	top 1rem
+	right 1rem
+	width 260px
+	display flex
+	flex-direction column
+	gap 9px
+
+	li
+		display grid
+		grid-template-columns min-content 1fr
+		background set-alpha(--tq-color-surface, .8)
+		border-radius var(--tq-input-border-radius)
+		backdrop-filter blur(4px)
+		padding 1rem
+		gap 9px
+		line-height 20px
+		border 1px solid var(--tq-color-on-error)
+
+	.iconify
+		color var(--tq-color-error)
 </style>

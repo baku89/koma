@@ -53,7 +53,7 @@ interface Project<T = Blob> {
 		drawing: PaperJSData
 	}
 	isLooping: boolean
-	ShootCondition: JSCode
+	shootCondition: JSCode
 	cameraConfigs: CameraConfigs
 	visibleProperties: Record<string, {visible: boolean; color: string}>
 	viewport: {
@@ -130,7 +130,35 @@ const emptyProject: Project = {
 		drawing: null,
 	},
 	isLooping: false,
-	ShootCondition: '() => true',
+	shootCondition: `({camera, aux}) => {
+	const alerts = []
+
+	if (camera.tethr) {
+		if (camera.exposureMode.value !== 'M') {
+			alerts.push('Exposure mode must be set to M')
+		}
+
+		if (typeof camera.iso.value !== 'number') {
+			alerts.push('ISO must be set to a number')
+		}
+
+		if (camera.whiteBalance.value !== 'manual') {
+			alerts.push('White balance must be set to manual')
+		}
+	} else {
+		alerts.push('Camera must be connected')
+	}
+
+	if (aux.tracker.enabled) {
+		if (vec3.len(aux.tracker.velocity) >= 0.01) {
+			alerts.push('Tracker must be stable')
+		}
+	} else {
+		alerts.push('Tracker must be connected')
+	}
+
+	return alerts
+}`,
 	cameraConfigs: {
 		focalLength: 50,
 		focusDistance: 24,

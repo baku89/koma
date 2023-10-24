@@ -57,6 +57,8 @@ const groundLevel = appConfig.ref('groundLevel', 0)
 
 const origin = appConfig.ref<mat4>('tracker.origin', mat4.identity)
 
+const cameraOffset = appConfig.ref<vec3>('tracker.offset', vec3.zero)
+
 // Camera coordinate system relative to the tracker
 const cameraAxisY = appConfig.ref<vec3>('tracker.yAxis', vec3.unitY)
 const cameraAxisX = appConfig.ref<vec3>('tracker.xAxis', vec3.unitX)
@@ -66,7 +68,10 @@ const trackerToCameraMatrix = computed(() => {
 	const z = vec3.normalize(vec3.cross(cameraAxisX.value, y))
 	const x = vec3.normalize(vec3.cross(y, z))
 
-	return mat4.fromAxesTranslation(x, y, z)
+	return mat4.mul(
+		mat4.fromAxesTranslation(x, y, z),
+		mat4.fromTranslation(cameraOffset.value)
+	)
 })
 
 const calibratedMatrix = computed(() => {
@@ -198,19 +203,22 @@ const paneMinimized = computed(
 					<Tq.Parameter label="Origin" icon="carbon:center-circle">
 						<Tq.InputButton label="Set" @click="setOrigin" />
 					</Tq.Parameter>
+					<Tq.Parameter label="Offset" icon="mdi:axis-arrow">
+						<Tq.InputVec v-model="cameraOffset" />
+					</Tq.Parameter>
 					<Tq.Parameter label="Up" icon="mdi:axis-z-rotate-counterclockwise">
 						<Tq.InputVec v-model="cameraAxisY" :min="-1" :max="1" />
 						<Tq.InputButton
 							:label="panOrigin ? 'Set Pan-Left' : 'Set Pan-Right'"
-							:blink="panOrigin"
+							:blink="!!panOrigin"
 							@click="setPan"
 						/>
 					</Tq.Parameter>
 					<Tq.Parameter label="X Axis" icon="mdi:axis-x-arrow">
 						<Tq.InputVec v-model="cameraAxisX" :min="-1" :max="1" />
 						<Tq.InputButton
-							:label="tiltOrigin ? 'Set Tilt-Down' : 'Set Tilt-Up'"
-							:blink="tiltOrigin"
+							:label="tiltOrigin ? 'Set Tilt-Up' : 'Set Tilt-Down'"
+							:blink="!!tiltOrigin"
 							@click="setTilt"
 						/>
 					</Tq.Parameter>

@@ -8,6 +8,7 @@ import {ref, watch} from 'vue'
 import {playSound} from '@/playSound'
 import {useCameraStore} from '@/stores/camera'
 import {Shot, useProjectStore} from '@/stores/project'
+import {useShootAlertsStore} from '@/stores/shootAlerts'
 import {useTimerStore} from '@/stores/timer'
 import {useViewportStore} from '@/stores/viewport'
 import {preventConcurrentExecution} from '@/util'
@@ -29,6 +30,7 @@ const viewport = useViewportStore()
 const project = useProjectStore()
 const camera = useCameraStore()
 const timer = useTimerStore()
+const shootAlerts = useShootAlertsStore()
 
 const $modal = ref<typeof Tq.PaneModalComplex | null>(null)
 
@@ -48,9 +50,15 @@ actions.onBeforePerform(action => {
 })
 
 //------------------------------------------------------------------------------
+// Shoot
 
 const {fn: shoot} = preventConcurrentExecution(
 	async (): Promise<Shot> => {
+		if (!shootAlerts.canShoot) {
+			playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+			throw new Error('Cannot shoot')
+		}
+
 		if (!camera.tethr) {
 			throw new Error('No camera is coonnected')
 		}
@@ -346,10 +354,15 @@ actions.register([
 		input: 'command+,',
 		async perform() {
 			const result = await $modal.value!.show(
-				{name: project.name, fps: project.fps},
+				{
+					name: project.name,
+					fps: project.fps,
+					shootCondition: project.shootCondition,
+				},
 				{
 					name: {type: 'string'},
 					fps: {type: 'number', min: 1, max: 60, step: 1},
+					shootCondition: {type: 'code', lang: 'javascript'},
 				},
 				{
 					title: 'Project Settings',

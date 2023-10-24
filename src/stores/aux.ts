@@ -1,4 +1,4 @@
-import {quat} from 'linearly'
+import {quat, vec3} from 'linearly'
 import {defineStore} from 'pinia'
 import {computed} from 'vue'
 
@@ -11,12 +11,17 @@ export const useAuxStore = defineStore('aux', () => {
 		position: {
 			address: '/tracker0/position',
 			type: 'fff',
-			default: [0, 0, 0],
+			default: vec3.zero,
 		},
 		rotation: {
 			address: '/tracker0/rotation',
 			type: 'ffff',
 			default: quat.identity,
+		},
+		velocity: {
+			address: '/tracker0/velocity',
+			type: 'fff',
+			default: vec3.zero,
 		},
 		enabled: {
 			address: '/tracker0/enabled',

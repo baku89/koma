@@ -5,6 +5,21 @@ const {mat4} = require('linearly')
 const fps = require('fps')
 const chalk = require('chalk')
 
+// Run the command `(ps aux | grep "[p]tpcamera" | awk '{print $2}'`
+// to get the PID of the ptpcamera process.
+// Then run `kill -9 <PID>` to kill the process.
+// This is a workaround for the bug of the ptpcamera process
+// that prevents Tethr from working.
+const {exec} = require('node:child_process')
+
+function killPTPProcess() {
+	exec(
+		"kill -9 $(ps aux | grep '[p]tpcamera' | awk '{print $2}')",
+		killPTPProcess
+	)
+}
+killPTPProcess()
+
 const REFRESH_RATE = 60
 
 const osc = new OSC({plugin: new OSC.WebsocketServerPlugin()})
