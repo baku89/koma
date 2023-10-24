@@ -9,9 +9,11 @@ export const useBlobStore = defineStore('blobCache', () => {
 	let resolveBlobCacheDir: (value: FileSystemDirectoryHandle) => void = () =>
 		null
 
-	const localDir: Promise<FileSystemDirectoryHandle> = new Promise(resolve => {
-		resolveLocalDir = resolve
-	})
+	const localDirectoryHandle: Promise<FileSystemDirectoryHandle> = new Promise(
+		resolve => {
+			resolveLocalDir = resolve
+		}
+	)
 	const blobCacheDir: Promise<FileSystemDirectoryHandle> = new Promise(
 		resolve => {
 			resolveBlobCacheDir = resolve
@@ -134,5 +136,5 @@ export const useBlobStore = defineStore('blobCache', () => {
 		return filename
 	}
 
-	return {open, save, localDir, usage, quota}
+	return {open, save, localDirectoryHandle, usage, quota}
 })

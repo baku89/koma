@@ -348,33 +348,31 @@ actions.register([
 		},
 	},
 	{
-		id: 'set_project_duration',
-		icon: 'tabler:keyframes-filled',
-		async perform() {
-			const duration = parseInt(window.prompt('Set project duration') ?? '0')
-			project.setDuration(duration)
-		},
-	},
-	{
 		id: 'project_settings',
 		icon: 'mdi:gear',
 		input: 'command+,',
 		async perform() {
-			const result = await $modal.value!.show(
+			const result = await $modal.value!.prompt(
 				{
 					name: project.name,
 					fps: project.fps,
+					duration: project.duration,
 					shootCondition: project.shootCondition,
 				},
 				{
 					name: {type: 'string'},
 					fps: {type: 'number', min: 1, max: 60, step: 1},
+					duration: {type: 'number', min: 0, step: 1},
 					shootCondition: {type: 'code', lang: 'javascript'},
 				},
 				{
 					title: 'Project Settings',
 				}
 			)
+
+			project.duration = result.duration
+
+			delete result.duration
 			project.$patch(result)
 		},
 	},

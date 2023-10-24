@@ -119,7 +119,7 @@ export interface Shot<T = Blob> {
 	captureDate?: number
 }
 
-const emptyProject: readonly Project = {
+const emptyProject: Project = {
 	name: 'Untitled',
 	fps: 15,
 	previewRange: [0, 0],
@@ -206,13 +206,10 @@ export const useProjectStore = defineStore('project', () => {
 	const isSavedToDisk = asyncComputed(
 		async () =>
 			directoryHandle.value &&
-			directoryHandle.value !== (await blobCache.localDir)
+			directoryHandle.value !== (await blobCache.localDirectoryHandle)
 	)
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
-
-	// Open the auto-saved project in OPFS
-	blobCache.localDir.then(handler => open(handler))
 
 	const undoableData = computed<UndoableData>({
 		get() {
@@ -320,16 +317,18 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	async function saveInOpfs() {
-		directoryHandle.value = await blobCache.localDir
+		directoryHandle.value = await blobCache.localDirectoryHandle
 		await save()
 	}
 
 	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
-		console.time('save')
+		if (isOpeningAutoSavedProject) return
+
+		// console.time('save')
 
 		try {
 			if (directoryHandle.value === null) {
-				directoryHandle.value = await blobCache.localDir
+				directoryHandle.value = await blobCache.localDirectoryHandle
 			}
 
 			const flatProject: Project<string> = {
@@ -370,7 +369,7 @@ export const useProjectStore = defineStore('project', () => {
 
 			await saveJson(directoryHandle, flatProject, 'project.json')
 		} finally {
-			console.timeEnd('save')
+			// console.timeEnd('save')
 		}
 	})
 
@@ -416,6 +415,13 @@ export const useProjectStore = defineStore('project', () => {
 
 	// Enable autosave
 	const autoSave = pausableWatch(project, save, {deep: true, flush: 'sync'})
+
+	// Open the auto-saved project in OPFS
+	let isOpeningAutoSavedProject = true
+	blobCache.localDirectoryHandle.then(async handler => {
+		await open(handler)
+		isOpeningAutoSavedProject = false
+	})
 
 	//----------------------------------------------------------------------------
 	// Mutations
@@ -471,11 +477,16 @@ export const useProjectStore = defineStore('project', () => {
 		return allKomas.value[frame]?.shots?.length ?? 0
 	}
 
-	function setDuration(frames: number) {
-		while (frames >= project.komas.length) {
-			project.komas.push({shots: []})
-		}
-	}
+	const duration = computed({
+		get() {
+			return project.komas.length
+		},
+		set(value) {
+			while (value >= project.komas.length) {
+				project.komas.push({shots: []})
+			}
+		},
+	})
 
 	return {
 		...toRefs(project),
@@ -495,6 +506,6 @@ export const useProjectStore = defineStore('project', () => {
 		setShot,
 		layer,
 		layerCount,
-		setDuration,
+		duration,
 	}
 })
