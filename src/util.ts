@@ -102,26 +102,39 @@ export function assignReactive<T extends Record<string, any>>(
 	}
 }
 
-export function debounceAsync(fn: () => Promise<void>) {
-	const isExecuting = ref(false)
-	let willExecute = false
+interface DebounceAsyncOptions<T extends unknown[]> {
+	onQueue?: (...args: T) => any
+	onFinish?: () => any
+}
 
-	const debouncedFn = async () => {
+export function debounceAsync<T extends unknown[]>(
+	fn: (...args: T) => Promise<any>,
+	options?: DebounceAsyncOptions<T>
+) {
+	const isExecuting = ref(false)
+	let reservedArgs: T | null = null
+
+	const debouncedFn = async (...args: T) => {
+		options?.onQueue && options.onQueue(...args)
+
 		if (isExecuting.value) {
-			willExecute = true
+			reservedArgs = args
 			return
 		}
 
 		try {
 			isExecuting.value = true
-			await fn()
+			await fn(...args)
 		} finally {
 			isExecuting.value = false
 		}
 
-		if (willExecute) {
-			willExecute = false
-			debouncedFn()
+		if (reservedArgs) {
+			const args = reservedArgs
+			reservedArgs = null
+			await debouncedFn(...args)
+		} else {
+			options?.onFinish && options.onFinish()
 		}
 	}
 
