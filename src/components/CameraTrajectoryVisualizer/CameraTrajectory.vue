@@ -31,6 +31,8 @@ const positions = computed(() => {
 })
 
 const realtimePositions = computed(() => {
+	if (!tracker.enabled) return positions.value
+
 	const [inPoint, outPoint] = project.previewRange
 	const currentFrame = project.captureShot.frame
 

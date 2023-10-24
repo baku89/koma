@@ -210,8 +210,8 @@ actions.register([
 		icon: 'material-symbols:landscape-outline',
 		input: ['2', 'gamepad:zr'],
 		perform() {
-			if (camera.focusDistance.currentValue === null) return
-			camera.focusDistance.set(camera.focusDistance.currentValue + 0.01)
+			if (camera.focusDistance.value === null) return
+			camera.focusDistance.set(camera.focusDistance.value + 0.01)
 		},
 	},
 	{
@@ -219,8 +219,8 @@ actions.register([
 		icon: 'tabler:macro',
 		input: ['1', 'gamepad:zl'],
 		perform() {
-			if (camera.focusDistance.currentValue === null) return
-			camera.focusDistance.set(camera.focusDistance.currentValue - 0.01)
+			if (camera.focusDistance.value === null) return
+			camera.focusDistance.set(camera.focusDistance.value - 0.01)
 		},
 	},
 	{

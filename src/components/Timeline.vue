@@ -37,10 +37,7 @@ useBndr($frameMeasure, el => {
 
 function onZoomTimeline(factor: number) {
 	const newZoomFactor = project.timeline.zoomFactor * factor
-	project.timeline.zoomFactor = scalar.quantize(
-		scalar.clamp(newZoomFactor, 0.25, 2),
-		0.001
-	)
+	project.timeline.zoomFactor = scalar.clamp(newZoomFactor, 0.25, 2)
 }
 
 const layers = computed(() => {

@@ -119,7 +119,7 @@ export interface Shot<T = Blob> {
 	captureDate?: number
 }
 
-const emptyProject: Project = {
+const emptyProject: readonly Project = {
 	name: 'Untitled',
 	fps: 15,
 	previewRange: [0, 0],
@@ -211,6 +211,7 @@ export const useProjectStore = defineStore('project', () => {
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
 
+	// Open the auto-saved project in OPFS
 	blobCache.localDir.then(handler => open(handler))
 
 	const undoableData = computed<UndoableData>({
