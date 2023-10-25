@@ -1,1 +1,1 @@
-export * from './speak'
+export * from './sound'

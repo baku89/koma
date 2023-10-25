@@ -5,7 +5,6 @@ import Tq, {useTweeq} from 'tweeq'
 import {useActionsStore} from 'tweeq'
 import {ref, watch} from 'vue'
 
-import {playSound} from '@/playSound'
 import {useCameraStore} from '@/stores/camera'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
@@ -13,6 +12,7 @@ import {useTimerStore} from '@/stores/timer'
 import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
 import {preventConcurrentExecution} from '@/util'
+import {playSound, speak} from '@/utils'
 
 import CameraControl from './CameraControl.vue'
 import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
@@ -58,7 +58,14 @@ actions.onBeforePerform(action => {
 const {fn: shoot} = preventConcurrentExecution(
 	async (): Promise<Shot> => {
 		if (!shootAlerts.canShoot) {
-			playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+			;(async () => {
+				await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+
+				for await (const msg of shootAlerts.alerts) {
+					await speak(msg)
+				}
+			})()
+
 			throw new Error('Cannot shoot')
 		}
 

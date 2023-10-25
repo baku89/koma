@@ -3,9 +3,9 @@ import {clamp} from 'lodash'
 import {defineStore} from 'pinia'
 import {computed, ref, shallowRef, watch} from 'vue'
 
-import {scrub, seekAndPlay} from '@/playSound'
 import {refWithSetter} from '@/use/refWithSetter'
 import {getObjectURL} from '@/util'
+import {scrub, seekAndPlay} from '@/utils'
 
 import {useProjectStore} from './project'
 
