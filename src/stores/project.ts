@@ -230,6 +230,11 @@ export const useProjectStore = defineStore('project', () => {
 		]
 	})
 
+	const previewKomas = computed<Koma[]>(() => {
+		const [inPoint, outPoint] = project.previewRange
+		return allKomas.value.slice(inPoint, outPoint + 1)
+	})
+
 	// Open and Save Projects
 	async function createNew() {
 		assignReactive(project, cloneDeep(emptyProject))
@@ -489,6 +494,7 @@ export const useProjectStore = defineStore('project', () => {
 		saveAs,
 		saveInOpfs,
 		allKomas,
+		previewKomas,
 		setInPoint,
 		setOutPoint,
 		isOpening,

@@ -154,35 +154,16 @@ const {fn: shoot} = preventConcurrentExecution(
 const gamepadAxis = gamepad.axisDirection()
 
 const gamepadAxisNeutral = gamepadAxis.filter(v => v === null)
+const gamepadAxisLeft = gamepadAxis.filter(v => v && v[0] === -1)
 const gamepadAxisRight = gamepadAxis.filter(v => v && v[0] === 1)
 
-let playTimeout: NodeJS.Timeout | undefined
-
-gamepadAxisRight.on(() => {
-	clearTimeout(playTimeout)
-	playTimeout = setTimeout(() => {
-		viewport.isPlaying = true
-	}, 500)
+gamepadAxisRight.longPress(500).pressed.on(() => {
+	viewport.isPlaying = true
 })
 
 gamepadAxisNeutral.on(() => {
-	clearTimeout(playTimeout)
 	viewport.isPlaying = false
 })
-
-gamepad
-	.button('rsr')
-	.longPress(500)
-	.pressed.on(() => {
-		viewport.enableOnionskin = false
-	})
-
-gamepad
-	.button('rsl')
-	.longPress(500)
-	.pressed.on(() => {
-		viewport.enableOnionskin = true
-	})
 
 actions.register([
 	{
@@ -288,6 +269,22 @@ actions.register([
 		},
 	},
 	{
+		id: 'enable_onionskin',
+		icon: 'fluent-emoji-high-contrast:onion',
+		input: [gamepad.button('rsl').longPress(500).pressed],
+		perform() {
+			viewport.enableOnionskin = true
+		},
+	},
+	{
+		id: 'disable_onionskin',
+		icon: 'fluent-emoji-high-contrast:onion',
+		input: [gamepad.button('rsr').longPress(500).pressed],
+		perform() {
+			viewport.enableOnionskin = false
+		},
+	},
+	{
 		id: 'undo',
 		icon: 'mdi:undo',
 		input: 'command+z',
@@ -316,7 +313,7 @@ actions.register([
 	{
 		id: 'go_backward_1_frame',
 		icon: 'lucide:step-back',
-		input: ['d', 'left', gamepadAxis.filter(v => v && v[0] === -1)],
+		input: ['d', 'left', gamepadAxisLeft],
 		perform() {
 			viewport.currentFrame = Math.max(0, viewport.currentFrame - 1)
 		},
@@ -324,7 +321,7 @@ actions.register([
 	{
 		id: 'delete_current_frame',
 		icon: 'mdi:backspace',
-		input: ['delete', 'backspace', 'gamepad:+'],
+		input: ['delete', 'backspace', gamepad.button('+').longPress(500).pressed],
 		perform() {
 			const isDeletingCaptureFrame =
 				viewport.currentFrame === project.captureShot.frame

@@ -138,28 +138,21 @@ export const useViewportStore = defineStore('viewport', () => {
 		const dir = Math.sign(onionskin)
 		const fract = o % 1.0 === 0 ? 1 : o % 1.0
 
-		if (o <= 1) {
-			return [
-				{
-					frame: currentFrame.value + dir,
-					opacity: o,
-				},
-			]
-		} else {
-			const counts = Math.ceil(o - 0.0001)
-			const layers = Array(counts)
-				.fill(0)
-				.map((_, i) => {
-					const frame = currentFrame.value + dir * (i + 1)
-					const opacityFrom = i === counts - 1 ? 0 : 1 / (counts - 1)
-					const opacityTarget = 1 / counts
-					const opacity = scalar.lerp(opacityFrom, opacityTarget, fract)
+		const counts = Math.ceil(o - 0.0001)
+		const layers = Array(counts)
+			.fill(0)
+			.map((_, i) => {
+				const frame = currentFrame.value + dir * (i + 1)
+				const opacityFrom = i === counts - 1 ? 0 : 1 / counts
+				const opacityTarget = 1 / (counts + 1)
+				const opacity = scalar.lerp(opacityFrom, opacityTarget, fract)
 
-					return {frame, opacity}
-				})
+				return {frame, opacity}
+			})
 
-			return layers
-		}
+		console.log(layers.map(l => l.opacity))
+
+		return layers
 	})
 
 	return {

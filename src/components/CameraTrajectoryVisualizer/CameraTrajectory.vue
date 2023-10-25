@@ -20,31 +20,38 @@ onMounted(() => {
 })
 
 const positions = computed(() => {
-	const [inPoint, outPoint] = project.previewRange
-	const slicedKoma = project.allKomas.slice(inPoint, outPoint)
+	const positions: (THREE.Vector3 | null)[] = []
 
-	return slicedKoma.flatMap(koma => {
+	for (const koma of project.previewKomas) {
 		const shot = koma.shots[0]
-		const position = shot?.tracker?.position ?? null
-		return position ? new THREE.Vector3(...position) : []
-	})
+		const position = shot?.tracker?.position
+		if (position) {
+			positions.push(new THREE.Vector3(...position))
+		} else {
+			positions.push(null)
+		}
+	}
+
+	return positions
 })
 
 const realtimePositions = computed(() => {
-	if (!tracker.enabled) return positions.value
-
 	const [inPoint, outPoint] = project.previewRange
 	const currentFrame = project.captureShot.frame
 
-	if (currentFrame < inPoint || outPoint < currentFrame) {
-		return positions.value
+	if (!tracker.enabled || currentFrame < inPoint || outPoint < currentFrame) {
+		return positions.value.filter(isntNil)
 	}
 
 	const pos = [...positions.value]
 	pos[currentFrame - inPoint] = new THREE.Vector3(...tracker.position)
 
-	return pos
+	return pos.filter(isntNil)
 })
+
+function isntNil<T>(value: T): value is NonNullable<T> {
+	return value !== null && value !== undefined
+}
 
 //------------------------------------------------------------------------------
 // Trajectory
@@ -58,7 +65,7 @@ const polyline = new THREE.Line(
 watch(
 	realtimePositions,
 	realtimePositions => {
-		polylineGeo.setFromPoints(realtimePositions.filter(p => !!p))
+		polylineGeo.setFromPoints(realtimePositions)
 		polylineGeo.computeBoundingSphere()
 	},
 	{immediate: true}
@@ -85,6 +92,28 @@ watch(
 	},
 	{immediate: true}
 )
+
+//------------------------------------------------------------------------------
+// Orientations
+
+// const orientationsGeo = new THREE.BufferGeometry()
+// const orientations = new THREE.LineSegments(
+// 	orientationsGeo,
+// 	new THREE.LineBasicMaterial({color: 0x00ffff})
+// )
+// watch(
+// 	() => [realtimePositions.value, tracker.groundLevel] as const,
+// 	([realtimePositions, groundLevel]) => {
+// 		const points = realtimePositions.flatMap(p => [
+// 			p,
+// 			new THREE.Vector3(p.x, groundLevel, p.z),
+// 		])
+// 		heightsGeo.setFromPoints(points)
+// 		heightsGeo.computeBoundingSphere()
+// 	},
+// 	{immediate: true}
+// )
+//
 </script>
 
 <template>
