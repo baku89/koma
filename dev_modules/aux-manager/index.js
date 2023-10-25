@@ -4,21 +4,9 @@ const {isEqual} = require('lodash')
 const {mat4} = require('linearly')
 const fps = require('fps')
 const chalk = require('chalk')
+const {killPTPProcess} = require('./kill-ptpcamera')
 
-// Run the command `(ps aux | grep "[p]tpcamera" | awk '{print $2}'`
-// to get the PID of the ptpcamera process.
-// Then run `kill -9 <PID>` to kill the process.
-// This is a workaround for the bug of the ptpcamera process
-// that prevents Tethr from working.
-const {exec} = require('node:child_process')
-
-function killPTPProcess() {
-	exec(
-		"kill -9 $(ps aux | grep '[p]tpcamera' | awk '{print $2}')",
-		killPTPProcess
-	)
-}
-killPTPProcess()
+// killPTPProcess()
 
 const REFRESH_RATE = 60
 
@@ -135,4 +123,12 @@ function handleOpenVRTarcker() {
 	}
 }
 
-handleOpenVRTarcker()
+// handleOpenVRTarcker()
+
+const DMX = require('dmx')
+
+const dmx = new DMX()
+
+const universe = dmx.addUniverse('demo', 'artnet', '10.0.1.30', {})
+
+// universe.updateAll(255)
