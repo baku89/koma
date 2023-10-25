@@ -63,6 +63,7 @@ interface Project<T = Blob> {
 		src?: T
 		startFrame: number
 	}
+	markers: Marker[]
 }
 
 type UndoableData = Pick<Project, 'komas' | 'captureShot'>
@@ -84,11 +85,11 @@ interface Koma<T = Blob> {
 		}
 		dmx?: number[]
 	}
-	markers?: Marker[]
 }
 
-interface Marker {
+export interface Marker {
 	label: string
+	frame: number
 	verticalPosition: number
 	duration: number
 	color: string
@@ -186,6 +187,7 @@ const emptyProject: Project = {
 	audio: {
 		startFrame: 0,
 	},
+	markers: [],
 }
 
 export const useProjectStore = defineStore('project', () => {

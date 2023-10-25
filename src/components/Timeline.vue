@@ -3,13 +3,14 @@ import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import Tq from 'tweeq'
 import {useBndr} from 'tweeq'
-import {computed, ref} from 'vue'
+import {computed, provide, ref} from 'vue'
 
 import {MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 
 import Koma from './Koma.vue'
 import TimelineGraph from './TimelineGraph.vue'
+import TimelineMarkers from './TimelineMarkers.vue'
 import TimelineWaveform from './TimelineWaveform.vue'
 
 const project = useProjectStore()
@@ -71,6 +72,8 @@ const vizStyles = computed(() => {
 		top: `calc(var(--header-height) + var(--header-margin-bottom) + var(--koma-height) * ${layers.value.length})`,
 	}
 })
+
+provide('komaWidth', komaWidth)
 </script>
 
 <template>
@@ -106,7 +109,6 @@ const vizStyles = computed(() => {
 			@zoomHorizontal="onZoomTimeline"
 		>
 			<div class="komas">
-				<div ref="$frameMeasure" class="frameMeasure" />
 				<div class="seekbar" :style="seekbarStyles">
 					{{ viewport.previewFrame }}
 					<div class="onionskin" :class="{pos: project.onionskin > 0}" />
@@ -116,10 +118,12 @@ const vizStyles = computed(() => {
 					<div class="koma-header tq-font-numeric">{{ frame }}</div>
 					<Koma :frame="frame" />
 				</div>
+				<div ref="$frameMeasure" class="frameMeasure" />
 			</div>
 			<div class="viz" :style="vizStyles">
 				<TimelineWaveform />
 				<TimelineGraph />
+				<TimelineMarkers :komaWidth="komaWidth" />
 			</div>
 			<template #scrollbarRight>
 				<Tq.InputNumber
@@ -224,7 +228,6 @@ header-frame-text-style()
 	position absolute
 	height var(--header-height)
 	background linear-gradient(to right,  var(--md-sys-color-secondary) 2px, transparent 2px, transparent calc(100% - 2px),  var(--md-sys-color-secondary) calc(100% - 2px))
-	pointer-events none
 
 	&:before
 		content ''
@@ -248,5 +251,4 @@ header-frame-text-style()
 	position absolute
 	bottom 0
 	width 100%
-	z-index -1
 </style>

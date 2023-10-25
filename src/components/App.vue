@@ -16,6 +16,7 @@ import {preventConcurrentExecution} from '@/util'
 
 import CameraControl from './CameraControl.vue'
 import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
+import MarkerSettings from './MarkerSettings.vue'
 import Timeline from './Timeline.vue'
 import TitleBar from './TitleBar.vue'
 import Viewport from './Viewport.vue'
@@ -141,7 +142,6 @@ const {fn: shoot} = preventConcurrentExecution(
 		throw new Error('The Shooting is already executed')
 	}
 )
-
 //------------------------------------------------------------------------------
 actions.register([
 	{
@@ -435,6 +435,7 @@ actions.register([
 											:step="0.1"
 										/>
 									</Tq.Parameter>
+									<MarkerSettings />
 								</Tq.ParameterGrid>
 							</div>
 						</template>
