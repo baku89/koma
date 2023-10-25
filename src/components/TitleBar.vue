@@ -95,6 +95,11 @@ const destinationInfo = computed(() => {
 				v-tooltip="'Hi-Res'"
 				icon="mdi:high-definition"
 			/>
+			<Tq.InputIconToggle
+				v-model="viewport.enableOnionskin"
+				v-tooltip="'Enable Onionskin'"
+				icon="fluent-emoji-high-contrast:onion"
+			/>
 			<div style="display: flex">
 				<Tq.InputButton
 					v-tooltip="'Reset Timer'"

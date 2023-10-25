@@ -58,7 +58,8 @@ const polyline = new THREE.Line(
 watch(
 	realtimePositions,
 	realtimePositions => {
-		polylineGeo.setFromPoints(realtimePositions)
+		polylineGeo.setFromPoints(realtimePositions.filter(p => !!p))
+		polylineGeo.computeBoundingSphere()
 	},
 	{immediate: true}
 )
@@ -80,6 +81,7 @@ watch(
 			new THREE.Vector3(p.x, groundLevel, p.z),
 		])
 		heightsGeo.setFromPoints(points)
+		heightsGeo.computeBoundingSphere()
 	},
 	{immediate: true}
 )

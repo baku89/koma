@@ -27,6 +27,7 @@ const configNames: ConfigName[] = [
 	'iso',
 	'imageQuality',
 	'shutterSound',
+	'colorMode',
 ]
 
 const configLabels = {
@@ -41,6 +42,7 @@ const configLabels = {
 	iso: {label: 'ISO', icon: 'carbon:iso'},
 	imageQuality: {label: 'Quality', icon: 'mdi:image'},
 	shutterSound: {label: 'Vol.', icon: 'ic:baseline-volume-up'},
+	colorMode: {label: 'Color', icon: 'mdi:palette'},
 } as Record<ConfigName, {label: string; icon: string}>
 
 function getConfigVisibility(name: ConfigName) {

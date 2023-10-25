@@ -57,7 +57,9 @@ watch(
 	() => project.captureShot,
 	({frame}) => {
 		project.markers
-			.filter(m => m.frame === frame)
+			.filter(
+				m => m.frame <= frame && frame < m.frame + Math.max(1, m.duration)
+			)
 			.sort((a, b) => a.verticalPosition - b.verticalPosition)
 			.forEach(m => speak(m.label))
 	},

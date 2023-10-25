@@ -1,4 +1,5 @@
 import {Howl} from 'howler'
+import {scalar} from 'linearly'
 import {clamp} from 'lodash'
 import {defineStore} from 'pinia'
 import {computed, ref, shallowRef, watch} from 'vue'
@@ -15,6 +16,7 @@ export const useViewportStore = defineStore('viewport', () => {
 	const project = useProjectStore()
 
 	const liveToggle = ref(false)
+	const enableOnionskin = ref(true)
 	const enableHiRes = ref(false)
 
 	const howl = computed(() => {
@@ -121,29 +123,49 @@ export const useViewportStore = defineStore('viewport', () => {
 
 	// Onionskin information
 	const onionskin = computed<{frame: number; opacity: number}[]>(() => {
-		if (isPlaying.value || liveToggle.value || project.onionskin === 0) {
+		if (
+			isPlaying.value ||
+			liveToggle.value ||
+			!enableOnionskin.value ||
+			project.onionskin === 0
+		) {
 			return []
 		}
 
 		const {onionskin} = project
 
 		const o = Math.abs(onionskin)
+		const dir = Math.sign(onionskin)
+		const fract = o % 1.0 === 0 ? 1 : o % 1.0
 
 		if (o <= 1) {
 			return [
 				{
-					frame: currentFrame.value + Math.sign(onionskin),
+					frame: currentFrame.value + dir,
 					opacity: o,
 				},
 			]
-		}
+		} else {
+			const counts = Math.ceil(o - 0.0001)
+			const layers = Array(counts)
+				.fill(0)
+				.map((_, i) => {
+					const frame = currentFrame.value + dir * (i + 1)
+					const opacityFrom = i === counts - 1 ? 0 : 1 / (counts - 1)
+					const opacityTarget = 1 / counts
+					const opacity = scalar.lerp(opacityFrom, opacityTarget, fract)
 
-		throw new Error('Not implemented yet')
+					return {frame, opacity}
+				})
+
+			return layers
+		}
 	})
 
 	return {
 		liveToggle,
 		enableHiRes,
+		enableOnionskin,
 		currentFrame,
 		previewFrame,
 		isPlaying,

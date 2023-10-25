@@ -47,9 +47,6 @@ function onRendererReady(trois: any) {
 	const camera = cameraControl.object as THREE.PerspectiveCamera
 
 	camera.position.set(...cameraControlPosition.value)
-	camera.near = 0.001
-	camera.far = 100
-	camera.updateProjectionMatrix()
 
 	cameraControl.enablePan = false
 	cameraControl.addEventListener('end', () => {
@@ -76,8 +73,20 @@ function onRendererReady(trois: any) {
 const panOrigin = ref<mat4 | null>(null)
 const tiltOrigin = ref<mat4 | null>(null)
 
+const moveOrigin = ref<mat4 | null>(null)
+
 function setOrigin() {
 	tracker.origin = tracker.rawMatrix
+}
+
+function setMove() {
+	if (!moveOrigin.value) {
+		moveOrigin.value = mat4.invert(tracker.rawMatrix) ?? mat4.ident
+	} else {
+		const delta = mat4.mul(moveOrigin.value, tracker.rawMatrix)
+		tracker.origin = mat4.mul(tracker.origin, delta)
+		moveOrigin.value = null
+	}
 }
 
 function setPan() {
@@ -206,6 +215,13 @@ const paneMinimized = computed(
 					</Tq.Parameter>
 					<Tq.Parameter label="Origin" icon="carbon:center-circle">
 						<Tq.InputButton label="Set" @click="setOrigin" />
+					</Tq.Parameter>
+					<Tq.Parameter label="Move" icon="material-symbols:move">
+						<Tq.InputButton
+							:label="!moveOrigin ? 'Record Matrix' : 'Delta Matrix'"
+							:blink="!!moveOrigin"
+							@click="setMove"
+						/>
 					</Tq.Parameter>
 					<Tq.Parameter label="Offset" icon="mdi:axis-arrow">
 						<Tq.InputVec v-model="tracker.cameraOffset" />

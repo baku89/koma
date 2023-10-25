@@ -37,11 +37,11 @@ const shootAlerts = useShootAlertsStore()
 
 const $modal = ref<typeof Tq.PaneModalComplex | null>(null)
 
-Bndr.or(Bndr.keyboard().pressed('5'), Bndr.gamepad().button('x')).on(
-	pressed => {
-		viewport.liveToggle = pressed
-	}
-)
+const gamepad = Bndr.gamepad()
+
+Bndr.or(Bndr.keyboard().pressed('5'), gamepad.button('r')).on(pressed => {
+	viewport.liveToggle = pressed
+})
 
 watch(() => project.captureShot, timer.reset)
 
@@ -150,6 +150,40 @@ const {fn: shoot} = preventConcurrentExecution(
 	}
 )
 //------------------------------------------------------------------------------
+
+const gamepadAxis = gamepad.axisDirection()
+
+const gamepadAxisNeutral = gamepadAxis.filter(v => v === null)
+const gamepadAxisRight = gamepadAxis.filter(v => v && v[0] === 1)
+
+let playTimeout: NodeJS.Timeout | undefined
+
+gamepadAxisRight.on(() => {
+	clearTimeout(playTimeout)
+	playTimeout = setTimeout(() => {
+		viewport.isPlaying = true
+	}, 500)
+})
+
+gamepadAxisNeutral.on(() => {
+	clearTimeout(playTimeout)
+	viewport.isPlaying = false
+})
+
+gamepad
+	.button('rsr')
+	.longPress(500)
+	.pressed.on(() => {
+		viewport.enableOnionskin = false
+	})
+
+gamepad
+	.button('rsl')
+	.longPress(500)
+	.pressed.on(() => {
+		viewport.enableOnionskin = true
+	})
+
 actions.register([
 	{
 		id: 'create_new',
@@ -192,6 +226,11 @@ actions.register([
 		icon: 'mdi:circle',
 		input: ['enter', 'gamepad:a'],
 		async perform() {
+			if (project.captureShot.frame !== viewport.currentFrame) {
+				viewport.currentFrame = project.captureShot.frame
+				return
+			}
+
 			const newShot = await shoot()
 
 			project.$patch(state => {
@@ -215,35 +254,37 @@ actions.register([
 	{
 		id: 'nudge_focus_far',
 		icon: 'material-symbols:landscape-outline',
-		input: ['2', 'gamepad:zr'],
+		input: ['2', 'gamepad:y'],
 		perform() {
 			if (camera.focusDistance.value === null) return
-			camera.focusDistance.set(camera.focusDistance.value + 0.01)
+			camera.focusDistance.set(camera.focusDistance.value + 0.005)
 		},
 	},
 	{
 		id: 'nudge_focus_near',
 		icon: 'tabler:macro',
-		input: ['1', 'gamepad:zl'],
+		input: ['1', 'gamepad:x'],
 		perform() {
 			if (camera.focusDistance.value === null) return
-			camera.focusDistance.set(camera.focusDistance.value - 0.01)
+			camera.focusDistance.set(camera.focusDistance.value - 0.005)
 		},
 	},
 	{
 		id: 'onion_increase',
 		icon: 'fluent-emoji-high-contrast:onion',
-		input: ['gamepad:r'],
+		input: ['gamepad:rsr'],
 		perform() {
-			project.$patch({onionskin: project.onionskin + 0.1})
+			const onionskin = scalar.clamp(project.onionskin + 0.5, -3, 0)
+			project.$patch({onionskin})
 		},
 	},
 	{
 		id: 'onion_decrease',
 		icon: 'fluent-emoji-high-contrast:onion',
-		input: ['gamepad:l'],
+		input: ['gamepad:rsl'],
 		perform() {
-			project.$patch({onionskin: project.onionskin - 0.1})
+			const onionskin = scalar.clamp(project.onionskin - 0.5, -3, 0)
+			project.$patch({onionskin})
 		},
 	},
 	{
@@ -267,7 +308,7 @@ actions.register([
 	{
 		id: 'go_forward_1_frame',
 		icon: 'lucide:step-forward',
-		input: ['f', 'right', 'gamepad:right'],
+		input: ['f', 'right', gamepadAxisRight],
 		perform() {
 			viewport.currentFrame += 1
 		},
@@ -275,7 +316,7 @@ actions.register([
 	{
 		id: 'go_backward_1_frame',
 		icon: 'lucide:step-back',
-		input: ['d', 'left', 'gamepad:left'],
+		input: ['d', 'left', gamepadAxis.filter(v => v && v[0] === -1)],
 		perform() {
 			viewport.currentFrame = Math.max(0, viewport.currentFrame - 1)
 		},
@@ -283,7 +324,7 @@ actions.register([
 	{
 		id: 'delete_current_frame',
 		icon: 'mdi:backspace',
-		input: ['delete', 'backspace', 'gamepad:b'],
+		input: ['delete', 'backspace', 'gamepad:+'],
 		perform() {
 			const isDeletingCaptureFrame =
 				viewport.currentFrame === project.captureShot.frame
@@ -340,7 +381,7 @@ actions.register([
 	{
 		id: 'toggle_play',
 		icon: 'mdi:play',
-		input: ['space', 'gamepad:y'],
+		input: ['space'],
 		perform() {
 			viewport.isPlaying = !viewport.isPlaying
 		},
@@ -437,8 +478,8 @@ actions.register([
 									>
 										<Tq.InputNumber
 											v-model="project.onionskin"
-											:max="1"
-											:min="-1"
+											:max="0"
+											:min="-3"
 											:step="0.1"
 										/>
 									</Tq.Parameter>
