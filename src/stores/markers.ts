@@ -42,14 +42,6 @@ export const useMarkersStore = defineStore('markers', () => {
 
 	actions.register([
 		{
-			id: 'marker_settings',
-			input: 'command+m',
-			async perform() {
-				const label = window.prompt('Marker name', cursor.value.label)
-				cursor.value.label = label ?? cursor.value.label
-			},
-		},
-		{
 			id: 'clear_marker_selection',
 			input: 'esc',
 			perform: clearSelection,

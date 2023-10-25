@@ -1,8 +1,7 @@
 <script lang="ts" setup>
 import {Icon} from '@iconify/vue'
 import {ConfigName} from 'tethr'
-import Tq, {useThemeStore} from 'tweeq'
-import {ref} from 'vue'
+import Tq, {useAppConfigStore, useThemeStore} from 'tweeq'
 
 import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
@@ -12,8 +11,9 @@ import TethrConfig from './TethrConfig.vue'
 const camera = useCameraStore()
 const project = useProjectStore()
 const theme = useThemeStore()
+const appConfig = useAppConfigStore()
 
-const showAll = ref(true)
+const showAll = appConfig.ref('cameraControl.showAll', true)
 
 const configNames: ConfigName[] = [
 	'exposureMode',
