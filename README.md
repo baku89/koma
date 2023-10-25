@@ -20,6 +20,18 @@ yarn install
 yarn dev
 ```
 
+## Termiology
+
+The terms used in the code and documentation.
+
+- OPFS: [Origin Private FIle System](https://developer.chrome.com/articles/file-system-access/#accessing-the-origin-private-file-system).
+- Frame: An integer that represents a frame number (starts from 0)
+- Koma: A frame data that contains multiple Shots
+- Shot: A single image data that contains images and metadata
+
+- flatten data: A data represented as plain JS object and can be JSON-stringified
+- unflatten data: A data that contains Blob objects
+
 ## Credits
 
 - Sound Effects by [OtoLogic](https://otologic.jp/free/license.html) ([CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/))

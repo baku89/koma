@@ -50,6 +50,9 @@ export const useBlobStore = defineStore('blobCache', () => {
 		estimateStorage()
 	})()
 
+	/**
+	 * Open the file with the given handler and name. When opening a file, it is also saved in the cache folder within OPFS and then a reference Blob to that file is returned. This allows the file to be opened without any issues even if it is overwritten.
+	 */
 	async function open(
 		handler: Ref<FileSystemDirectoryHandle | null>,
 		filename: string
@@ -62,7 +65,7 @@ export const useBlobStore = defineStore('blobCache', () => {
 			await queryPermission(fileHandle, 'read')
 			const file = await fileHandle.getFile()
 
-			// Save it to the blob  diretory and return the blob
+			// Save it to the blob diretory and return the blob
 			const cacheName =
 				(handler.value.name ?? 'originPrivate') + '__' + filename
 

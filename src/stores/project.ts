@@ -20,16 +20,6 @@ import {
 
 import {useBlobStore} from './blobCache'
 
-/**
- * Termiology
- * - Frame: An integer that represents a frame number (starts from 0)
- * - Koma: A frame data that contains multiple Shots
- * - Shot: A single image data that contains images and metadata
- *
- * - flatten data: A data represented as plain JS object and can be JSON-stringified
- * - unflatten data: A data that contains Blob objects
- **/
-
 export const MixBlendModeValues: MixBlendMode[] = [
 	'normal',
 	'lighten',
