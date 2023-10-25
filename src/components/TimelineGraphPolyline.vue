@@ -8,7 +8,7 @@ interface Props {
 	values: unknown[]
 	color: string
 	valueAtCaptureFrame?: unknown
-	fn?: (v: number) => number
+	filter?: (v: number) => number
 }
 
 const props = defineProps<Props>()
@@ -16,7 +16,7 @@ const props = defineProps<Props>()
 const project = useProjectStore()
 
 const mappedValues = computed(() => {
-	const {fn} = props
+	const {filter: fn} = props
 	if (fn) {
 		return props.values.map(v => (typeof v === 'number' ? fn(v) : null))
 	} else {
@@ -37,7 +37,7 @@ const realtimeValues = computed(() => {
 
 	const v =
 		typeof props.valueAtCaptureFrame === 'number'
-			? props.fn?.(props.valueAtCaptureFrame) ?? props.valueAtCaptureFrame
+			? props.filter?.(props.valueAtCaptureFrame) ?? props.valueAtCaptureFrame
 			: null
 
 	const values = [...mappedValues.value]
@@ -46,51 +46,96 @@ const realtimeValues = computed(() => {
 })
 
 const valueRange = computed<[min: number, max: number]>(() => {
-	return realtimeValues.value.reduce(
-		(acc, v) => {
-			if (typeof v !== 'number') return acc
-			return [Math.min(acc[0], v), Math.max(acc[1], v)]
-		},
-		[Infinity, -Infinity] as [number, number]
-	)
+	let min = Infinity
+	let max = -Infinity
+
+	for (const v of realtimeValues.value) {
+		if (typeof v !== 'number') continue
+		min = Math.min(min, v)
+		max = Math.max(max, v)
+	}
+
+	return [min, max]
 })
 
 const points = computed(() => {
 	const [min, max] = valueRange.value
 	const [inPoint] = project.previewRange
 
-	return realtimeValues.value.flatMap((v, x) => {
-		if (v === null) return []
-		const y = scalar.invlerp(min, max, v)
-		return [[x + inPoint, scalar.lerp(0.95, 0.05, y)]] as vec2[]
-	})
+	const points: vec2[] = []
+
+	for (const [i, v] of realtimeValues.value.entries()) {
+		if (v === null) continue
+		const x = i + inPoint
+		const y = scalar.invlerp(max, min, v)
+
+		points.push([x, y])
+	}
+
+	return points
 })
 
-const polylinePoints = computed(() => {
-	return points.value.join(' ')
+const polylinePath = computed(() => {
+	const commands: string[] = []
+
+	const firstPoint = points.value[0] ?? [NaN, NaN]
+
+	let prevX = firstPoint[0]
+	let prevY = firstPoint[1]
+	let drawing = false
+
+	for (const [x, y] of points.value) {
+		if (prevY !== y) {
+			if (!drawing) {
+				commands.push(`M${prevX},${prevY}`)
+			}
+			commands.push(`L${x},${y}`)
+			drawing = true
+		} else {
+			drawing = false
+		}
+
+		prevX = x
+		prevY = y
+	}
+
+	return commands.join(' ')
 })
 
 const dotsPath = computed(() => {
-	return points.value.map(([x, y]) => `M${x},${y} L${x},${y}`).join(' ')
+	const _points = points.value
+
+	const filteredPoints = _points.filter(([, y], i) => {
+		const prevY = _points[i - 1]?.at(1) ?? y
+		const nextY = _points[i + 1]?.at(1) ?? y
+
+		if (prevY === y && y === nextY) return false
+
+		return true
+	})
+
+	return filteredPoints.map(([x, y]) => `M${x},${y} L${x},${y}`).join(' ')
 })
 </script>
 
 <template>
-	<g>
-		<polyline class="polyline" :stroke="color" :points="polylinePoints" />
-		<path :d="dotsPath" :stroke="color" class="dots" />
+	<g :stroke="color">
+		<path class="polyline" :d="polylinePath" />
+		<path class="dots" :d="dotsPath" />
 	</g>
 </template>
 
 <style lang="stylus" scoped>
 .polyline, .dots
 	fill none
-	stroke-linejoin round
-	stroke-linecap round
 	vector-effect non-scaling-stroke
 
 .polyline
-	stroke-width 1px
+	stroke-linejoin round
+	stroke-linecap round
+	stroke-width var(--stroke-width, 1px)
+	stroke-dasharray var(--stroke-dasharray, none)
 .dots
-	stroke-width 5px
+	stroke-linecap var(--stroke-linecap, round)
+	stroke-width calc(var(--stroke-width, 1px) + 5px)
 </style>

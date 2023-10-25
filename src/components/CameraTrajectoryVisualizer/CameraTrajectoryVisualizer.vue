@@ -121,13 +121,17 @@ function positionToThree(v: vec3) {
 	return new THREE.Vector3(...v)
 }
 
+const _euler = new THREE.Euler()
+const _quat = new THREE.Quaternion()
+
 function matrixToThree(m: mat4) {
 	const q = mat4.getRotation(m)
 	const t = mat4.getTranslation(m)
-	const quat = new THREE.Quaternion(...q)
 
-	const euler = new THREE.Euler().setFromQuaternion(quat)
-	const [x, y, z] = euler.toArray() as number[]
+	const [x, y, z] = _euler
+		.setFromQuaternion(_quat.fromArray(q))
+		.toArray() as number[]
+
 	return {
 		position: positionToThree(t),
 		rotation: {x, y, z},
