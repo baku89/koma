@@ -89,20 +89,16 @@ function onRendererReady(trois: any) {
 //------------------------------------------------------------------------------
 // Calibration
 
-function setOrigin(matrix: mat4) {
-	tracker.origin = matrix
-}
-
 const moveOrigin = ref<mat4 | null>(null)
 
 function setMove(matrix: mat4) {
 	if (!moveOrigin.value) {
 		moveOrigin.value = matrix
 	} else {
-		tracker.origin = mat4.mul(
-			mat4.invert(matrix) ?? mat4.ident,
+		tracker.calibrationMatrix = mat4.mul(
+			tracker.calibrationMatrix,
 			moveOrigin.value,
-			tracker.origin
+			mat4.invert(matrix) ?? mat4.ident
 		)
 		moveOrigin.value = null
 	}
@@ -130,12 +126,12 @@ function addHorizonSample(matrix: mat4) {
 
 		const x = vec3.cross(y, z)
 
-		const origin = mat4.getTranslation(tracker.origin)
-
-		tracker.origin = mat4.mul(
-			mat4.fromAxesTranslation(x, y, z, origin),
-			mat4.invert(tracker.trackerToCameraMatrix) ?? mat4.ident
+		const origin = mat4.getTranslation(
+			mat4.invert(tracker.calibrationMatrix) ?? mat4.ident
 		)
+
+		tracker.calibrationMatrix =
+			mat4.invert(mat4.fromAxesTranslation(x, y, z, origin)) ?? mat4.ident
 
 		horizonSamples.value = []
 	}
@@ -229,7 +225,6 @@ const paneExpanded = ref(false)
 				<CameraTrajectory />
 
 				<template v-if="paneExpanded">
-					<Axis :matrix="tracker.origin" />
 					<Axis :matrix="tracker.rawMatrix" />
 					<Axis :matrix="tracker.trackerToCameraMatrix" />
 					<Sphere
@@ -258,7 +253,7 @@ const paneExpanded = ref(false)
 					<Tq.InputNumber v-model="tracker.groundLevel" :min="-2" :max="2" />
 				</Tq.Parameter>
 				<Tq.Parameter label="Origin" icon="carbon:center-circle">
-					<TrackerRecButton label="Set" @record="setOrigin" />
+					<TrackerRecButton label="Set" @record="tracker.setOrigin" />
 				</Tq.Parameter>
 				<Tq.Parameter label="Move" icon="material-symbols:move">
 					<TrackerRecButton

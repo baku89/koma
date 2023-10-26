@@ -11,7 +11,17 @@ export const useTrackerStore = defineStore('tracker', () => {
 
 	const groundLevel = appConfig.ref('groundLevel', 0)
 
-	const origin = appConfig.ref<mat4>('tracker.origin', mat4.identity)
+	const calibrationMatrix = appConfig.ref<mat4>(
+		'tracker.calibrationMatrix',
+		mat4.identity
+	)
+
+	function setOrigin(matrix: mat4) {
+		const McInv = mat4.invert(trackerToCameraMatrix.value) ?? mat4.ident
+		const MoInv = mat4.invert(matrix) ?? mat4.ident
+
+		calibrationMatrix.value = mat4.mul(McInv, MoInv)
+	}
 
 	const cameraOffset = appConfig.ref<vec3>('tracker.offset', vec3.zero)
 
@@ -46,13 +56,6 @@ export const useTrackerStore = defineStore('tracker', () => {
 		)
 	})
 
-	const calibrationMatrix = computed(() => {
-		const McInv = mat4.invert(trackerToCameraMatrix.value) ?? mat4.ident
-		const MoInv = mat4.invert(origin.value) ?? mat4.ident
-
-		return mat4.mul(McInv, MoInv)
-	})
-
 	const matrix = computed(() => {
 		return mat4.mul(
 			calibrationMatrix.value,
@@ -80,7 +83,8 @@ export const useTrackerStore = defineStore('tracker', () => {
 		rawMatrix,
 
 		// Calibration information
-		origin,
+		calibrationMatrix,
+		setOrigin,
 		cameraOffset,
 		trackerToCameraMatrix,
 		cameraAxisX,
