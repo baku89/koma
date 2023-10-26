@@ -8,7 +8,7 @@ const {exec} = require('node:child_process')
 
 function killPTPProcess() {
 	exec("kill -9 $(ps aux | grep '[p]tpcamera' | awk '{print $2}')", () =>
-		setTimeout(killPTPProcess, 500)
+		setTimeout(killPTPProcess, 0)
 	)
 }
 

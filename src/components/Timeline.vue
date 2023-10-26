@@ -31,7 +31,7 @@ useBndr($frameMeasure, el => {
 		.drag({pointerCapture: true, coordinate: 'offset'})
 		.on(d => {
 			const frame = Math.floor(d.current[0] / komaWidth.value)
-			viewport.currentFrame = frame
+			viewport.setCurrentFrame(frame)
 			viewport.isPlaying = false
 		})
 })

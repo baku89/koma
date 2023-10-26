@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {useElementSize} from '@vueuse/core'
 import {mat4, quat, vec3} from 'linearly'
 import * as THREE from 'three'
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
@@ -13,12 +14,13 @@ import {
 } from 'troisjs'
 import {useAppConfigStore, useThemeStore} from 'tweeq'
 import Tq from 'tweeq'
-import {computed, ref, shallowRef, watch} from 'vue'
+import {ref, shallowRef, watch} from 'vue'
 
 import {useTrackerStore} from '@/stores/tracker'
 
 import Axis from './Axis.vue'
 import CameraTrajectory from './CameraTrajectory.vue'
+import TrackerRecButton from './TrackerRecButton.vue'
 
 const appConfig = useAppConfigStore()
 const theme = useThemeStore()
@@ -26,12 +28,28 @@ const tracker = useTrackerStore()
 
 //------------------------------------------------------------------------------
 // ThreeJS
-
 const cameraControlPosition = appConfig.ref('cameraControl.position', [
 	2, 2, 2,
 ] as const)
 
+let renderer: THREE.WebGLRenderer
+let camera: THREE.PerspectiveCamera
+
+const $root = ref<HTMLElement | null>(null)
 const $guide = shallowRef<any>()
+
+const rootSize = useElementSize($root)
+
+watch(
+	() => [rootSize.width.value, rootSize.height.value],
+	([w, h]) => {
+		if (!renderer || !camera) return
+
+		renderer.setSize(w, h)
+		camera.aspect = w / h
+		camera.updateProjectionMatrix()
+	}
+)
 
 function onLoadCameraModel(group: THREE.Group) {
 	const mesh = group.children[0] as THREE.Mesh
@@ -44,7 +62,8 @@ function onRendererReady(trois: any) {
 	const cameraControl: OrbitControls = trois.three.cameraCtrl
 	const guide: THREE.Group = $guide.value.group
 
-	const camera = cameraControl.object as THREE.PerspectiveCamera
+	renderer = trois.three.renderer
+	camera = cameraControl.object as THREE.PerspectiveCamera
 
 	camera.position.set(...cameraControlPosition.value)
 
@@ -70,35 +89,70 @@ function onRendererReady(trois: any) {
 //------------------------------------------------------------------------------
 // Calibration
 
-const panOrigin = ref<mat4 | null>(null)
-const tiltOrigin = ref<mat4 | null>(null)
+function setOrigin(matrix: mat4) {
+	tracker.origin = matrix
+}
 
 const moveOrigin = ref<mat4 | null>(null)
 
-function setOrigin() {
-	tracker.origin = tracker.rawMatrix
-}
-
-function setMove() {
+function setMove(matrix: mat4) {
 	if (!moveOrigin.value) {
-		moveOrigin.value = mat4.invert(tracker.rawMatrix) ?? mat4.ident
+		moveOrigin.value = matrix
 	} else {
-		const delta = mat4.mul(moveOrigin.value, tracker.rawMatrix)
-		tracker.origin = mat4.mul(tracker.origin, delta)
+		tracker.origin = mat4.mul(
+			mat4.invert(matrix) ?? mat4.ident,
+			moveOrigin.value,
+			tracker.origin
+		)
 		moveOrigin.value = null
 	}
 }
 
-function setPan() {
+/**
+ * First and second points represents +Z axis, third point is to determine +Y axis
+ */
+const horizonSamples = ref<vec3[]>([])
+
+function addHorizonSample(matrix: mat4) {
+	const t = mat4.getTranslation(matrix)
+
+	horizonSamples.value = [...horizonSamples.value, t]
+
+	if (horizonSamples.value.length === 3) {
+		const [p0, p1, p2] = horizonSamples.value
+
+		const z = vec3.normalize(vec3.sub(p1, p0))
+		let y = vec3.normalize(vec3.cross(z, vec3.sub(p2, p0)))
+
+		if (y[1] < 0) {
+			y = vec3.negate(y)
+		}
+
+		const x = vec3.cross(y, z)
+
+		const origin = mat4.getTranslation(tracker.origin)
+
+		tracker.origin = mat4.mul(
+			mat4.fromAxesTranslation(x, y, z, origin),
+			mat4.invert(tracker.trackerToCameraMatrix) ?? mat4.ident
+		)
+
+		horizonSamples.value = []
+	}
+}
+
+const panOrigin = ref<mat4 | null>(null)
+
+function setPan(matrix: mat4) {
 	if (!panOrigin.value) {
-		panOrigin.value = mat4.invert(tracker.rawMatrix) ?? mat4.ident
+		panOrigin.value = mat4.invert(matrix) ?? mat4.ident
 	} else {
-		const delta = mat4.mul(tracker.rawMatrix, panOrigin.value)
+		const delta = mat4.mul(matrix, panOrigin.value)
 		const q = mat4.getRotation(delta)
 
 		const up = quat.axisAngle(q).axis
 
-		const matrixInv = [...(mat4.invert(tracker.rawMatrix) ?? mat4.ident)] as any
+		const matrixInv = mat4.clone(mat4.invert(matrix) ?? mat4.ident)
 		matrixInv[12] = matrixInv[13] = matrixInv[14] = 0
 
 		tracker.cameraAxisY = vec3.transformMat4(up, matrixInv)
@@ -106,16 +160,18 @@ function setPan() {
 	}
 }
 
-function setTilt() {
+const tiltOrigin = ref<mat4 | null>(null)
+
+function setTilt(matrix: mat4) {
 	if (!tiltOrigin.value) {
-		tiltOrigin.value = mat4.invert(tracker.rawMatrix) ?? mat4.ident
+		tiltOrigin.value = mat4.invert(matrix) ?? mat4.ident
 	} else {
-		const delta = mat4.mul(tracker.rawMatrix, tiltOrigin.value)
+		const delta = mat4.mul(matrix, tiltOrigin.value)
 		const q = quat.invert(mat4.getRotation(delta))
 
 		const left = quat.axisAngle(q).axis
 
-		const matrixInv = [...(mat4.invert(tracker.rawMatrix) ?? mat4.ident)] as any
+		const matrixInv = mat4.clone(mat4.invert(matrix) ?? mat4.ident)
 		matrixInv[12] = matrixInv[13] = matrixInv[14] = 0
 
 		tracker.cameraAxisX = vec3.transformMat4(left, matrixInv)
@@ -149,22 +205,11 @@ function matrixToThree(m: mat4) {
 
 //------------------------------------------------------------------------------
 // Pane
-
-const calibrationPanePosition = ref({
-	anchor: 'right-top' as const,
-	width: 'minimized' as const,
-	height: 400 as number | 'minimized',
-})
-
-const paneMinimized = computed(
-	() =>
-		calibrationPanePosition.value.width === 'minimized' ||
-		calibrationPanePosition.value.height === 'minimized'
-)
+const paneExpanded = ref(false)
 </script>
 
 <template>
-	<div class="CameraTrajectoryVisualizer">
+	<div ref="$root" class="CameraTrajectoryVisualizer">
 		<Renderer
 			ref="$trois"
 			resize="true"
@@ -183,7 +228,7 @@ const paneMinimized = computed(
 				<Group ref="$guide" :position="{y: tracker.groundLevel}" />
 				<CameraTrajectory />
 
-				<template v-if="!paneMinimized">
+				<template v-if="paneExpanded">
 					<Axis :matrix="tracker.origin" />
 					<Axis :matrix="tracker.rawMatrix" />
 					<Axis :matrix="tracker.trackerToCameraMatrix" />
@@ -202,49 +247,60 @@ const paneMinimized = computed(
 				</template>
 			</Scene>
 		</Renderer>
-		<div class="info tq-font-numeric">
-			<Tq.PaneFloating
-				v-model:position="calibrationPanePosition"
-				name="camera.calibration"
-				icon="mdi:gear"
-			>
-				<Tq.ParameterGrid>
-					<Tq.ParameterHeading>Calibration</Tq.ParameterHeading>
-					<Tq.Parameter label="Ground" icon="tabler:circuit-ground">
-						<Tq.InputNumber v-model="tracker.groundLevel" :min="-2" :max="2" />
-					</Tq.Parameter>
-					<Tq.Parameter label="Origin" icon="carbon:center-circle">
-						<Tq.InputButton label="Set" @click="setOrigin" />
-					</Tq.Parameter>
-					<Tq.Parameter label="Move" icon="material-symbols:move">
-						<Tq.InputButton
-							:label="!moveOrigin ? 'Record Matrix' : 'Delta Matrix'"
-							:blink="!!moveOrigin"
-							@click="setMove"
-						/>
-					</Tq.Parameter>
-					<Tq.Parameter label="Offset" icon="mdi:axis-arrow">
-						<Tq.InputVec v-model="tracker.cameraOffset" />
-					</Tq.Parameter>
-					<Tq.Parameter label="Up" icon="mdi:axis-z-rotate-counterclockwise">
-						<Tq.InputVec v-model="tracker.cameraAxisY" :min="-1" :max="1" />
-						<Tq.InputButton
-							:label="panOrigin ? 'Set Pan-Left' : 'Set Pan-Right'"
-							:blink="!!panOrigin"
-							@click="setPan"
-						/>
-					</Tq.Parameter>
-					<Tq.Parameter label="X Axis" icon="mdi:axis-x-arrow">
-						<Tq.InputVec v-model="tracker.cameraAxisX" :min="-1" :max="1" />
-						<Tq.InputButton
-							:label="tiltOrigin ? 'Set Tilt-Up' : 'Set Tilt-Down'"
-							:blink="!!tiltOrigin"
-							@click="setTilt"
-						/>
-					</Tq.Parameter>
-				</Tq.ParameterGrid>
-			</Tq.PaneFloating>
-		</div>
+		<Tq.PaneExpandable
+			icon="mdi:gear"
+			@expand="paneExpanded = true"
+			@collapse="paneExpanded = false"
+		>
+			<Tq.ParameterGrid>
+				<Tq.ParameterHeading>Calibration</Tq.ParameterHeading>
+				<Tq.Parameter label="Ground" icon="tabler:circuit-ground">
+					<Tq.InputNumber v-model="tracker.groundLevel" :min="-2" :max="2" />
+				</Tq.Parameter>
+				<Tq.Parameter label="Origin" icon="carbon:center-circle">
+					<TrackerRecButton label="Set" @record="setOrigin" />
+				</Tq.Parameter>
+				<Tq.Parameter label="Move" icon="material-symbols:move">
+					<TrackerRecButton
+						:label="!moveOrigin ? 'Record Matrix' : 'Delta Matrix'"
+						:blink="!!moveOrigin"
+						@record="setMove"
+					/>
+				</Tq.Parameter>
+				<Tq.Parameter label="Horizon" icon="ph:road-horizon">
+					<TrackerRecButton
+						:label="
+							horizonSamples.length === 0
+								? 'Record First Point'
+								: horizonSamples.length === 1
+								? 'Record +Z Point'
+								: 'Record alternative Point'
+						"
+						:blink="horizonSamples.length > 0"
+						@record="addHorizonSample"
+					/>
+				</Tq.Parameter>
+				<Tq.Parameter label="Offset" icon="mdi:axis-arrow">
+					<Tq.InputVec v-model="tracker.cameraOffset" />
+				</Tq.Parameter>
+				<Tq.Parameter label="Up" icon="mdi:axis-z-rotate-counterclockwise">
+					<Tq.InputVec v-model="tracker.cameraAxisY" :min="-1" :max="1" />
+					<TrackerRecButton
+						:label="panOrigin ? 'Set Pan-Left' : 'Set Pan-Right'"
+						:blink="!!panOrigin"
+						@record="setPan"
+					/>
+				</Tq.Parameter>
+				<Tq.Parameter label="X Axis" icon="mdi:axis-x-arrow">
+					<Tq.InputVec v-model="tracker.cameraAxisX" :min="-1" :max="1" />
+					<TrackerRecButton
+						:label="tiltOrigin ? 'Set Tilt-Up' : 'Set Tilt-Down'"
+						:blink="!!tiltOrigin"
+						@record="setTilt"
+					/>
+				</Tq.Parameter>
+			</Tq.ParameterGrid>
+		</Tq.PaneExpandable>
 	</div>
 </template>
 

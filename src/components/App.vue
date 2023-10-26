@@ -154,8 +154,8 @@ const {fn: shoot} = preventConcurrentExecution(
 const gamepadAxis = gamepad.axisDirection()
 
 const gamepadAxisNeutral = gamepadAxis.filter(v => v === null)
-const gamepadAxisLeft = gamepadAxis.filter(v => v && v[0] === -1)
-const gamepadAxisRight = gamepadAxis.filter(v => v && v[0] === 1)
+const gamepadAxisLeft = gamepadAxis.map(v => v && v[0] === -1)
+const gamepadAxisRight = gamepadAxis.map(v => v && v[0] === 1)
 
 gamepadAxisRight.longPress(500).pressed.on(() => {
 	viewport.isPlaying = true
@@ -172,7 +172,7 @@ actions.register([
 		input: 'command+n',
 		async perform() {
 			await project.createNew()
-			viewport.currentFrame = project.captureShot.frame
+			viewport.setCurrentFrame(project.captureShot.frame)
 		},
 	},
 	{
@@ -182,7 +182,7 @@ actions.register([
 		input: 'command+o',
 		async perform() {
 			await project.open()
-			viewport.currentFrame = project.captureShot.frame
+			viewport.setCurrentFrame(project.captureShot.frame)
 		},
 	},
 	{
@@ -208,7 +208,8 @@ actions.register([
 		input: ['enter', 'gamepad:a'],
 		async perform() {
 			if (project.captureShot.frame !== viewport.currentFrame) {
-				viewport.currentFrame = project.captureShot.frame
+				viewport.setCurrentFrame(project.captureShot.frame)
+				playSound('sound/Onoma-Inspiration04-4(Low).mp3')
 				return
 			}
 
@@ -229,7 +230,7 @@ actions.register([
 				state.previewRange[1] = state.captureShot.frame
 			})
 
-			viewport.currentFrame = project.captureShot.frame
+			viewport.setCurrentFrame(project.captureShot.frame)
 		},
 	},
 	{
@@ -290,7 +291,7 @@ actions.register([
 		input: 'command+z',
 		perform() {
 			project.undo()
-			viewport.currentFrame = project.captureShot.frame
+			viewport.setCurrentFrame(project.captureShot.frame)
 		},
 	},
 	{
@@ -299,23 +300,23 @@ actions.register([
 		input: 'command+shift+z',
 		perform() {
 			project.redo()
-			viewport.currentFrame = project.captureShot.frame
+			viewport.setCurrentFrame(project.captureShot.frame)
 		},
 	},
 	{
 		id: 'go_forward_1_frame',
 		icon: 'lucide:step-forward',
-		input: ['f', 'right', gamepadAxisRight],
+		input: ['f', 'right', gamepadAxisRight.down()],
 		perform() {
-			viewport.currentFrame += 1
+			viewport.setCurrentFrame(viewport.currentFrame + 1)
 		},
 	},
 	{
 		id: 'go_backward_1_frame',
 		icon: 'lucide:step-back',
-		input: ['d', 'left', gamepadAxisLeft],
+		input: ['d', 'left', gamepadAxisLeft.down()],
 		perform() {
-			viewport.currentFrame = Math.max(0, viewport.currentFrame - 1)
+			viewport.setCurrentFrame(Math.max(0, viewport.currentFrame - 1))
 		},
 	},
 	{
@@ -340,7 +341,7 @@ actions.register([
 					isDeletingCaptureFrame &&
 					viewport.currentFrame === project.captureShot.frame
 				) {
-					viewport.currentFrame -= 1
+					viewport.setCurrentFrame(viewport.currentFrame - 1)
 				}
 				if (frameToDelete < project.captureShot.frame) {
 					project.captureShot.frame -= 1

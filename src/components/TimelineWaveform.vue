@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import {debouncedWatch, useElementSize} from '@vueuse/core'
 import {useThemeStore} from 'tweeq'
-import {onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {onBeforeUnmount, ref, watch} from 'vue'
 import WaveSurfer from 'wavesurfer.js'
 
 import {useProjectStore} from '@/stores/project'
@@ -10,53 +11,65 @@ const theme = useThemeStore()
 
 const $container = ref<HTMLDivElement | null>(null)
 
-onMounted(() => {
-	if (!$container.value) return
+const {height} = useElementSize($container)
 
-	const ws = WaveSurfer.create({
-		container: $container.value,
-		hideScrollbar: true,
-		minPxPerSec: 1,
-		interact: false,
-		barWidth: 0,
-		height: 'auto',
-		mediaControls: false,
-		fillParent: false,
-		waveColor: theme.colorGrayOnBackground,
-		cursorWidth: 0,
-	})
+let ws: WaveSurfer | undefined
 
-	// TODO: Update on the primary color has changed
+debouncedWatch(
+	() => [height.value, $container.value] as const,
+	([height, container]) => {
+		if (!container) return
 
-	watch(
-		() => [project.audio.src] as const,
-		([src]) => {
-			if (src) {
-				ws.loadBlob(src)
-			} else {
-				ws.empty()
-			}
-		},
-		{immediate: true}
-	)
+		if (ws) ws.destroy()
 
-	ws.on('load', updateZoom)
+		ws = WaveSurfer.create({
+			container,
+			hideScrollbar: true,
+			minPxPerSec: 1,
+			interact: false,
+			barWidth: 0,
+			height,
+			mediaControls: false,
+			fillParent: false,
+			waveColor: theme.colorGrayOnBackground,
+			cursorWidth: 0,
+		})
 
-	watch(() => [project.timeline.zoomFactor, project.fps], updateZoom, {
-		immediate: true,
-	})
+		if (project.audio.src) {
+			ws.loadBlob(project.audio.src)
+		}
 
-	function updateZoom() {
-		try {
-			const zoom = Math.round(project.timeline.zoomFactor * 80 * project.fps)
-			ws.zoom(zoom)
-		} catch (e) {
-			null
+		ws.on('ready', () => updateZoom())
+	},
+	{debounce: 200}
+)
+
+// TODO: Update on the primary color has changed
+watch(
+	() => [project.audio.src] as const,
+	([src]) => {
+		if (src) {
+			ws?.loadBlob(src)
+		} else {
+			ws?.empty()
 		}
 	}
+)
 
-	onBeforeUnmount(ws.destroy)
+watch(() => [project.timeline.zoomFactor, project.fps], updateZoom, {
+	immediate: true,
 })
+
+function updateZoom() {
+	try {
+		const zoom = Math.round(project.timeline.zoomFactor * 80 * project.fps)
+		ws?.zoom(zoom)
+	} catch (e) {
+		return null
+	}
+}
+
+onBeforeUnmount(() => ws?.destroy())
 </script>
 
 <template>
@@ -65,6 +78,7 @@ onMounted(() => {
 
 <style lang="stylus" scoped>
 .TimelineWaveform
+	position relative
 	height 100%
 	pointer-events none
 </style>

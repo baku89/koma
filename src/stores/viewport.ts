@@ -2,9 +2,9 @@ import {Howl} from 'howler'
 import {scalar} from 'linearly'
 import {clamp} from 'lodash'
 import {defineStore} from 'pinia'
-import {computed, ref, shallowRef, watch} from 'vue'
+import {useAppConfigStore} from 'tweeq'
+import {computed, readonly, ref, shallowRef, watch} from 'vue'
 
-import {refWithSetter} from '@/use/refWithSetter'
 import {getObjectURL} from '@/util'
 import {scrub, seekAndPlay} from '@/utils'
 
@@ -18,6 +18,7 @@ export const useViewportStore = defineStore('viewport', () => {
 	const liveToggle = ref(false)
 	const enableOnionskin = ref(true)
 	const enableHiRes = ref(false)
+	const appConfig = useAppConfigStore()
 
 	const howl = computed(() => {
 		if (!project.audio.src) return null
@@ -32,9 +33,11 @@ export const useViewportStore = defineStore('viewport', () => {
 		return previewFrame.value === project.captureShot.frame
 	})
 
-	const currentFrame = refWithSetter(0, value => {
-		return clamp(value, 0, project.allKomas.length - 1)
-	})
+	const currentFrame = appConfig.ref('viewprot.currentFrame', 0)
+
+	function setCurrentFrame(value: number) {
+		currentFrame.value = clamp(value, 0, project.allKomas.length - 1)
+	}
 
 	const popup = shallowRef<ViewportPopup>(null)
 
@@ -57,7 +60,7 @@ export const useViewportStore = defineStore('viewport', () => {
 	watch(isPlaying, async () => {
 		if (!isPlaying.value) {
 			if (!project.isLooping && temporalFrame.value) {
-				currentFrame.value = temporalFrame.value
+				setCurrentFrame(temporalFrame.value)
 			}
 			temporalFrame.value = null
 			howl.value?.stop()
@@ -91,7 +94,7 @@ export const useViewportStore = defineStore('viewport', () => {
 			let elapsedFrames = Math.round((elapsed / 1000) * fps)
 
 			if (!project.isLooping && elapsedFrames >= duration) {
-				currentFrame.value = outPoint
+				setCurrentFrame(outPoint)
 				isPlaying.value = false
 			} else {
 				if (elapsedFrames >= duration) {
@@ -150,8 +153,6 @@ export const useViewportStore = defineStore('viewport', () => {
 				return {frame, opacity}
 			})
 
-		console.log(layers.map(l => l.opacity))
-
 		return layers
 	})
 
@@ -159,7 +160,8 @@ export const useViewportStore = defineStore('viewport', () => {
 		liveToggle,
 		enableHiRes,
 		enableOnionskin,
-		currentFrame,
+		currentFrame: readonly(currentFrame),
+		setCurrentFrame,
 		previewFrame,
 		isPlaying,
 		isLiveview,

@@ -82,7 +82,7 @@ const destinationInfo = computed(() => {
 					suffix=" F"
 					style="width: 5em"
 					horizontalPosition="right"
-					@update:modelValue="viewport.currentFrame = $event"
+					@update:modelValue="viewport.setCurrentFrame"
 				/>
 			</div>
 			<Tq.InputIconToggle

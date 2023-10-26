@@ -8,10 +8,11 @@ interface Props {
 	values: unknown[]
 	color: string
 	valueAtCaptureFrame?: unknown
+	minRange?: number
 	filter?: (v: number) => number
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {minRange: 0.01})
 
 const project = useProjectStore()
 
@@ -53,6 +54,12 @@ const valueRange = computed<[min: number, max: number]>(() => {
 		if (typeof v !== 'number') continue
 		min = Math.min(min, v)
 		max = Math.max(max, v)
+	}
+
+	if (max - min < props.minRange) {
+		const mid = (max + min) / 2
+		min = mid - props.minRange / 2
+		max = mid + props.minRange / 2
 	}
 
 	return [min, max]

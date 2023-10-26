@@ -6,7 +6,7 @@ const fps = require('fps')
 const chalk = require('chalk')
 const {killPTPProcess} = require('./kill-ptpcamera')
 
-// killPTPProcess()
+killPTPProcess()
 
 const REFRESH_RATE = 60
 
@@ -123,12 +123,4 @@ function handleOpenVRTarcker() {
 	}
 }
 
-// handleOpenVRTarcker()
-
-const DMX = require('dmx')
-
-const dmx = new DMX()
-
-const universe = dmx.addUniverse('demo', 'artnet', '10.0.1.30', {})
-
-// universe.updateAll(255)
+handleOpenVRTarcker()

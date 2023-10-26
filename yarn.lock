@@ -5234,10 +5234,10 @@ line-intersect@^3.0.0:
   resolved "https://registry.yarnpkg.com/line-intersect/-/line-intersect-3.0.0.tgz#7e0808c80edda012586e125374af2db4dd62c987"
   integrity sha512-MAkwgBwwpyJhTWZ9EppTTFD6JxzYgh3BZxgI41CA2vSlANu4s5CXyTEJxKU3LRHitcF2vObHvE/s/lHxvKl2Kw==
 
-linearly@^0.20.1:
-  version "0.20.1"
-  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.20.1.tgz#b49caaf40d2dc6ae0fad4f0ee5f8b5246b9b9845"
-  integrity sha512-gxS/td/YpLBYjnRRJID85Ei4/MKn8s9srWwqSn/UhzZUooyAfLnExcp8fP5LRObM+pYWTAuX8+YlObm8FXjMtw==
+linearly@0.20.3, linearly@^0.20.3:
+  version "0.20.3"
+  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.20.3.tgz#b2a938100118422aee7429da88716d7ea826a7b1"
+  integrity sha512-i8+X2PfDKaq3VgpMSp3iej2rwc91ngZY4ecFQTeLPt6LNf/QyAsNVAwny7j7hBPUaue5Gt7SBCFshxhvWsOlOQ==
 
 lines-and-columns@^1.1.6:
   version "1.2.4"

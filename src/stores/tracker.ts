@@ -1,7 +1,7 @@
 import {mat4, vec3} from 'linearly'
 import {defineStore} from 'pinia'
 import {useAppConfigStore} from 'tweeq'
-import {computed, toRaw} from 'vue'
+import {computed} from 'vue'
 
 import {useAuxStore} from './aux'
 
@@ -20,9 +20,18 @@ export const useTrackerStore = defineStore('tracker', () => {
 	const cameraAxisY = appConfig.ref<vec3>('tracker.yAxis', vec3.unitY)
 
 	const trackerToCameraMatrix = computed(() => {
-		const y = toRaw(cameraAxisY.value)
-		const z = vec3.normalize(vec3.cross(cameraAxisX.value, y))
-		const x = vec3.normalize(vec3.cross(y, z))
+		// const y = vec3.normalize(cameraAxisY.value)
+		// const z = vec3.normalize(vec3.cross(cameraAxisX.value, y))
+		// const x = vec3.normalize(vec3.cross(y, z))
+
+		// return mat4.mul(
+		// 	mat4.fromAxesTranslation(x, y, z),
+		// 	mat4.fromTranslation(cameraOffset.value)
+		// )
+
+		const x = vec3.normalize(cameraAxisX.value)
+		const y = vec3.normalize(cameraAxisY.value)
+		const z = vec3.normalize(vec3.cross(x, y))
 
 		return mat4.mul(
 			mat4.fromAxesTranslation(x, y, z),
