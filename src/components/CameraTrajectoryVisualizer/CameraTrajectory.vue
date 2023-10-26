@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import {vec3} from 'linearly'
 import * as THREE from 'three'
-import {Group, Sphere} from 'troisjs'
+import {BasicMaterial, Group, Sphere} from 'troisjs'
 import {computed, onMounted, ref, watch} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
@@ -17,41 +18,30 @@ onMounted(() => {
 
 	group.add(polyline)
 	group.add(heights)
+	group.add(orientations)
 })
 
-const positions = computed(() => {
-	const positions: (THREE.Vector3 | null)[] = []
-
-	for (const koma of project.previewKomas) {
-		const shot = koma.shots[0]
-		const position = shot?.tracker?.position
-		if (position) {
-			positions.push(new THREE.Vector3(...position))
-		} else {
-			positions.push(null)
-		}
-	}
-
-	return positions
-})
-
-const realtimePositions = computed(() => {
+const trackers = computed(() => {
 	const [inPoint, outPoint] = project.previewRange
 	const currentFrame = project.captureShot.frame
 
-	if (!tracker.enabled || currentFrame < inPoint || outPoint < currentFrame) {
-		return positions.value.filter(isntNil)
+	const trackers = project.previewKomas.map(
+		koma => koma.shots[0]?.tracker ?? null
+	)
+
+	if (tracker.enabled || inPoint <= currentFrame || currentFrame <= outPoint) {
+		trackers[currentFrame - inPoint] = {
+			position: tracker.position,
+			rotation: tracker.rotation,
+		}
 	}
 
-	const pos = [...positions.value]
-	pos[currentFrame - inPoint] = new THREE.Vector3(...tracker.position)
-
-	return pos.filter(isntNil)
+	return trackers.filter(isntNil)
 })
 
-function isntNil<T>(value: T): value is NonNullable<T> {
-	return value !== null && value !== undefined
-}
+const positions = computed(() => {
+	return trackers.value.map(d => new THREE.Vector3(...d.position))
+})
 
 //------------------------------------------------------------------------------
 // Trajectory
@@ -63,9 +53,9 @@ const polyline = new THREE.Line(
 )
 
 watch(
-	realtimePositions,
-	realtimePositions => {
-		polylineGeo.setFromPoints(realtimePositions)
+	positions,
+	positions => {
+		polylineGeo.setFromPoints(positions)
 		polylineGeo.computeBoundingSphere()
 	},
 	{immediate: true}
@@ -77,13 +67,13 @@ watch(
 const heightsGeo = new THREE.BufferGeometry()
 const heights = new THREE.LineSegments(
 	heightsGeo,
-	new THREE.LineBasicMaterial({color: 0x00ffff})
+	new THREE.LineBasicMaterial({color: 0x66ff66})
 )
 
 watch(
-	() => [realtimePositions.value, tracker.groundLevel] as const,
-	([realtimePositions, groundLevel]) => {
-		const points = realtimePositions.flatMap(p => [
+	() => [positions.value, tracker.groundLevel] as const,
+	([positions, groundLevel]) => {
+		const points = positions.flatMap(p => [
 			p,
 			new THREE.Vector3(p.x, groundLevel, p.z),
 		])
@@ -96,33 +86,52 @@ watch(
 //------------------------------------------------------------------------------
 // Orientations
 
-// const orientationsGeo = new THREE.BufferGeometry()
-// const orientations = new THREE.LineSegments(
-// 	orientationsGeo,
-// 	new THREE.LineBasicMaterial({color: 0x00ffff})
-// )
-// watch(
-// 	() => [realtimePositions.value, tracker.groundLevel] as const,
-// 	([realtimePositions, groundLevel]) => {
-// 		const points = realtimePositions.flatMap(p => [
-// 			p,
-// 			new THREE.Vector3(p.x, groundLevel, p.z),
-// 		])
-// 		heightsGeo.setFromPoints(points)
-// 		heightsGeo.computeBoundingSphere()
-// 	},
-// 	{immediate: true}
-// )
-//
+const orientationsGeo = new THREE.BufferGeometry()
+const orientations = new THREE.LineSegments(
+	orientationsGeo,
+	new THREE.LineBasicMaterial({color: 0x6666ff})
+)
+
+watch(
+	trackers,
+	trackers => {
+		const points = trackers.flatMap((t, i) => {
+			return [
+				positions.value[i],
+				new THREE.Vector3(
+					...vec3.add(t.position, vec3.transformQuat([0, 0, 1], t.rotation))
+				),
+				new THREE.Vector3(
+					...vec3.add(t.position, vec3.transformQuat([-0.08, 0, 0], t.rotation))
+				),
+				new THREE.Vector3(
+					...vec3.add(t.position, vec3.transformQuat([0.08, 0, 0], t.rotation))
+				),
+			]
+		})
+		orientationsGeo.setFromPoints(points)
+		orientationsGeo.computeBoundingSphere()
+	},
+	{immediate: true}
+)
+
+//------------------------------------------------------------------------------
+// Utils
+
+function isntNil<T>(value: T): value is NonNullable<T> {
+	return value !== null && value !== undefined
+}
 </script>
 
 <template>
 	<Group ref="$group">
+		<Sphere v-for="(p, i) in positions" :key="i" :position="p" :radius="0.01" />
 		<Sphere
-			v-for="(p, i) in realtimePositions"
-			:key="i"
-			:position="p"
+			v-if="tracker.averageTarget"
+			:position="new THREE.Vector3(...tracker.averageTarget.position)"
 			:radius="0.01"
-		/>
+		>
+			<BasicMaterial color="#f66" />
+		</Sphere>
 	</Group>
 </template>

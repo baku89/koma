@@ -1,15 +1,17 @@
-import {mat4, vec3} from 'linearly'
+import {mat4, quat, vec3, vec4} from 'linearly'
 import {defineStore} from 'pinia'
 import {useAppConfigStore} from 'tweeq'
 import {computed} from 'vue'
 
 import {useAuxStore} from './aux'
+import {useProjectStore} from './project'
 
 export const useTrackerStore = defineStore('tracker', () => {
 	const aux = useAuxStore()
+	const project = useProjectStore()
 	const appConfig = useAppConfigStore()
 
-	const groundLevel = appConfig.ref('groundLevel', 0)
+	const groundLevel = appConfig.ref('tracker.groundLevel', 0)
 
 	const calibrationMatrix = appConfig.ref<mat4>(
 		'tracker.calibrationMatrix',
@@ -72,6 +74,45 @@ export const useTrackerStore = defineStore('tracker', () => {
 		return mat4.getRotation(matrix.value)
 	})
 
+	const averageSamples = appConfig.ref('tracker.averageSamples', 1)
+
+	const averageTarget = computed(() => {
+		const lastTracker = project.shot(project.captureShot.frame - 1, 0)?.tracker
+
+		if (!lastTracker) return null
+
+		const velocities: vec3[] = []
+		const rotationVelocities: quat[] = []
+
+		for (let i = 0; i < averageSamples.value; i++) {
+			const tracker = project.shot(project.captureShot.frame - 1 - i, 0)
+				?.tracker
+			const prevTracker = project.shot(project.captureShot.frame - 2 - i, 0)
+				?.tracker
+
+			if (tracker && prevTracker) {
+				const p = vec3.sub(tracker.position, prevTracker.position)
+				velocities.push(p)
+
+				const q = quat.mul(quat.invert(prevTracker.rotation), tracker.rotation)
+				rotationVelocities.push(q)
+			}
+		}
+
+		const averageVelocity = vec3.average(...velocities)
+		const averageRotationVelocity = quat.normalize(
+			vec4.average(...rotationVelocities)
+		)
+
+		return {
+			position: vec3.add(lastTracker.position, averageVelocity),
+			rotation: quat.mul(lastTracker.rotation, averageRotationVelocity),
+		}
+	})
+
+	project.shot(project.captureShot.frame - 1, 0)?.tracker
+	project.captureShot.frame
+
 	return {
 		matrix,
 		position,
@@ -89,5 +130,9 @@ export const useTrackerStore = defineStore('tracker', () => {
 		trackerToCameraMatrix,
 		cameraAxisX,
 		cameraAxisY,
+
+		// Average information
+		averageSamples,
+		averageTarget,
 	}
 })

@@ -8,6 +8,7 @@ import {ref, watch} from 'vue'
 import {useCameraStore} from '@/stores/camera'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
+import {useTimelineStore} from '@/stores/timeline'
 import {useTimerStore} from '@/stores/timer'
 import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
@@ -29,6 +30,7 @@ useTweeq('com.baku89.koma', {
 const actions = useActionsStore()
 
 const viewport = useViewportStore()
+const timeline = useTimelineStore()
 const project = useProjectStore()
 const camera = useCameraStore()
 const timer = useTimerStore()
@@ -439,6 +441,20 @@ actions.register([
 			project.$patch(result)
 		},
 	},
+	{
+		id: 'enable_timeline_marker_tool',
+		input: 'm',
+		perform() {
+			timeline.currentTool = 'marker'
+		},
+	},
+	{
+		id: 'enable_timeline_select_tool',
+		input: 'v',
+		perform() {
+			timeline.currentTool = null
+		},
+	},
 ])
 </script>
 
@@ -468,19 +484,38 @@ actions.register([
 						<template #first>
 							<div class="control">
 								<Tq.ParameterGrid>
-									<CameraControl />
-									<Tq.ParameterHeading>Viewport</Tq.ParameterHeading>
 									<Tq.Parameter
-										icon="fluent-emoji-high-contrast:onion"
-										label="Onion"
+										label="Tool"
+										icon="fluent:inking-tool-16-filled"
 									>
-										<Tq.InputNumber
-											v-model="project.onionskin"
-											:max="0"
-											:min="-3"
-											:step="0.1"
+										<Tq.InputRadio
+											v-model="timeline.currentTool"
+											:options="[null, 'marker']"
+											:labels="['None', 'Marker']"
 										/>
 									</Tq.Parameter>
+									<CameraControl />
+									<Tq.ParameterGroup label="Viewport" name="viewportSettings">
+										<Tq.Parameter
+											icon="fluent-emoji-high-contrast:onion"
+											label="Onion"
+										>
+											<Tq.InputNumber
+												v-model="project.onionskin"
+												:max="0"
+												:min="-3"
+												:step="0.1"
+											/>
+										</Tq.Parameter>
+										<Tq.Parameter label="Traj. Ave." icon="ooui:map-trail">
+											<Tq.InputNumber
+												v-model="tracker.averageSamples"
+												:min="0"
+												:max="3"
+												:step="1"
+											/>
+										</Tq.Parameter>
+									</Tq.ParameterGroup>
 									<MarkerSettings />
 								</Tq.ParameterGrid>
 							</div>

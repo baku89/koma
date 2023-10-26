@@ -54,7 +54,7 @@ watch(
 function onLoadCameraModel(group: THREE.Group) {
 	const mesh = group.children[0] as THREE.Mesh
 	const material = mesh.material as THREE.MeshPhongMaterial
-	material.opacity = 0.7
+	material.opacity = 0.5
 	material.transparent = true
 }
 

@@ -2,10 +2,11 @@
 import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import {useBndr} from 'tweeq'
-import {ref, watch} from 'vue'
+import {computed, ref, watch} from 'vue'
 
 import {useMarkersStore} from '@/stores/markers'
 import {useProjectStore} from '@/stores/project'
+import {useTimelineStore} from '@/stores/timeline'
 import {speak} from '@/utils'
 
 import TimelineMarker from './TimelineMarker.vue'
@@ -18,10 +19,15 @@ const props = defineProps<Props>()
 
 const project = useProjectStore()
 const markers = useMarkersStore()
+const timeline = useTimelineStore()
 
 const $root = ref<null | HTMLElement>(null)
 
 const cursorVisible = ref(false)
+
+const canAddmarker = computed(() => {
+	return cursorVisible.value && timeline.currentTool === 'marker'
+})
 
 useBndr($root, $root => {
 	const pointer = Bndr.pointer($root)
@@ -34,7 +40,7 @@ useBndr($root, $root => {
 	})
 
 	pointer.primary.down().on(() => {
-		if (!cursorVisible.value) return
+		if (!canAddmarker.value) return
 
 		markers.add()
 	})
@@ -70,7 +76,7 @@ watch(
 <template>
 	<div ref="$root" class="TimelineMarkers">
 		<TimelineMarker
-			v-if="cursorVisible"
+			v-if="canAddmarker"
 			class="cursor"
 			:marker="markers.cursor"
 		/>

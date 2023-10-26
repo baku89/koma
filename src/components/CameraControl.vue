@@ -71,43 +71,42 @@ function setConfigColor(name: ConfigName, value: string) {
 </script>
 
 <template>
-	<Tq.ParameterHeading>
-		Camera Control
-		<template #right>
+	<Tq.ParameterGroup name="cameraControl" label="Camera Control">
+		<template #headingRight>
 			<button class="show-all-button" @click="showAll = !showAll">
 				{{ showAll ? 'Collapse' : 'Show All' }}
 			</button>
 		</template>
-	</Tq.ParameterHeading>
 
-	<template v-for="name in configNames">
-		<Tq.Parameter
-			v-if="showAll || getConfigVisibility(name)"
-			:key="name"
-			:label="configLabels[name].label"
-		>
-			<template #label>
-				<Icon
-					v-if="showAll"
-					class="visibility"
-					:icon="getConfigVisibility(name) ? 'mdi:eye' : 'mdi:eye-closed'"
-					@click="toggleConfigVisibility(name)"
-				/>
-				<Tq.InputColor
-					class="color"
-					:modelValue="getConfigColor(name)"
-					@update:modelValue="setConfigColor(name, $event)"
-				>
+		<template v-for="name in configNames">
+			<Tq.Parameter
+				v-if="showAll || getConfigVisibility(name)"
+				:key="name"
+				:label="configLabels[name].label"
+			>
+				<template #label>
 					<Icon
-						:icon="configLabels[name].icon"
-						:style="{color: getConfigColor(name)}"
+						v-if="showAll"
+						class="visibility"
+						:icon="getConfigVisibility(name) ? 'mdi:eye' : 'mdi:eye-closed'"
+						@click="toggleConfigVisibility(name)"
 					/>
-				</Tq.InputColor>
-				{{ configLabels[name].label }}
-			</template>
-			<TethrConfig :config="(camera as any)[name]" :name="name" />
-		</Tq.Parameter>
-	</template>
+					<Tq.InputColor
+						class="color"
+						:modelValue="getConfigColor(name)"
+						@update:modelValue="setConfigColor(name, $event)"
+					>
+						<Icon
+							:icon="configLabels[name].icon"
+							:style="{color: getConfigColor(name)}"
+						/>
+					</Tq.InputColor>
+					{{ configLabels[name].label }}
+				</template>
+				<TethrConfig :config="(camera as any)[name]" :name="name" />
+			</Tq.Parameter>
+		</template>
+	</Tq.ParameterGroup>
 </template>
 
 <style lang="stylus" scoped>

@@ -279,4 +279,5 @@ const viewBox = computed(() => {
 	height 100%
 	object-fit fill
 	overflow visible
+	z-index 20
 </style>
