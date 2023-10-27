@@ -34,14 +34,19 @@ export const useViewportStore = defineStore('viewport', () => {
 	})
 
 	const currentFrame = appConfig.ref('viewprot.currentFrame', 0)
+	const currentLayer = appConfig.ref('viewport.currentLayer', 0)
 
 	function setCurrentFrame(value: number) {
 		currentFrame.value = clamp(value, 0, project.allKomas.length - 1)
 	}
 
+	function setCurrentLayer(value: number) {
+		currentLayer.value = clamp(value, 0, 1)
+	}
+
 	const popup = shallowRef<ViewportPopup>(null)
 
-	// For previewing, live toggle
+	/** For previewing, live toggle. */
 	const temporalFrame = ref<null | number>(null)
 
 	const previewFrame = computed(() => {
@@ -162,6 +167,8 @@ export const useViewportStore = defineStore('viewport', () => {
 		enableOnionskin,
 		currentFrame: readonly(currentFrame),
 		setCurrentFrame,
+		currentLayer: readonly(currentLayer),
+		setCurrentLayer,
 		previewFrame,
 		isPlaying,
 		isLiveview,

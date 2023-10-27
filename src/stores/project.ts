@@ -294,7 +294,7 @@ export const useProjectStore = defineStore('project', () => {
 			autoSave.pause()
 			{
 				assignReactive(project, mergedProject)
-				history.clear()
+				console.info('Project opened', history.history)
 			}
 			autoSave.resume()
 		},

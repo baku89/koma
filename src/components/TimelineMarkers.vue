@@ -92,7 +92,7 @@ watch(
 <style lang="stylus" scoped>
 .TimelineMarkers
 	position absolute
-	inset 0
+	inset  var(--koma-height) 0 0 0
 	z-index 100
 
 .cursor

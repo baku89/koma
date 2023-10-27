@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import {Icon} from '@iconify/vue/dist/iconify.js'
 import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
@@ -158,6 +159,8 @@ const gamepadAxis = gamepad.axisDirection()
 const gamepadAxisNeutral = gamepadAxis.filter(v => v === null)
 const gamepadAxisLeft = gamepadAxis.map(v => v && v[0] === -1)
 const gamepadAxisRight = gamepadAxis.map(v => v && v[0] === 1)
+const gamepadAxisTop = gamepadAxis.map(v => v && v[1] === -1)
+const gamepadAxisBottom = gamepadAxis.map(v => v && v[1] === 1)
 
 gamepadAxisRight.longPress(500).pressed.on(() => {
 	viewport.isPlaying = true
@@ -211,6 +214,7 @@ actions.register([
 		async perform() {
 			if (project.captureShot.frame !== viewport.currentFrame) {
 				viewport.setCurrentFrame(project.captureShot.frame)
+				viewport.setCurrentLayer(project.captureShot.layer)
 				playSound('sound/Onoma-Inspiration04-4(Low).mp3')
 				return
 			}
@@ -233,6 +237,19 @@ actions.register([
 			})
 
 			viewport.setCurrentFrame(project.captureShot.frame)
+		},
+	},
+	{
+		id: 'set_capture_frame',
+		icon: 'mdi:camera',
+		input: ['a', 'gamepad:zr'],
+		perform() {
+			project.$patch({
+				captureShot: {
+					frame: viewport.currentFrame,
+					layer: viewport.currentLayer,
+				},
+			})
 		},
 	},
 	{
@@ -290,7 +307,7 @@ actions.register([
 	{
 		id: 'undo',
 		icon: 'mdi:undo',
-		input: 'command+z',
+		input: 'command+zdddd',
 		perform() {
 			project.undo()
 			viewport.setCurrentFrame(project.captureShot.frame)
@@ -299,7 +316,7 @@ actions.register([
 	{
 		id: 'redo',
 		icon: 'mdi:redo',
-		input: 'command+shift+z',
+		input: 'command+shift+zddd',
 		perform() {
 			project.redo()
 			viewport.setCurrentFrame(project.captureShot.frame)
@@ -322,6 +339,22 @@ actions.register([
 		},
 	},
 	{
+		id: 'increment_current_layer',
+		icon: 'mdi:arrow-down',
+		input: ['down', gamepadAxisBottom.down()],
+		perform() {
+			viewport.setCurrentLayer(viewport.currentLayer + 1)
+		},
+	},
+	{
+		id: 'decrement_current_layer',
+		icon: 'mdi:arrow-up',
+		input: ['up', gamepadAxisTop.down()],
+		perform() {
+			viewport.setCurrentLayer(viewport.currentLayer - 1)
+		},
+	},
+	{
 		id: 'delete_current_frame',
 		icon: 'mdi:backspace',
 		input: ['delete', 'backspace', gamepad.button('+').longPress(500).pressed],
@@ -338,18 +371,23 @@ actions.register([
 			}
 
 			project.$patch(project => {
-				project.komas.splice(frameToDelete, 1)
-				if (
-					isDeletingCaptureFrame &&
-					viewport.currentFrame === project.captureShot.frame
-				) {
-					viewport.setCurrentFrame(viewport.currentFrame - 1)
-				}
-				if (frameToDelete < project.captureShot.frame) {
-					project.captureShot.frame -= 1
-				}
-				if (frameToDelete <= project.previewRange[1]) {
-					project.previewRange[1] -= 1
+				project.komas[frameToDelete].shots.splice(viewport.currentLayer, 1)
+
+				if (project.komas[frameToDelete].shots.length === 0) {
+					project.komas.splice(frameToDelete, 1)
+
+					if (
+						isDeletingCaptureFrame &&
+						viewport.currentFrame === project.captureShot.frame
+					) {
+						viewport.setCurrentFrame(viewport.currentFrame - 1)
+					}
+					if (frameToDelete < project.captureShot.frame) {
+						project.captureShot.frame -= 1
+					}
+					if (frameToDelete <= project.previewRange[1]) {
+						project.previewRange[1] -= 1
+					}
 				}
 			})
 			playSound('sound/Hit08-1.mp3')
@@ -484,15 +522,20 @@ actions.register([
 						<template #first>
 							<div class="control">
 								<Tq.ParameterGrid>
-									<Tq.Parameter
-										label="Tool"
-										icon="fluent:inking-tool-16-filled"
-									>
+									<Tq.Parameter label="Tool">
 										<Tq.InputRadio
 											v-model="timeline.currentTool"
 											:options="[null, 'marker']"
 											:labels="['None', 'Marker']"
-										/>
+										>
+											<template #option="{value}">
+												<Icon
+													:icon="
+														value === 'marker' ? 'mdi:marker' : 'ph:cursor-fill'
+													"
+												/>
+											</template>
+										</Tq.InputRadio>
 									</Tq.Parameter>
 									<CameraControl />
 									<Tq.ParameterGroup label="Viewport" name="viewportSettings">

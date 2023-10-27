@@ -69,7 +69,9 @@ const previewRangeStyles = computed(() => {
 
 const vizStyles = computed(() => {
 	return {
-		top: `calc(var(--header-height) + var(--header-margin-bottom) + var(--koma-height) * ${layers.value.length})`,
+		top: `calc(var(--header-height) + var(--header-margin-bottom) + var(--koma-height) * ${
+			2 /*layers.value.length*/
+		})`,
 	}
 })
 
@@ -108,6 +110,11 @@ provide('komaWidth', komaWidth)
 			:visibleRegion="visibleRegion"
 			@zoomHorizontal="onZoomTimeline"
 		>
+			<div class="viz" :style="vizStyles">
+				<TimelineWaveform />
+				<TimelineGraph />
+				<TimelineMarkers :komaWidth="komaWidth" />
+			</div>
 			<div class="komas">
 				<div class="seekbar" :style="seekbarStyles">
 					{{ viewport.previewFrame }}
@@ -119,11 +126,6 @@ provide('komaWidth', komaWidth)
 					<Koma :frame="frame" />
 				</div>
 				<div ref="$frameMeasure" class="frameMeasure" />
-			</div>
-			<div class="viz" :style="vizStyles">
-				<TimelineWaveform />
-				<TimelineGraph />
-				<TimelineMarkers :komaWidth="komaWidth" />
 			</div>
 			<template #scrollbarRight>
 				<Tq.InputNumber
@@ -169,7 +171,12 @@ aside
 	position relative
 	display flex
 	width calc(var(--duration) * var(--koma-width))
+	z-index 100
 	height 100%
+	pointer-events none
+
+	& > *
+		pointer-events auto
 
 .frameMeasure
 	position absolute

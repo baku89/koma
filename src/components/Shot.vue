@@ -6,9 +6,8 @@ import {WritableConfigNameList} from 'tethr'
 import {computed} from 'vue'
 
 import {Shot, useProjectStore} from '@/stores/project'
+import {useViewportStore} from '@/stores/viewport'
 import {getObjectURL, toTime} from '@/util'
-
-const project = useProjectStore()
 
 interface Props {
 	frame: number
@@ -17,7 +16,17 @@ interface Props {
 
 const props = defineProps<Props>()
 
+const project = useProjectStore()
+const viewport = useViewportStore()
+
 const shot = computed(() => project.shot(props.frame, props.layer))
+
+const selected = computed(() => {
+	return (
+		props.frame === viewport.currentFrame &&
+		props.layer === viewport.currentLayer
+	)
+})
 
 function insertEmptyFrame(frame: number) {
 	project.$patch(state => {
@@ -29,6 +38,11 @@ function insertEmptyFrame(frame: number) {
 			state.previewRange[1] += 1
 		}
 	})
+}
+
+function selectShot() {
+	viewport.setCurrentFrame(props.frame)
+	viewport.setCurrentLayer(props.layer)
 }
 
 function printShotInfo(shot: Shot) {
@@ -55,7 +69,12 @@ function printShotInfo(shot: Shot) {
 </script>
 
 <template>
-	<div class="Shot" @dblclick="project.captureShot = {frame, layer}">
+	<div
+		class="Shot"
+		:class="{selected}"
+		@click="selectShot"
+		@dblclick="project.captureShot = {frame, layer}"
+	>
 		<div
 			v-if="
 				frame === project.captureShot.frame &&
@@ -92,9 +111,7 @@ function printShotInfo(shot: Shot) {
 	margin-left 1px
 	width calc(var(--koma-width) - 1px)
 	height var(--koma-height)
-
-
-	&.onionskin:before
+	&.selected:before
 		content ''
 		display block
 		position absolute
