@@ -2,7 +2,7 @@
 import {Icon} from '@iconify/vue'
 import {capital} from 'case'
 import dateformat from 'dateformat'
-import {WritableConfigNameList} from 'tethr'
+import {ConfigNameList} from 'tethr'
 import {computed} from 'vue'
 
 import {Shot, useProjectStore} from '@/stores/project'
@@ -53,7 +53,7 @@ function printShotInfo(shot: Shot) {
 	]
 
 	const configs = Object.entries(shot.cameraConfigs).filter(([name]) =>
-		WritableConfigNameList.includes(name as any)
+		ConfigNameList.includes(name as any)
 	)
 
 	return [...infos, ...configs]
