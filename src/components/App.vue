@@ -63,6 +63,13 @@ actions.onBeforePerform(action => {
 
 const {fn: shoot} = preventConcurrentExecution(
 	async (): Promise<Shot> => {
+		if (project.captureShot.frame !== viewport.currentFrame) {
+			viewport.setCurrentFrame(project.captureShot.frame)
+			viewport.setCurrentLayer(project.captureShot.layer)
+			playSound('sound/Onoma-Inspiration04-4(Low).mp3')
+			throw new Error('The capture frame is not current frame')
+		}
+
 		if (!shootAlerts.canShoot) {
 			;(async () => {
 				await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
@@ -222,13 +229,6 @@ actions.register([
 		icon: 'mdi:circle',
 		input: ['enter', 'gamepad:a'],
 		async perform() {
-			if (project.captureShot.frame !== viewport.currentFrame) {
-				viewport.setCurrentFrame(project.captureShot.frame)
-				viewport.setCurrentLayer(project.captureShot.layer)
-				playSound('sound/Onoma-Inspiration04-4(Low).mp3')
-				return
-			}
-
 			const newShot = await shoot()
 
 			project.$patch(state => {
@@ -247,6 +247,25 @@ actions.register([
 			})
 
 			viewport.setCurrentFrame(project.captureShot.frame)
+			viewport.setCurrentLayer(project.captureShot.layer)
+		},
+	},
+	{
+		id: 'shoot_and_next_layer',
+		icon: 'mdi:circle',
+		input: ['shift+enter', 'gamepad:+'],
+		async perform() {
+			const newShot = await shoot()
+
+			project.$patch(state => {
+				const {frame, layer} = state.captureShot
+				project.setShot(frame, layer, newShot)
+
+				project.captureShot.layer += 1
+			})
+
+			viewport.setCurrentFrame(project.captureShot.frame)
+			viewport.setCurrentLayer(project.captureShot.layer)
 		},
 	},
 	{
