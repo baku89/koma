@@ -120,7 +120,9 @@ function printShotInfo(shot: Shot) {
 		border-radius var(--tq-input-border-radius)
 		z-index 10
 
-.captured, .liveview, .empty
+.captured
+.liveview
+.empty
 	position relative
 	width 100%
 	height 100%
@@ -148,13 +150,12 @@ function printShotInfo(shot: Shot) {
 	height 8px
 	margin 0
 
-
 .liveview
 	background var(--tq-color-primary-container)
 
 .empty
 	background var(--tq-color-input)
-	opacity .2
+	opacity 0.2
 
 	&:hover
 		background var(--tq-color-input-hover)

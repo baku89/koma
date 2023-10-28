@@ -103,8 +103,9 @@ useBndr($marker, $marker => {
 	border-radius 0.5em
 	background currentColor
 
-	&:hover, &.selected
-		outline 3px solid set-alpha(--tq-color-on-background, .5)
+	&:hover
+	&.selected
+		outline 3px solid set-alpha(--tq-color-on-background, 0.5)
 
 	.label
 		width fit-content
@@ -128,11 +129,11 @@ useBndr($marker, $marker => {
 		.label
 			padding-left calc(1em + 6px)
 			z-index -1
-			border-radius .5em
-			background set-alpha(--tq-color-background, .5)
+			border-radius 0.5em
+			background set-alpha(--tq-color-background, 0.5)
 
 	&:not(.single)
-		padding 0 .25em
+		padding 0 0.25em
 		overflow hidden
 		.label
 			font-weight bold

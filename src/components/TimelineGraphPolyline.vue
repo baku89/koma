@@ -133,7 +133,8 @@ const dotsPath = computed(() => {
 </template>
 
 <style lang="stylus" scoped>
-.polyline, .dots
+.polyline
+.dots
 	fill none
 	vector-effect non-scaling-stroke
 

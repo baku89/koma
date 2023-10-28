@@ -275,7 +275,7 @@ const viewBox = computed(() => {
 	position absolute
 	top 0
 	left calc(var(--in-point) * var(--koma-width))
-	width calc((var(--out-point) - var(--in-point) + 1) * var(--koma-width))
+	width calc(var(--out-point) - var(--in-point) + 1 * var(--koma-width))
 	height 100%
 	object-fit fill
 	overflow visible

@@ -150,12 +150,12 @@ actions.register([
 		stroke-width 2px
 		fill none
 		vector-effect non-scaling-stroke
-		opacity .2
+		opacity 0.2
 
 	.letterbox
 		stroke none
 		fill var(--tq-color-background)
-		opacity .7
+		opacity 0.7
 
 .popupProgress
 	left 50%
@@ -177,7 +177,7 @@ actions.register([
 		left 2px
 		background var(--tq-color-on-background)
 		border-radius 9999px
-		transition width .5s ease
+		transition width 0.5s ease
 
 .shootAlerts
 	position absolute
@@ -191,7 +191,7 @@ actions.register([
 	li
 		display grid
 		grid-template-columns min-content 1fr
-		background set-alpha(--tq-color-surface, .8)
+		background set-alpha(--tq-color-surface, 0.8)
 		border-radius var(--tq-input-border-radius)
 		backdrop-filter blur(4px)
 		padding 1rem

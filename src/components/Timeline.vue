@@ -145,7 +145,6 @@ provide('komaWidth', komaWidth)
 </template>
 
 <style lang="stylus" scoped>
-
 .Timeline
 	display grid
 	grid-template-columns 100px 1fr
@@ -178,6 +177,12 @@ aside
 	& > *
 		pointer-events auto
 
+.koma
+	pointer-events none
+
+	& > *
+		pointer-events auto
+
 .frameMeasure
 	position absolute
 	top 0
@@ -190,7 +195,7 @@ aside
 
 header-frame-text-style()
 	font-size 9px
-	text-indent .4em
+	text-indent 0.4em
 	line-height var(--header-height)
 
 .seekbar
@@ -222,7 +227,7 @@ header-frame-text-style()
 	right 100%
 	height var(--header-height)
 	background var(--md-sys-color-on-tertiary-container)
-	opacity .5
+	opacity 0.5
 	border-radius 99px 0 0 99px
 
 	&.pos
@@ -234,7 +239,7 @@ header-frame-text-style()
 .previewRange
 	position absolute
 	height var(--header-height)
-	background linear-gradient(to right,  var(--md-sys-color-secondary) 2px, transparent 2px, transparent calc(100% - 2px),  var(--md-sys-color-secondary) calc(100% - 2px))
+	background linear-gradient(to right, var(--md-sys-color-secondary) 2px, transparent 2px, transparent calc(100% - 2px), var(--md-sys-color-secondary) calc(100% - 2px))
 
 	&:before
 		content ''
@@ -245,7 +250,7 @@ header-frame-text-style()
 		top 0
 		left 0
 		background var(--md-sys-color-secondary)
-		opacity .2
+		opacity 0.2
 
 .koma-header
 	header-frame-text-style()

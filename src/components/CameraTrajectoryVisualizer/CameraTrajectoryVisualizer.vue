@@ -300,7 +300,6 @@ const paneExpanded = ref(false)
 </template>
 
 <style lang="stylus" scoped>
-
 .CameraTrajectoryVisualizer
 	position relative
 	width 100%
