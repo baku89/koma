@@ -10,7 +10,12 @@ killPTPProcess()
 
 const REFRESH_RATE = 60
 
-const osc = new OSC({plugin: new OSC.WebsocketServerPlugin()})
+const osc = new OSC({
+	plugin: new OSC.BridgePlugin({
+		udpClient: {port: 9129},
+		udpServer: {port: 9130},
+	}),
+})
 osc.open()
 
 function handleOpenVRTarcker() {
@@ -20,7 +25,6 @@ function handleOpenVRTarcker() {
 		vr = openvr.VR_Init(openvr.EVRApplicationType.Other)
 	} catch (e) {
 		console.error('Cannot open the OpenVR tracker. Is SteamVR running?')
-		console.error(e)
 		return
 	}
 
@@ -124,3 +128,5 @@ function handleOpenVRTarcker() {
 }
 
 handleOpenVRTarcker()
+
+setInterval(() => null, 10000)

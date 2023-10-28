@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import {Icon} from '@iconify/vue/dist/iconify.js'
+import {whenever} from '@vueuse/core'
 import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
@@ -7,6 +8,7 @@ import {useActionsStore} from 'tweeq'
 import {ref, watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
+import {useOscStore} from '@/stores/osc'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
 import {useTimelineStore} from '@/stores/timeline'
@@ -34,6 +36,7 @@ const viewport = useViewportStore()
 const timeline = useTimelineStore()
 const project = useProjectStore()
 const camera = useCameraStore()
+const osc = useOscStore()
 const timer = useTimerStore()
 const tracker = useTrackerStore()
 const shootAlerts = useShootAlertsStore()
@@ -152,6 +155,13 @@ const {fn: shoot} = preventConcurrentExecution(
 		throw new Error('The Shooting is already executed')
 	}
 )
+
+const oscIn = osc.messages({
+	shoot: {address: '/shoot', type: 'b', default: 0},
+})
+
+whenever(oscIn.shoot, () => actions.perform('shoot'))
+
 //------------------------------------------------------------------------------
 
 const gamepadAxis = gamepad.axisDirection()
