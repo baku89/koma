@@ -135,7 +135,8 @@ export const useViewportStore = defineStore('viewport', () => {
 			isPlaying.value ||
 			liveToggle.value ||
 			!enableOnionskin.value ||
-			project.onionskin === 0
+			project.onionskin === 0 ||
+			currentLayer.value !== 0
 		) {
 			return []
 		}
