@@ -3,7 +3,7 @@ import {mat2d, quat, vec2, vec3} from 'linearly'
 import {clamp, cloneDeep} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
-import {computed, reactive, shallowRef, toRaw, toRefs} from 'vue'
+import {computed, nextTick, reactive, shallowRef, toRaw, toRefs} from 'vue'
 
 import {
 	assignReactive,
@@ -216,7 +216,11 @@ export const useProjectStore = defineStore('project', () => {
 		},
 	})
 
-	const history = useRefHistory(undoableData, {capacity: 400, clone: cloneDeep})
+	const history = useRefHistory(undoableData, {
+		deep: true,
+		capacity: 400,
+		clone: cloneDeep,
+	})
 
 	const allKomas = computed<Koma[]>(() => {
 		const komaNumberToFill =
@@ -239,7 +243,7 @@ export const useProjectStore = defineStore('project', () => {
 	async function createNew() {
 		assignReactive(project, cloneDeep(emptyProject))
 
-		history.clear()
+		nextTick(() => history.clear())
 
 		if (directoryHandle.value?.name === '') {
 			for await (const key of directoryHandle.value.keys()) {
@@ -261,7 +265,6 @@ export const useProjectStore = defineStore('project', () => {
 				...flatProject,
 				timeline: {
 					...flatProject.timeline,
-
 					markerSounds: await mapValuePromises(
 						flatProject.timeline.markerSounds,
 						src => blobCache.open(directoryHandle, src)
@@ -292,11 +295,10 @@ export const useProjectStore = defineStore('project', () => {
 			const mergedProject = deepMergeExceptArray(unflatProject, emptyProject)
 
 			autoSave.pause()
-			{
-				assignReactive(project, mergedProject)
-				console.info('Project opened', history.history)
-			}
+			assignReactive(project, mergedProject)
 			autoSave.resume()
+
+			nextTick(() => history.clear())
 		},
 		() => undefined
 	)

@@ -62,7 +62,7 @@ const layers = computed(() => {
 <template>
 	<div class="ViewportKoma">
 		<div
-			v-for="(layer, index) in layers"
+			v-for="(layer, index) in layers.slice(0, viewport.currentLayer + 1)"
 			:key="index"
 			class="layer"
 			:style="{
@@ -87,8 +87,11 @@ const layers = computed(() => {
 </template>
 
 <style scoped lang="stylus">
-
-.ViewportKoma, .layer, img, video, .no-lv
+.ViewportKoma
+.layer
+img
+video
+.no-lv
 	width 100%
 	height 100%
 	object-fit cover
