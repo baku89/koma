@@ -489,6 +489,7 @@ export const useProjectStore = defineStore('project', () => {
 
 	return {
 		...toRefs(project),
+		history,
 		undo: history.undo,
 		redo: history.redo,
 		createNew,

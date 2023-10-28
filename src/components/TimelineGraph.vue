@@ -295,6 +295,7 @@ const viewBox = computed(() => {
 			:values="shootTime"
 			:valueAtCaptureFrame="timer.current"
 			color="#666"
+			:minRange="1000 * 60"
 			style="--stroke-dasharray: 1 7"
 			transform="translate(0, 0.3) scale(1, 0.7)"
 		/>

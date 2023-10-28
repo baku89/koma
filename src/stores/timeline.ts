@@ -21,7 +21,7 @@ export const useTimelineStore = defineStore('timeline', () => {
 	})
 
 	const komaHeight = computed(() => {
-		return Math.round(komaWidth.value / komaAspect.value)
+		return Math.round(komaWidthBase.value / komaAspect.value)
 	})
 
 	return {

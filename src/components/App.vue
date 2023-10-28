@@ -336,8 +336,10 @@ actions.register([
 	{
 		id: 'undo',
 		icon: 'mdi:undo',
-		input: 'command+zdddd',
+		input: 'command+z',
 		perform() {
+			if (!project.history.canUndo) return
+
 			project.undo()
 			viewport.setCurrentFrame(project.captureShot.frame)
 		},
@@ -345,8 +347,10 @@ actions.register([
 	{
 		id: 'redo',
 		icon: 'mdi:redo',
-		input: 'command+shift+zddd',
+		input: 'command+shift+z',
 		perform() {
+			if (!project.history.canRedo) return
+
 			project.redo()
 			viewport.setCurrentFrame(project.captureShot.frame)
 		},

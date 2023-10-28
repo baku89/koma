@@ -40,6 +40,7 @@
 		"howler": "^2.2.4",
 		"lodash": "^4.17.21",
 		"osc-js": "^2.4.0",
+		"paper": "^0.12.17",
 		"pinia": "^2.1.6",
 		"prettier": "^3.0.3",
 		"prettier-plugin-stylus": "^0.0.1-beta.9",
