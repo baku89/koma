@@ -3,9 +3,10 @@ import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import Tq from 'tweeq'
 import {useBndr} from 'tweeq'
-import {computed, provide, ref} from 'vue'
+import {computed, ref} from 'vue'
 
 import {MixBlendModeValues, useProjectStore} from '@/stores/project'
+import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
 
 import Koma from './Koma.vue'
@@ -15,22 +16,22 @@ import TimelineWaveform from './TimelineWaveform.vue'
 
 const project = useProjectStore()
 const viewport = useViewportStore()
+const timeline = useTimelineStore()
 
 const $frameMeasure = ref<null | HTMLElement>(null)
 
-const komaWidth = computed(() => {
-	return project.timeline.zoomFactor * 80
-})
-
 const visibleRegion = computed(() => {
-	return {left: viewport.previewFrame * komaWidth.value, width: komaWidth.value}
+	return {
+		left: viewport.previewFrame * timeline.komaWidth,
+		width: timeline.komaWidth,
+	}
 })
 
 useBndr($frameMeasure, el => {
 	Bndr.pointer(el)
 		.drag({pointerCapture: true, coordinate: 'offset'})
 		.on(d => {
-			const frame = Math.floor(d.current[0] / komaWidth.value)
+			const frame = Math.floor(d.current[0] / timeline.komaWidth)
 			viewport.setCurrentFrame(frame)
 			viewport.isPlaying = false
 		})
@@ -74,15 +75,14 @@ const vizStyles = computed(() => {
 		})`,
 	}
 })
-
-provide('komaWidth', komaWidth)
 </script>
 
 <template>
 	<div
 		class="Timeline"
 		:style="{
-			'--koma-width': komaWidth + 'px',
+			'--koma-width': timeline.komaWidth + 'px',
+			'--koma-height': timeline.komaHeight + 'px',
 			'--duration': project.allKomas.length,
 			'--in-point': project.previewRange[0],
 			'--out-point': project.previewRange[1],
@@ -113,7 +113,7 @@ provide('komaWidth', komaWidth)
 			<div class="viz" :style="vizStyles">
 				<TimelineWaveform />
 				<TimelineGraph />
-				<TimelineMarkers :komaWidth="komaWidth" />
+				<TimelineMarkers :komaWidth="timeline.komaWidth" />
 			</div>
 			<div class="komas">
 				<div class="seekbar" :style="seekbarStyles">
@@ -148,9 +148,6 @@ provide('komaWidth', komaWidth)
 .Timeline
 	display grid
 	grid-template-columns 100px 1fr
-
-	--koma-width 80px
-	--koma-height 53px
 	--header-height 14px
 	--header-margin-bottom 6px
 

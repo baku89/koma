@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {mat4, vec3} from 'linearly'
+import {range} from 'lodash'
 import {Euler, Quaternion} from 'three'
 import {computed} from 'vue'
 
@@ -15,11 +16,6 @@ const timer = useTimerStore()
 const camera = useCameraStore()
 const tracker = useTrackerStore()
 
-const previewKomas = computed(() => {
-	const [inPoint, outPoint] = project.previewRange
-	return project.allKomas.slice(inPoint, outPoint + 1)
-})
-
 const positionMatrixInverse = computed(() => {
 	const m = mat4.clone(tracker.matrix)
 
@@ -34,7 +30,7 @@ const positionMatrixInverse = computed(() => {
 })
 
 const positions = computed(() => {
-	return previewKomas.value.map(koma => {
+	return project.previewKomas.map(koma => {
 		const tracker = koma.shots[0]?.tracker
 		if (tracker) {
 			return mat4.getTranslation(
@@ -49,16 +45,43 @@ const positions = computed(() => {
 	})
 })
 
-const positionX = computed(() => {
+const positionsX = computed(() => {
 	return positions.value.map(m => m[0])
 })
 
-const positionY = computed(() => {
+const positionsY = computed(() => {
 	return positions.value.map(m => m[1])
 })
 
-const positionZ = computed(() => {
+const positionsZ = computed(() => {
 	return positions.value.map(m => m[2])
+})
+
+const velocities = computed(() => {
+	const [inPoint, outPoint] = project.previewRange
+
+	return range(inPoint, outPoint).map(frame => {
+		const position = project.shot(frame, 0)?.tracker?.position
+		const prevPosition = project.shot(frame - 1, 0)?.tracker?.position
+
+		if (position && prevPosition) {
+			return vec3.sub(position, prevPosition)
+		} else {
+			return null
+		}
+	})
+})
+
+const currentVelocity = computed(() => {
+	const position = project.shot(project.captureShot.frame, 0)?.tracker?.position
+	const prevPosition = project.shot(project.captureShot.frame - 1, 0)?.tracker
+		?.position
+
+	if (position && prevPosition) {
+		return vec3.sub(position, prevPosition)
+	} else {
+		return null
+	}
 })
 
 const rotationMatrixInverse = computed(() => {
@@ -69,7 +92,7 @@ const _euler = new Euler()
 const _quat = new Quaternion()
 
 const rotations = computed(() => {
-	return previewKomas.value.map(koma => {
+	return project.previewKomas.map(koma => {
 		const tracker = koma.shots[0]?.tracker
 		if (tracker) {
 			const m = mat4.mul(
@@ -99,7 +122,7 @@ const rolls = computed(() => {
 })
 
 const shootTime = computed(() => {
-	return previewKomas.value.map(koma =>
+	return project.previewKomas.map(koma =>
 		koma.shots.length > 0
 			? koma.shots.reduce((acc, shot) => acc + (shot?.shootTime ?? 0), 0)
 			: null
@@ -107,37 +130,37 @@ const shootTime = computed(() => {
 })
 
 const focalLength = computed(() => {
-	return previewKomas.value.map(koma => {
+	return project.previewKomas.map(koma => {
 		return koma.shots[0]?.cameraConfigs.focalLength
 	})
 })
 
 const focusDistance = computed(() => {
-	return previewKomas.value.map(koma => {
+	return project.previewKomas.map(koma => {
 		return koma.shots[0]?.cameraConfigs.focusDistance
 	})
 })
 
 const aperture = computed(() => {
-	return previewKomas.value.map(koma => {
+	return project.previewKomas.map(koma => {
 		return koma.shots[0]?.cameraConfigs.aperture
 	})
 })
 
 const shutterSpeed = computed(() => {
-	return previewKomas.value.map(koma => {
+	return project.previewKomas.map(koma => {
 		return koma.shots[0]?.cameraConfigs.shutterSpeed
 	})
 })
 
 const iso = computed(() => {
-	return previewKomas.value.map(koma => {
+	return project.previewKomas.map(koma => {
 		return koma.shots[0]?.cameraConfigs.iso
 	})
 })
 
 const colorTemperature = computed(() => {
-	return previewKomas.value.map(koma => {
+	return project.previewKomas.map(koma => {
 		return koma.shots[0]?.cameraConfigs.colorTemperature ?? null
 	})
 })
@@ -212,7 +235,7 @@ const viewBox = computed(() => {
 			transform="translate(0, 0.125) scale(1, 0.7)"
 		/>
 		<TimelineGraphPolyline
-			:values="positionX"
+			:values="positionsX"
 			:valueAtCaptureFrame="0"
 			:minRange="0.1"
 			color="#ff0000"
@@ -220,7 +243,7 @@ const viewBox = computed(() => {
 			transform="translate(0, 0.15) scale(1, 0.7)"
 		/>
 		<TimelineGraphPolyline
-			:values="positionY"
+			:values="positionsY"
 			:valueAtCaptureFrame="0"
 			:minRange="0.1"
 			color="#00ff00"
@@ -228,7 +251,7 @@ const viewBox = computed(() => {
 			transform="translate(0, 0.175) scale(1, 0.7)"
 		/>
 		<TimelineGraphPolyline
-			:values="positionZ"
+			:values="positionsZ"
 			:valueAtCaptureFrame="0"
 			:minRange="0.1"
 			color="#44f"
@@ -260,11 +283,19 @@ const viewBox = computed(() => {
 			transform="translate(0, 0.275) scale(1, 0.7)"
 		/>
 		<TimelineGraphPolyline
+			:values="velocities"
+			:valueAtCaptureFrame="currentVelocity"
+			:minRange="0.1"
+			color="#fff"
+			transform="translate(0, 0.29) scale(1, 0.7)"
+		/>
+
+		<TimelineGraphPolyline
 			v-if="isPropertyVisible('shootTime')"
 			:values="shootTime"
 			:valueAtCaptureFrame="timer.current"
 			color="#666"
-			style="--stroke-dasharray: 1 5"
+			style="--stroke-dasharray: 1 7"
 			transform="translate(0, 0.3) scale(1, 0.7)"
 		/>
 	</svg>
@@ -275,7 +306,7 @@ const viewBox = computed(() => {
 	position absolute
 	top 0
 	left calc(var(--in-point) * var(--koma-width))
-	width calc(var(--out-point) - var(--in-point) + 1 * var(--koma-width))
+	width 'calc((var(--out-point) - var(--in-point) + 1) * var(--koma-width))' % ''
 	height 100%
 	object-fit fill
 	overflow visible

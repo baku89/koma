@@ -2,10 +2,11 @@
 import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
 import {useBndr} from 'tweeq'
-import {computed, ComputedRef, inject, ref} from 'vue'
+import {computed, ref} from 'vue'
 
 import {useMarkersStore} from '@/stores/markers'
 import {Marker} from '@/stores/project'
+import {useTimelineStore} from '@/stores/timeline'
 
 interface Props {
 	index?: number
@@ -15,14 +16,13 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {index: -1})
 
 const markers = useMarkersStore()
-
-const komaWidth = inject('komaWidth') as ComputedRef<number>
+const timeline = useTimelineStore()
 
 const styles = computed(() => {
 	const {frame, verticalPosition, color, duration} = props.marker
 
 	return {
-		left: `${frame * komaWidth.value}px`,
+		left: `${frame * timeline.komaWidth}px`,
 		top: `calc(${verticalPosition} * 100%)`,
 		width: `calc(${duration} * var(--koma-width))`,
 		color,

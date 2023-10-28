@@ -5,9 +5,11 @@ import {onBeforeUnmount, ref, watch} from 'vue'
 import WaveSurfer from 'wavesurfer.js'
 
 import {useProjectStore} from '@/stores/project'
+import {useTimelineStore} from '@/stores/timeline'
 
 const project = useProjectStore()
 const theme = useThemeStore()
+const timeline = useTimelineStore()
 
 const $container = ref<HTMLDivElement | null>(null)
 
@@ -62,7 +64,7 @@ watch(() => [project.timeline.zoomFactor, project.fps], updateZoom, {
 
 function updateZoom() {
 	try {
-		const zoom = Math.round(project.timeline.zoomFactor * 80 * project.fps)
+		const zoom = Math.round(timeline.komaWidth * project.fps)
 		ws?.zoom(zoom)
 	} catch (e) {
 		return null
