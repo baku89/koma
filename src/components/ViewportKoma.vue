@@ -94,6 +94,8 @@ const style = computed(() => {
 
 <style scoped lang="stylus">
 .ViewportKoma
+	position absolute
+	inset 0
 .layer
 img
 video

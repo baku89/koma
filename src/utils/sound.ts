@@ -41,7 +41,12 @@ export function playSound(src: string): Promise<void> {
 	})
 }
 
-export function seekAndPlay(sound: Howl, seconds: number): Promise<void> {
+export function seekAndPlay(
+	sound: Howl | null | undefined,
+	seconds: number
+): Promise<void> {
+	if (!sound) return Promise.resolve()
+
 	return new Promise(resolve => {
 		sound.once('play', () => resolve())
 		sound.stop()
@@ -50,7 +55,13 @@ export function seekAndPlay(sound: Howl, seconds: number): Promise<void> {
 	})
 }
 
-export function scrub(sound: Howl, seconds: number, durationMs: number) {
+export function scrub(
+	sound: Howl | null | undefined,
+	seconds: number,
+	durationMs: number
+) {
+	if (!sound) return
+
 	sound.once('play', () => {
 		setTimeout(() => sound.stop(), durationMs)
 	})

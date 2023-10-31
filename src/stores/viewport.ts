@@ -64,7 +64,10 @@ export const useViewportStore = defineStore('viewport', () => {
 	// Play
 	watch(isPlaying, async () => {
 		if (!isPlaying.value) {
-			if (!project.isLooping && temporalFrame.value) {
+			if (
+				temporalFrame.value &&
+				currentFrame.value !== project.captureShot.frame
+			) {
 				setCurrentFrame(temporalFrame.value)
 			}
 			temporalFrame.value = null
@@ -75,17 +78,20 @@ export const useViewportStore = defineStore('viewport', () => {
 		const {
 			fps,
 			previewRange: [inPoint, outPoint],
-			audio: {startFrame},
+			audio: {startFrame: audioStartFrame},
 		} = project
 
-		if (howl.value) {
-			const startSec = (inPoint - startFrame) / fps
-			await seekAndPlay(howl.value, startSec)
-		}
+		const audioTime = (currentFrame.value - audioStartFrame) / fps
+		await seekAndPlay(howl.value, audioTime)
 
 		let startTime = new Date().getTime()
+		let startFrame = currentFrame.value
 
-		const duration = outPoint - inPoint + 1
+		if (!project.isLooping && startFrame === outPoint) {
+			startFrame = inPoint
+		}
+
+		const shouldStopOrLoop = currentFrame.value <= outPoint
 
 		async function update() {
 			if (!isPlaying.value) {
@@ -94,25 +100,29 @@ export const useViewportStore = defineStore('viewport', () => {
 			}
 
 			const now = new Date().getTime()
-			const elapsed = now - startTime
+			const elapsedTime = now - startTime
 
-			let elapsedFrames = Math.round((elapsed / 1000) * fps)
+			const elapsedFrames = Math.floor((elapsedTime / 1000) * fps)
 
-			if (!project.isLooping && elapsedFrames >= duration) {
-				setCurrentFrame(outPoint)
-				isPlaying.value = false
-			} else {
-				if (elapsedFrames >= duration) {
-					if (howl.value) {
-						await seekAndPlay(howl.value, (inPoint - startFrame) / fps)
-					}
+			let frame = startFrame + elapsedFrames
+
+			if (shouldStopOrLoop && frame > outPoint) {
+				if (project.isLooping) {
+					const audioTimeAtInPoint = (inPoint - audioStartFrame) / fps
+					await seekAndPlay(howl.value, audioTimeAtInPoint)
+
 					startTime = now
-					elapsedFrames = 0
+					startFrame = frame = inPoint
+				} else {
+					setCurrentFrame(outPoint)
+					isPlaying.value = false
+					return
 				}
-
-				temporalFrame.value = (elapsedFrames % duration) + inPoint
-				requestAnimationFrame(update)
 			}
+
+			temporalFrame.value = frame
+
+			requestAnimationFrame(update)
 		}
 
 		update()

@@ -1,31 +1,20 @@
 const openvr = require('../node-openvr')
-const OSC = require('osc-js')
+
 const {isEqual} = require('lodash')
 const {mat4} = require('linearly')
 const fps = require('fps')
-const chalk = require('chalk')
 const {killPTPProcess} = require('./kill-ptpcamera')
+const {sendOsc} = require('./osc')
+
+console.clear()
+process.stdout.cursorTo(0, 0)
+process.stdout.write('┌──────────────────┐\n')
+process.stdout.write('│ Koma Aux Manager │\n')
+process.stdout.write('└──────────────────┘\n')
 
 killPTPProcess()
 
 const REFRESH_RATE = 60
-
-const osc = new OSC({
-	plugin: new OSC.BridgePlugin({
-		udpClient: {port: 9129},
-		udpServer: {port: 9130},
-	}),
-})
-osc.open()
-
-osc.on('open', () => {
-	console.log('opened')
-	osc.send(new OSC.Message('/ping', Math.random()))
-	// setInterval(() => {
-	// 	console.log('ping')
-	// 	osc.send(new OSC.Message('/ping', Math.random()))
-	// }, 1000)
-})
 
 function handleOpenVRTarcker() {
 	let vr
@@ -53,11 +42,6 @@ function handleOpenVRTarcker() {
 
 		const trackers = trackerIndices.map(i => poses[i])
 
-		process.stdout.cursorTo(0, 0)
-
-		process.stdout.write('┌──────────────────┐\n')
-		process.stdout.write('│ Koma Aux Manager │\n')
-		process.stdout.write('└──────────────────┘\n')
 		process.stdout.write('* No Tracker Detected\n')
 
 		trackers.forEach(updateTracker)
@@ -74,18 +58,8 @@ function handleOpenVRTarcker() {
 			return
 		}
 
-		process.stdout.cursorTo(0, 0)
-		process.stdout.clearLine(1)
-
 		process.stdout.cursorTo(0, 3)
 		process.stdout.clearLine(1)
-
-		process.stdout.cursorTo(0, 0)
-
-		process.stdout.write('┌──────────────────┐\n')
-		process.stdout.write('│ Koma Aux Manager │\n')
-		process.stdout.write('└──────────────────┘\n')
-
 		process.stdout.write(
 			chalk.bold(`* Tracker: ${chalk.red(index)}`) +
 				` (${Math.round(ticker.rate)}fps)\n`
@@ -114,28 +88,7 @@ function handleOpenVRTarcker() {
 
 		prevTrackers[index] = tracker
 	}
-
-	function sendOsc(address, ...args) {
-		osc.send(new OSC.Message(address, ...args))
-
-		printKeyValue(address, printVector(args))
-	}
-
-	function printKeyValue(key, value) {
-		process.stdout.write(
-			'  ' + chalk.redBright(key.padEnd(18, ' ')) + ' = ' + value + '\n'
-		)
-	}
-
-	function printVector(vec) {
-		return vec
-			.map(v =>
-				chalk.red(typeof v === 'number' ? v.toFixed(3).padStart(6, ' ') : v)
-			)
-			.join(', ')
-	}
 }
-
 // handleOpenVRTarcker()
 
 setInterval(() => null, 10000)
