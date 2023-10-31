@@ -3,14 +3,17 @@ const chalk = require('chalk')
 
 const osc = new OSC({
 	plugin: new OSC.BridgePlugin({
-		udpClient: {port: 9129},
-		udpServer: {port: 9130},
+		udpClient: {port: 5201},
+		udpServer: {port: 5200},
 	}),
 })
 
 osc.on('load', () => {})
 
-setInterval(() => sendOsc('/ping', Math.random()), 10)
+osc.on('*', e => {
+	const {address, args} = e
+	printKeyValue(address, printVector(args))
+})
 
 osc.open()
 

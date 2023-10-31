@@ -67,9 +67,7 @@ export const useOscStore = defineStore('osc', () => {
 
 	osc.on('*', (e: unknown) => {
 		if (e instanceof OSC.Message) {
-			console.log(e.address, e.args)
 			const args = e.args.length === 1 ? e.args[0] : e.args
-
 			receivedMessages.value[e.address] = args
 		}
 	})
