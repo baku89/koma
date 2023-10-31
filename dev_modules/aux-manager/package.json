@@ -11,7 +11,6 @@
 	"dependencies": {
 		"artnet": "^1.4.0",
 		"chalk": "4.1.2",
-		"dmx": "^0.2.5",
 		"fps": "^0.0.3",
 		"linearly": "^0.20.3",
 		"lodash": "^4.17.21",

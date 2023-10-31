@@ -18,6 +18,15 @@ const osc = new OSC({
 })
 osc.open()
 
+osc.on('open', () => {
+	console.log('opened')
+	osc.send(new OSC.Message('/ping', Math.random()))
+	// setInterval(() => {
+	// 	console.log('ping')
+	// 	osc.send(new OSC.Message('/ping', Math.random()))
+	// }, 1000)
+})
+
 function handleOpenVRTarcker() {
 	let vr
 
@@ -127,6 +136,6 @@ function handleOpenVRTarcker() {
 	}
 }
 
-handleOpenVRTarcker()
+// handleOpenVRTarcker()
 
 setInterval(() => null, 10000)
