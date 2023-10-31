@@ -57,10 +57,16 @@ const layers = computed(() => {
 
 	return layers
 })
+
+const style = computed(() => {
+	return {
+		transform: `scale(${project.viewport.zoom})`,
+	}
+})
 </script>
 
 <template>
-	<div class="ViewportKoma">
+	<div class="ViewportKoma" :style="style">
 		<div
 			v-for="(layer, index) in layers.slice(0, viewport.currentLayer + 1)"
 			:key="index"

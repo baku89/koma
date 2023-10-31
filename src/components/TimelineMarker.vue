@@ -55,7 +55,7 @@ useBndr($marker, $marker => {
 					? markers.add(startMarker)
 					: props.index
 			} else if (startMarker) {
-				dx += d.delta[0] / komaWidth.value
+				dx += d.delta[0] / timeline.komaWidth
 
 				const {top, bottom} = $marker.parentElement!.getBoundingClientRect()
 

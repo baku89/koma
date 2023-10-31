@@ -54,6 +54,7 @@ interface Project<T = Blob> {
 		overlayMaskOpacity: number
 		overlayLineOpacity: number
 		onionskinBlend: MixBlendMode
+		zoom: number
 	}
 	layers: {
 		opacity: number
@@ -182,6 +183,7 @@ const emptyProject: Project = {
 		overlayMaskOpacity: 0.5,
 		overlayLineOpacity: 1,
 		onionskinBlend: 'normal',
+		zoom: 1,
 	},
 	layers: [],
 	audio: {

@@ -136,6 +136,7 @@ actions.register([
 	position absolute
 	transform-origin 0 0
 	background black
+	overflow hidden
 
 .view-overlay
 	position absolute
