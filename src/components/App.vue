@@ -125,6 +125,8 @@ const {fn: shoot} = preventConcurrentExecution(
 
 			let jpg: Blob | undefined
 			let raw: Blob | undefined
+			let jpgFilename: string | undefined
+			let rawFilename: string | undefined
 
 			if (result.status === 'ok') {
 				for (const object of result.value) {
@@ -132,8 +134,10 @@ const {fn: shoot} = preventConcurrentExecution(
 
 					if (/jpe?g/.test(format)) {
 						jpg = object.blob
+						jpgFilename = object.filename
 					} else {
 						raw = object.blob
+						rawFilename = object.filename
 					}
 				}
 			}
@@ -147,6 +151,8 @@ const {fn: shoot} = preventConcurrentExecution(
 			return {
 				jpg,
 				raw,
+				jpgFilename,
+				rawFilename,
 				lv: lv.value,
 				cameraConfigs,
 				shootTime: timer.current,

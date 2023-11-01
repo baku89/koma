@@ -91,8 +91,6 @@ export const useViewportStore = defineStore('viewport', () => {
 		const audioTime = (startFrame - audioStartFrame) / fps
 		await seekAndPlay(howl.value, audioTime)
 
-		const shouldStopOrLoop = currentFrame.value <= outPoint
-
 		async function update() {
 			if (!isPlaying.value) {
 				temporalFrame.value = null
@@ -106,7 +104,7 @@ export const useViewportStore = defineStore('viewport', () => {
 
 			let frame = startFrame + elapsedFrames
 
-			if (shouldStopOrLoop && frame > outPoint) {
+			if (frame > outPoint) {
 				if (project.isLooping) {
 					const audioTimeAtInPoint = (inPoint - audioStartFrame) / fps
 					await seekAndPlay(howl.value, audioTimeAtInPoint)

@@ -120,7 +120,7 @@ watch(
 // Targets
 
 const targetPositions = computed(() => {
-	return project.komas.flatMap(koma => {
+	return project.komas.slice(project.captureShot.frame).flatMap(koma => {
 		const position = koma.target?.tracker?.position
 
 		if (position) {

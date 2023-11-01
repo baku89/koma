@@ -101,6 +101,8 @@ export interface Shot<T = Blob> {
 	lv: T
 	jpg: T
 	raw?: T
+	jpgFilename?: string
+	rawFilename?: string
 	cameraConfigs?: CameraConfigs
 	tracker?: {
 		position: vec3

@@ -5,6 +5,7 @@ const {mat4} = require('linearly')
 const fps = require('fps')
 const {killPTPProcess} = require('./kill-ptpcamera')
 const {sendOsc} = require('./osc')
+const chalk = require('chalk')
 
 console.clear()
 process.stdout.cursorTo(0, 0)
@@ -12,7 +13,7 @@ process.stdout.write('┌──────────────────�
 process.stdout.write('│ Koma Aux Manager │\n')
 process.stdout.write('└──────────────────┘\n')
 
-killPTPProcess()
+// killPTPProcess()
 
 const REFRESH_RATE = 60
 
@@ -89,6 +90,6 @@ function handleOpenVRTarcker() {
 		prevTrackers[index] = tracker
 	}
 }
-// handleOpenVRTarcker()
+handleOpenVRTarcker()
 
 setInterval(() => null, 10000)

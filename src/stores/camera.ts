@@ -1,7 +1,16 @@
 import {defineStore} from 'pinia'
 import {ConfigDesc, ConfigName, ConfigType, detectCameras, Tethr} from 'tethr'
 import {useAppConfigStore} from 'tweeq'
-import {onUnmounted, reactive, readonly, Ref, shallowRef, watch} from 'vue'
+import {
+	onUnmounted,
+	reactive,
+	readonly,
+	Ref,
+	shallowRef,
+	toRaw,
+	watch,
+	watchEffect,
+} from 'vue'
 
 import {debounceAsync} from '@/util'
 
@@ -89,9 +98,13 @@ export const useCameraStore = defineStore('camera', () => {
 		aperture: 4,
 		shutterSpeed: '1/30',
 		iso: 100,
-		whiteBalance: 'manual',
+		whiteBalance: 'fluorescent',
 		colorTemperature: 5500,
 		imageQuality: 'raw 14bit,fine',
+	})
+
+	watchEffect(() => {
+		console.log('config', toRaw(configs.value))
 	})
 
 	async function toggleConnection() {
@@ -118,6 +131,8 @@ export const useCameraStore = defineStore('camera', () => {
 		cam.setLog(false)
 		await cam.open()
 
+		await cam.importConfigs(configs.value)
+
 		cam.on('disconnect', () => {
 			tethr.value = null
 		})
@@ -128,15 +143,13 @@ export const useCameraStore = defineStore('camera', () => {
 			const exportedConfigs = (await tethr.value?.exportConfigs()) ?? {}
 
 			configs.value = {
-				...configs.value,
+				...toRaw(configs.value),
 				...exportedConfigs,
 			}
 		})
 
 		tethr.value = cam
 		;(window as any).cam = cam
-
-		await cam.importConfigs(configs.value)
 
 		cam.startLiveview()
 	}

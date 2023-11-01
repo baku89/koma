@@ -49,6 +49,7 @@ function printShotInfo(shot: Shot) {
 	const infos: [string, string][] = [
 		['Capture Date', dateformat(shot.captureDate, 'mmm d, yyyy HH:MM:ss')],
 		['Time to Shoot', shot.shootTime ? toTime(shot.shootTime) : '-'],
+		['Jpeg Filename', shot.jpgFilename ?? '-'],
 		['', ''],
 	]
 
