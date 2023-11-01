@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {scalar, vec2} from 'linearly'
-import {computed} from 'vue'
+import {computed, watchEffect} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 
@@ -9,10 +9,16 @@ interface Props {
 	color: string
 	valueAtCaptureFrame?: unknown
 	minRange?: number
+	startFrame?: number
+	range?: [min: number, max: number]
 	filter?: (v: number) => number
 }
 
 const props = withDefaults(defineProps<Props>(), {minRange: 0.01})
+
+const emit = defineEmits<{
+	'update:range': [range: [min: number, max: number]]
+}>()
 
 const project = useProjectStore()
 
@@ -46,7 +52,7 @@ const realtimeValues = computed(() => {
 	return values
 })
 
-const valueRange = computed<[min: number, max: number]>(() => {
+const rangeComputed = computed<[min: number, max: number]>(() => {
 	let min = Infinity
 	let max = -Infinity
 
@@ -65,15 +71,19 @@ const valueRange = computed<[min: number, max: number]>(() => {
 	return [min, max]
 })
 
+watchEffect(() => {
+	emit('update:range', rangeComputed.value)
+})
+
 const points = computed(() => {
-	const [min, max] = valueRange.value
-	const [inPoint] = project.previewRange
+	const [min, max] = props.range ?? rangeComputed.value
+	const startFrame = props.startFrame ?? project.previewRange[0]
 
 	const points: vec2[] = []
 
 	for (const [i, v] of realtimeValues.value.entries()) {
 		if (v === null) continue
-		const x = i + inPoint
+		const x = i + startFrame
 		const y = scalar.invlerp(max, min, v)
 
 		points.push([x, y])

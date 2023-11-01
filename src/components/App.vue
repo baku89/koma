@@ -2,7 +2,7 @@
 import {Icon} from '@iconify/vue/dist/iconify.js'
 import {whenever} from '@vueuse/core'
 import {Bndr} from 'bndr-js'
-import {scalar} from 'linearly'
+import {scalar, vec3, vec4} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
 import {useActionsStore} from 'tweeq'
 import {ref, watch} from 'vue'
@@ -546,6 +546,30 @@ actions.register([
 			link.download = 'camera-positions.json'
 			link.href = url
 			link.click()
+		},
+	},
+	{
+		id: 'import_camera_positions',
+		async perform() {
+			const [fileHandle] = await window.showOpenFilePicker()
+
+			// ファイルを読み取る
+			const file = await fileHandle.getFile()
+			const content = await file.text()
+
+			// JSONをパース
+			const data: {frame: number; position: vec3; rotation: vec4}[] =
+				JSON.parse(content)
+
+			project.$patch(draft => {
+				for (const {frame, position, rotation} of data) {
+					let koma = draft.komas[frame]
+					if (!koma) {
+						koma = {shots: []}
+					}
+					koma.target = {...(koma.target ?? {}), tracker: {position, rotation}}
+				}
+			})
 		},
 	},
 ])

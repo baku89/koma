@@ -19,6 +19,7 @@ onMounted(() => {
 	group.add(polyline)
 	group.add(heights)
 	group.add(orientations)
+	group.add(targetPolyline)
 })
 
 const trackers = computed(() => {
@@ -116,6 +117,36 @@ watch(
 )
 
 //------------------------------------------------------------------------------
+// Targets
+
+const targetPositions = computed(() => {
+	return project.komas.flatMap(koma => {
+		const position = koma.target?.tracker?.position
+
+		if (position) {
+			return [new THREE.Vector3(...position)]
+		} else {
+			return []
+		}
+	})
+})
+
+const targetPolylineGeo = new THREE.BufferGeometry()
+const targetPolyline = new THREE.Line(
+	targetPolylineGeo,
+	new THREE.LineBasicMaterial({color: 0xff6666})
+)
+
+watch(
+	targetPositions,
+	targetPositions => {
+		targetPolylineGeo.setFromPoints(targetPositions)
+		targetPolylineGeo.computeBoundingSphere()
+	},
+	{immediate: true}
+)
+
+//------------------------------------------------------------------------------
 // Utils
 
 function isntNil<T>(value: T): value is NonNullable<T> {
@@ -127,7 +158,15 @@ function isntNil<T>(value: T): value is NonNullable<T> {
 	<Group ref="$group">
 		<Sphere v-for="(p, i) in positions" :key="i" :position="p" :radius="0.01" />
 		<Sphere
-			v-if="tracker.averageTarget"
+			v-for="(p, i) in targetPositions"
+			:key="i"
+			:position="p"
+			:radius="0.01"
+		>
+			<BasicMaterial color="#f66" />
+		</Sphere>
+		<Sphere
+			v-if="tracker.averageTarget && targetPositions.length === 0"
 			:position="new THREE.Vector3(...tracker.averageTarget.position)"
 			:radius="0.01"
 		>
