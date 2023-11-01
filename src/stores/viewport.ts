@@ -5,7 +5,7 @@ import {defineStore} from 'pinia'
 import {useAppConfigStore} from 'tweeq'
 import {computed, readonly, ref, shallowRef, watch} from 'vue'
 
-import {getObjectURL} from '@/util'
+import {getObjectURL} from '@/utils'
 import {scrub, seekAndPlay} from '@/utils'
 
 import {useProjectStore} from './project'

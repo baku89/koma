@@ -5,7 +5,7 @@ import {computed} from 'vue'
 import {useCameraStore} from '@/stores/camera'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
-import {getObjectURL} from '@/util'
+import {getObjectURL} from '@/utils'
 
 interface Props {
 	frame: number

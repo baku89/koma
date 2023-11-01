@@ -5,6 +5,7 @@ export async function speak(text: string) {
 	const synth = window.speechSynthesis
 
 	if (!synth) {
+		// eslint-disable-next-line no-console
 		console.error('SpeechSynthesisUtterance not supported')
 		return
 	}
@@ -16,6 +17,7 @@ export async function speak(text: string) {
 	const voice = synth.getVoices().find(v => v.name.includes(voiceName))
 
 	if (!voice) {
+		// eslint-disable-next-line no-console
 		console.error(`Voice "${voiceName}" not found`)
 		return
 	}

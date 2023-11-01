@@ -8,7 +8,7 @@ import {computed} from 'vue'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
-import {getObjectURL, toTime} from '@/util'
+import {getObjectURL, toTime} from '@/utils'
 
 interface Props {
 	frame: number

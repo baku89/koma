@@ -12,7 +12,7 @@ import {
 	watchEffect,
 } from 'vue'
 
-import {debounceAsync} from '@/util'
+import {debounceAsync} from '@/utils'
 
 export interface Config<T> {
 	writable: boolean

@@ -15,7 +15,7 @@ import {useTimelineStore} from '@/stores/timeline'
 import {useTimerStore} from '@/stores/timer'
 import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
-import {preventConcurrentExecution} from '@/util'
+import {preventConcurrentExecution} from '@/utils'
 import {playSound, speak} from '@/utils'
 
 import CameraControl from './CameraControl.vue'

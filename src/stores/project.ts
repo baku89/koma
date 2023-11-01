@@ -16,7 +16,7 @@ import {
 	queryString,
 	saveJson,
 	showReadwriteDirectoryPicker,
-} from '@/util'
+} from '@/utils'
 
 import {useBlobStore} from './blobCache'
 

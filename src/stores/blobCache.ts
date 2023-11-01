@@ -2,7 +2,7 @@ import {debounce} from 'lodash'
 import {defineStore} from 'pinia'
 import {Ref, ref} from 'vue'
 
-import {queryPermission} from '@/util'
+import {queryPermission} from '@/utils'
 
 export const useBlobStore = defineStore('blobCache', () => {
 	let resolveLocalDir: (value: FileSystemDirectoryHandle) => void = () => null

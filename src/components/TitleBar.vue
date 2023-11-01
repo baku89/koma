@@ -11,7 +11,7 @@ import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
 import {useViewportStore} from '@/stores/viewport'
-import {toTime} from '@/util'
+import {toTime} from '@/utils'
 
 const blobCache = useBlobStore()
 const viewport = useViewportStore()
