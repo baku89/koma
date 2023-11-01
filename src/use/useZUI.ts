@@ -27,13 +27,18 @@ export function useZUI(
 			.on(onTransform)
 
 		// Zoom
+		const zoomByScroll = scroll.while(altPressed, false).map(([, y]) => y)
+		const zoomByPinch = pointer.pinch().map(v => -2 * v)
+
 		const zoomOrigin = position.stash(
-			Bndr.combine(lmbPressed.down(), scroll.constant(true as const))
+			Bndr.combine(
+				lmbPressed.down(),
+				scroll.constant(true as const),
+				zoomByPinch.constant(true as const)
+			)
 		)
 
-		const zoomByScroll = scroll.while(altPressed, false).map(([, y]) => y)
-
-		Bndr.combine(zoomByScroll)
+		Bndr.combine(zoomByScroll, zoomByPinch)
 			.map(delta =>
 				mat2d.fromScaling(vec2.of(1.003 ** delta), zoomOrigin.value)
 			)

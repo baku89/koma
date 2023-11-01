@@ -643,6 +643,14 @@ actions.register([
 												:step="1"
 											/>
 										</Tq.Parameter>
+										<Tq.Parameter label="Zoom" icon="ooui:map-trail">
+											<Tq.InputNumber
+												v-model="project.viewport.zoom"
+												:min="1"
+												:max="1.5"
+												:step="0.05"
+											/>
+										</Tq.Parameter>
 									</Tq.ParameterGroup>
 									<MarkerSettings />
 								</Tq.ParameterGrid>

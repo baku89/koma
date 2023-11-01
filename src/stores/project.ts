@@ -136,15 +136,19 @@ const emptyProject: Project = {
 			alerts.push('ISO must be set to a number')
 		}
 
-		if (camera.whiteBalance.value !== 'manual') {
-			alerts.push('White balance must be set to manual')
+		if (camera.whiteBalance.value !== 'fluorescent') {
+			alerts.push('White balance must be set to Fluorescent')
+		}
+
+		if (camera.destinationToSave.value !== 'camera,pc') {
+			alerts.push('Destination to save must be set to Camera, PC')
 		}
 	} else {
 		alerts.push('Camera must be connected')
 	}
 
 	if (aux.tracker.enabled) {
-		if (vec3.len(aux.tracker.velocity) >= 0.01) {
+		if (vec3.len(aux.tracker.velocity) >= 0.05) {
 			alerts.push('Tracker must be stable')
 		}
 	} else {
@@ -171,23 +175,28 @@ const emptyProject: Project = {
 		colorTemperature: {visible: true, color: '#ff00ff'},
 	},
 	captureShot: {frame: 0, layer: 0},
-	komas: [],
+	komas: Array(15)
+		.fill(null)
+		.map(() => ({shots: []})),
 	resolution: [1920, 1280],
 	viewport: {
 		transform: 'fit',
 		liveviewTransform: mat2d.identity,
 		shotTransform: mat2d.identity,
 		overlay: `
-			<path class="letterbox" d="m0,0v1h1V0H0Zm.9.9H.1V.1h.8v.8Z"/>
+			<!--<path class="letterbox" d="m0,0v1h1V0H0Zm.9.9H.1V.1h.8v.8Z"/>-->
 			<line class="line" x1="0" y1=".5" x2="1" y2=".5" />
 			<line class="line" x1=".5" y1="0" x2=".5" y2="1" />
 		`,
 		overlayMaskOpacity: 0.5,
 		overlayLineOpacity: 1,
 		onionskinBlend: 'normal',
-		zoom: 1,
+		zoom: 1.3,
 	},
-	layers: [],
+	layers: [
+		{opacity: 1, mixBlendMode: 'normal'},
+		{opacity: 1, mixBlendMode: 'difference'},
+	],
 	audio: {
 		startFrame: 0,
 	},

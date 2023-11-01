@@ -6,6 +6,7 @@ import {ConfigNameList} from 'tethr'
 import {computed} from 'vue'
 
 import {Shot, useProjectStore} from '@/stores/project'
+import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
 import {getObjectURL, toTime} from '@/util'
 
@@ -18,6 +19,7 @@ const props = defineProps<Props>()
 
 const project = useProjectStore()
 const viewport = useViewportStore()
+const timeline = useTimelineStore()
 
 const shot = computed(() => project.shot(props.frame, props.layer))
 
@@ -98,6 +100,7 @@ function printShotInfo(shot: Shot) {
 		</div>
 		<div v-else class="empty" />
 		<div
+			v-if="timeline.komaWidth > 40"
 			v-tooltip="'Insert'"
 			class="in-between transition"
 			@click="insertEmptyFrame(frame)"
@@ -165,8 +168,8 @@ function printShotInfo(shot: Shot) {
 	position absolute
 	top 0
 	height 100%
-	width 12px
-	left -6px
+	width 8px
+	left -4px
 	z-index 10
 
 	&:before
