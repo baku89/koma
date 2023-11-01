@@ -52,7 +52,7 @@ function printShotInfo(shot: Shot) {
 		['', ''],
 	]
 
-	const configs = Object.entries(shot.cameraConfigs).filter(([name]) =>
+	const configs = Object.entries(shot.cameraConfigs as any).filter(([name]) =>
 		ConfigNameList.includes(name as any)
 	)
 

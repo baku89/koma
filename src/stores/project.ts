@@ -98,8 +98,8 @@ export interface Marker {
 }
 
 export interface Shot<T = Blob> {
-	lv?: T
-	jpg?: T
+	lv: T
+	jpg: T
 	raw?: T
 	cameraConfigs?: CameraConfigs
 	tracker?: {
@@ -375,12 +375,8 @@ export const useProjectStore = defineStore('project', () => {
 	})
 
 	async function openShot(shot: Shot<string>): Promise<Shot> {
-		const lv = shot.lv
-			? await blobCache.open(directoryHandle, shot.lv)
-			: undefined
-		const jpg = shot.jpg
-			? await blobCache.open(directoryHandle, shot.jpg)
-			: undefined
+		const lv = await blobCache.open(directoryHandle, shot.lv)
+		const jpg = await blobCache.open(directoryHandle, shot.jpg)
 		const raw = shot.raw
 			? await blobCache.open(directoryHandle, shot.raw)
 			: undefined
@@ -396,12 +392,8 @@ export const useProjectStore = defineStore('project', () => {
 	): Promise<Shot<string>> {
 		const basename = [project.name, queryString(query)].join('_')
 
-		const lv = shot.lv
-			? await saveImageSequence(shot.lv, basename + '_lv', frame, 'jpg')
-			: undefined
-		const jpg = shot.jpg
-			? await saveImageSequence(shot.jpg, basename, frame, 'jpg')
-			: undefined
+		const lv = await saveImageSequence(shot.lv, basename + '_lv', frame, 'jpg')
+		const jpg = await saveImageSequence(shot.jpg, basename, frame, 'jpg')
 		const raw = shot.raw
 			? await saveImageSequence(shot.raw, basename, frame, 'dng')
 			: undefined

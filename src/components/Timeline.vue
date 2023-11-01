@@ -27,6 +27,11 @@ const visibleRegion = computed(() => {
 	}
 })
 
+const visibleArea = ref<{left: number; width: number}>({
+	left: 0,
+	width: 0,
+})
+
 useBndr($frameMeasure, el => {
 	Bndr.pointer(el)
 		.drag({pointerCapture: true, coordinate: 'offset'})
@@ -107,6 +112,7 @@ const vizStyles = computed(() => {
 			</div>
 		</aside>
 		<Tq.Timeline
+			v-model:visibleArea="visibleArea"
 			:visibleRegion="visibleRegion"
 			@zoomHorizontal="onZoomTimeline"
 		>

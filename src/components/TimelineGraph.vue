@@ -131,37 +131,37 @@ const shootTime = computed(() => {
 
 const focalLength = computed(() => {
 	return project.previewKomas.map(koma => {
-		return koma.shots[0]?.cameraConfigs.focalLength
+		return koma.shots[0]?.cameraConfigs?.focalLength
 	})
 })
 
 const focusDistance = computed(() => {
 	return project.previewKomas.map(koma => {
-		return koma.shots[0]?.cameraConfigs.focusDistance
+		return koma.shots[0]?.cameraConfigs?.focusDistance
 	})
 })
 
 const aperture = computed(() => {
 	return project.previewKomas.map(koma => {
-		return koma.shots[0]?.cameraConfigs.aperture
+		return koma.shots[0]?.cameraConfigs?.aperture
 	})
 })
 
 const shutterSpeed = computed(() => {
 	return project.previewKomas.map(koma => {
-		return koma.shots[0]?.cameraConfigs.shutterSpeed
+		return koma.shots[0]?.cameraConfigs?.shutterSpeed
 	})
 })
 
 const iso = computed(() => {
 	return project.previewKomas.map(koma => {
-		return koma.shots[0]?.cameraConfigs.iso
+		return koma.shots[0]?.cameraConfigs?.iso
 	})
 })
 
 const colorTemperature = computed(() => {
 	return project.previewKomas.map(koma => {
-		return koma.shots[0]?.cameraConfigs.colorTemperature ?? null
+		return koma.shots[0]?.cameraConfigs?.colorTemperature ?? null
 	})
 })
 

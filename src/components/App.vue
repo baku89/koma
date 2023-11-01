@@ -526,6 +526,28 @@ actions.register([
 			timeline.currentTool = null
 		},
 	},
+	{
+		id: 'export_camera_positions',
+		perform() {
+			const trackers = project.previewKomas.flatMap((koma, frame) => {
+				const tracker = koma.shots[0]?.tracker
+
+				frame += project.previewRange[0]
+
+				if (tracker) return tracker ? [{frame, ...tracker}] : []
+			})
+
+			const blob = new Blob([JSON.stringify(trackers, null, 2)], {
+				type: 'application/json',
+			})
+
+			const url = URL.createObjectURL(blob)
+			const link = document.createElement('a')
+			link.download = 'camera-positions.json'
+			link.href = url
+			link.click()
+		},
+	},
 ])
 </script>
 
