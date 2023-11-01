@@ -521,6 +521,7 @@ actions.register([
 	{
 		id: 'enable_timeline_marker_tool',
 		input: 'm',
+		icon: 'mdi:marker',
 		perform() {
 			timeline.currentTool = 'marker'
 		},
@@ -528,12 +529,14 @@ actions.register([
 	{
 		id: 'enable_timeline_select_tool',
 		input: 'v',
+		icon: 'ph:cursor-fill',
 		perform() {
 			timeline.currentTool = null
 		},
 	},
 	{
 		id: 'export_camera_positions',
+		icon: 'ooui:map-trail',
 		perform() {
 			const trackers = project.previewKomas.flatMap((koma, frame) => {
 				const tracker = koma.shots[0]?.tracker
@@ -556,6 +559,7 @@ actions.register([
 	},
 	{
 		id: 'import_camera_positions',
+		icon: 'ooui:map-trail',
 		async perform() {
 			const [fileHandle] = await window.showOpenFilePicker()
 
@@ -643,7 +647,7 @@ actions.register([
 												:step="1"
 											/>
 										</Tq.Parameter>
-										<Tq.Parameter label="Zoom" icon="ooui:map-trail">
+										<Tq.Parameter label="Zoom" icon="material-symbols:zoom-in">
 											<Tq.InputNumber
 												v-model="project.viewport.zoom"
 												:min="1"
