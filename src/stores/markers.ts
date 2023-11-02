@@ -1,15 +1,18 @@
 import {pausableWatch} from '@vueuse/core'
 import {defineStore} from 'pinia'
-import {useActionsStore, useAppConfigStore} from 'tweeq'
+import {useAppConfigStore} from 'tweeq'
 import {ref} from 'vue'
 
 import {Marker, useProjectStore} from './project'
+import {useSelectionStore} from './selection'
+import {useViewportStore} from './viewport'
 
 export const useMarkersStore = defineStore('markers', () => {
 	const selection = ref<Set<number>>(new Set())
 
 	const project = useProjectStore()
-	const actions = useActionsStore()
+	const appSelection = useSelectionStore()
+	const viewport = useViewportStore()
 	const appConfig = useAppConfigStore()
 
 	const cursor = appConfig.ref<Marker>('marker.cursor', {
@@ -40,16 +43,28 @@ export const useMarkersStore = defineStore('markers', () => {
 		})
 	}
 
-	actions.register([
-		{
-			id: 'clear_marker_selection',
-			input: 'esc',
-			perform: clearSelection,
-		},
-	])
+	function deleteSelected() {
+		project.$patch(d => {
+			const indicesDescending = [...selection.value].sort((a, b) => b - a)
+			indicesDescending.forEach(index => {
+				d.markers.splice(index, 1)
+			})
+		})
+	}
 
-	function clearSelection() {
+	function unselect() {
 		selection.value.clear()
+	}
+
+	function copy() {
+		const markers = [...selection.value].map(i => project.markers[i])
+
+		const clipboard = {
+			type: 'markers',
+			data: markers,
+		}
+
+		navigator.clipboard.writeText(JSON.stringify(clipboard))
 	}
 
 	function addSelection(index: number) {
@@ -58,6 +73,35 @@ export const useMarkersStore = defineStore('markers', () => {
 		applyCursorSettingsToSelectionWatcher.pause()
 		cursor.value = {...project.markers[index]}
 		applyCursorSettingsToSelectionWatcher.resume()
+
+		appSelection.select({
+			onDelete: deleteSelected,
+			onUnselect: unselect,
+			onCopy: copy,
+			onCut() {
+				copy()
+				deleteSelected()
+			},
+			async onPaste() {
+				const text = await navigator.clipboard.readText()
+				const clipboard = JSON.parse(text)
+
+				if (clipboard.type !== 'markers') return
+
+				const markers = clipboard.data as Marker[]
+
+				const minMarkerFrame = Math.min(...markers.map(m => m.frame))
+
+				const markersOffset = markers.map(m => ({
+					...m,
+					frame: m.frame - minMarkerFrame + viewport.currentFrame,
+				}))
+
+				project.$patch(d => {
+					d.markers = [...d.markers, ...markersOffset]
+				})
+			},
+		})
 	}
 
 	function isSelected(index: number) {
@@ -98,7 +142,6 @@ export const useMarkersStore = defineStore('markers', () => {
 		add,
 		update,
 		remove,
-		clearSelection,
 		addSelection,
 		isSelected,
 	}

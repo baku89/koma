@@ -6,6 +6,7 @@ import {computed, ref} from 'vue'
 
 import {useMarkersStore} from '@/stores/markers'
 import {Marker} from '@/stores/project'
+import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {index: -1})
 
 const markers = useMarkersStore()
+const selection = useSelectionStore()
 const timeline = useTimelineStore()
 
 const styles = computed(() => {
@@ -45,7 +47,7 @@ useBndr($marker, $marker => {
 		.on(d => {
 			if (d.justStarted) {
 				if (!d.event.metaKey) {
-					markers.clearSelection()
+					selection.unselect()
 				}
 				markers.addSelection(props.index)
 				dx = 0

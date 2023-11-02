@@ -156,12 +156,17 @@ function isntNil<T>(value: T): value is NonNullable<T> {
 
 <template>
 	<Group ref="$group">
-		<Sphere v-for="(p, i) in positions" :key="i" :position="p" :radius="0.01" />
+		<Sphere
+			v-for="(p, i) in positions"
+			:key="i"
+			:position="p"
+			:radius="0.0025"
+		/>
 		<Sphere
 			v-for="(p, i) in targetPositions"
 			:key="i"
 			:position="p"
-			:radius="0.01"
+			:radius="0.0025"
 		>
 			<BasicMaterial color="#f66" />
 		</Sphere>
