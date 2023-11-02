@@ -9,7 +9,6 @@ import {
 	shallowRef,
 	toRaw,
 	watch,
-	watchEffect,
 } from 'vue'
 
 import {debounceAsync} from '@/utils'
@@ -101,10 +100,6 @@ export const useCameraStore = defineStore('camera', () => {
 		whiteBalance: 'fluorescent',
 		colorTemperature: 5500,
 		imageQuality: 'raw 14bit,fine',
-	})
-
-	watchEffect(() => {
-		console.log('config', toRaw(configs.value))
 	})
 
 	async function toggleConnection() {
