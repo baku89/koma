@@ -173,7 +173,7 @@ function isntNil<T>(value: T): value is NonNullable<T> {
 		<Sphere
 			v-if="tracker.averageTarget && targetPositions.length === 0"
 			:position="new THREE.Vector3(...tracker.averageTarget.position)"
-			:radius="0.01"
+			:radius="0.0025"
 		>
 			<BasicMaterial color="#f66" />
 		</Sphere>

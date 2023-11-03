@@ -9,12 +9,16 @@ interface Props {
 	color: string
 	valueAtCaptureFrame?: unknown
 	minRange?: number
+	maxRange?: number
 	startFrame?: number
 	range?: [min: number, max: number]
 	filter?: (v: number) => number
 }
 
-const props = withDefaults(defineProps<Props>(), {minRange: 0.01})
+const props = withDefaults(defineProps<Props>(), {
+	minRange: 0.01,
+	maxRange: 100000,
+})
 
 const emit = defineEmits<{
 	'update:range': [range: [min: number, max: number]]
@@ -66,6 +70,13 @@ const rangeComputed = computed<[min: number, max: number]>(() => {
 		const mid = (max + min) / 2
 		min = mid - props.minRange / 2
 		max = mid + props.minRange / 2
+	}
+	if (typeof props.valueAtCaptureFrame === 'number') {
+		if (max - props.valueAtCaptureFrame > props.maxRange) {
+			max = props.valueAtCaptureFrame + props.maxRange
+		} else if (props.valueAtCaptureFrame - min > props.maxRange) {
+			min = props.valueAtCaptureFrame - props.maxRange
+		}
 	}
 
 	return [min, max]
