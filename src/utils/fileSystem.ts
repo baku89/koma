@@ -33,7 +33,7 @@ export async function saveJson<T>(
 }
 
 /**
- * Query and request readwrite permission for a FileSystemhandle
+ * Query and request readwrite permission for a FileSystemHandle
  */
 export async function queryPermission(
 	handle: FileSystemHandle,
