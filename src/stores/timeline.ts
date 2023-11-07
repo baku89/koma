@@ -1,5 +1,5 @@
 import {defineStore} from 'pinia'
-import {useAppConfigStore} from 'tweeq'
+import {useActionsStore, useAppConfigStore} from 'tweeq'
 import {computed, ref} from 'vue'
 
 import {useProjectStore} from './project'
@@ -7,6 +7,7 @@ import {useProjectStore} from './project'
 export const useTimelineStore = defineStore('timeline', () => {
 	const appConfig = useAppConfigStore()
 	const project = useProjectStore()
+	const actions = useActionsStore()
 
 	const currentTool = appConfig.ref<null | 'marker'>(
 		'timeline.currentTool',
@@ -23,6 +24,25 @@ export const useTimelineStore = defineStore('timeline', () => {
 	const komaHeight = computed(() => {
 		return Math.round(komaWidthBase.value / komaAspect.value)
 	})
+
+	actions.register([
+		{
+			id: 'enable_timeline_marker_tool',
+			input: 'm',
+			icon: 'mdi:marker',
+			perform() {
+				currentTool.value = 'marker'
+			},
+		},
+		{
+			id: 'enable_timeline_select_tool',
+			input: 'v',
+			icon: 'ph:cursor-fill',
+			perform() {
+				currentTool.value = null
+			},
+		},
+	])
 
 	return {
 		currentTool,

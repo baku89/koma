@@ -519,23 +519,7 @@ actions.register([
 		},
 	},
 	{
-		id: 'enable_timeline_marker_tool',
-		input: 'm',
-		icon: 'mdi:marker',
-		perform() {
-			timeline.currentTool = 'marker'
-		},
-	},
-	{
-		id: 'enable_timeline_select_tool',
-		input: 'v',
-		icon: 'ph:cursor-fill',
-		perform() {
-			timeline.currentTool = null
-		},
-	},
-	{
-		id: 'export_camera_positions',
+		id: 'export_tracker_targets',
 		icon: 'ooui:map-trail',
 		perform() {
 			const trackers = project.previewKomas.flatMap((koma, frame) => {
@@ -552,13 +536,26 @@ actions.register([
 
 			const url = URL.createObjectURL(blob)
 			const link = document.createElement('a')
-			link.download = 'camera-positions.json'
+			link.download = 'tracker_targets.json'
 			link.href = url
 			link.click()
 		},
 	},
 	{
-		id: 'import_camera_positions',
+		id: 'clear_tracker_targets',
+		icon: 'ooui:map-trail',
+		perform() {
+			project.$patch(draft => {
+				for (const koma of draft.komas) {
+					if (koma) {
+						koma.target = {...(koma.target ?? {}), tracker: undefined}
+					}
+				}
+			})
+		},
+	},
+	{
+		id: 'import_tracker_targets',
 		icon: 'ooui:map-trail',
 		async perform() {
 			const [fileHandle] = await window.showOpenFilePicker()
