@@ -94,9 +94,9 @@ export const useBlobStore = defineStore('blobCache', () => {
 		}
 	}
 
-	const blobToFilename = new WeakMap<
+	const savedFilenameForBlob = new WeakMap<
 		FileSystemDirectoryHandle,
-		Map<string, WeakRef<Blob>>
+		WeakMap<Blob, string>
 	>()
 
 	/**
@@ -111,34 +111,33 @@ export const useBlobStore = defineStore('blobCache', () => {
 		if (!handler.value) throw new Error('No directory handler')
 
 		// Check if the blob is already saved with the same name
-		let map = blobToFilename.get(handler.value)
+		let map = savedFilenameForBlob.get(handler.value)
 
 		if (!map) {
-			map = new Map()
-			blobToFilename.set(handler.value, map)
+			map = new WeakMap()
+			savedFilenameForBlob.set(handler.value, map)
 		}
 
-		const savedBlob = map.get(filename)?.deref()
+		const savedFilename = savedFilenameForBlob.get(handler.value)?.get(blob)
 
-		if (savedBlob && blob === savedBlob) {
-			return filename
+		if (filename !== savedFilename) {
+			// Save it to the destination
+			const fileHandle = await handler.value.getFileHandle(filename, {
+				create: true,
+			})
+
+			await queryPermission(fileHandle)
+
+			const w = await fileHandle.createWritable()
+			await w.write(blob)
+			await w.close()
+
+			// Save the blob to cache
+			map.set(blob, filename)
+
+			// Update the storage usage
+			estimateStorage()
 		}
-
-		// Save the blob to cache
-		map.set(filename, new WeakRef(blob))
-
-		// Save it to the destination
-		const fileHandle = await handler.value.getFileHandle(filename, {
-			create: true,
-		})
-
-		await queryPermission(fileHandle)
-
-		const w = await fileHandle.createWritable()
-		await w.write(blob)
-		await w.close()
-
-		estimateStorage()
 
 		return filename
 	}
