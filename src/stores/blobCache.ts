@@ -5,18 +5,20 @@ import {Ref, ref} from 'vue'
 import {queryPermission} from '@/utils'
 
 export const useBlobStore = defineStore('blobCache', () => {
-	let resolveLocalDir: (value: FileSystemDirectoryHandle) => void = () => null
-	let resolveBlobCacheDir: (value: FileSystemDirectoryHandle) => void = () =>
+	let resolveLocalDirectoryHandle: (
+		value: FileSystemDirectoryHandle
+	) => void = () => null
+	let resolveBlobCacheHandle: (value: FileSystemDirectoryHandle) => void = () =>
 		null
 
 	const localDirectoryHandle: Promise<FileSystemDirectoryHandle> = new Promise(
 		resolve => {
-			resolveLocalDir = resolve
+			resolveLocalDirectoryHandle = resolve
 		}
 	)
-	const blobCacheDir: Promise<FileSystemDirectoryHandle> = new Promise(
+	const blobCacheHandle: Promise<FileSystemDirectoryHandle> = new Promise(
 		resolve => {
-			resolveBlobCacheDir = resolve
+			resolveBlobCacheHandle = resolve
 		}
 	)
 
@@ -31,21 +33,23 @@ export const useBlobStore = defineStore('blobCache', () => {
 		usage.value = estimated.usage ?? 0
 	}, 1000)
 
-	// Initialize the Origin Private File System
+	// Initialize the OPFS
 	;(async () => {
 		const root = await navigator.storage.getDirectory()
 
-		resolveLocalDir(await root.getDirectoryHandle('local', {create: true}))
+		resolveLocalDirectoryHandle(
+			await root.getDirectoryHandle('local', {create: true})
+		)
 
-		const h = await root.getDirectoryHandle('__blobCache', {
+		const blobCacheHandle = await root.getDirectoryHandle('__blobCache', {
 			create: true,
 		})
 
-		for await (const key of h.keys()) {
-			h.removeEntry(key)
+		for await (const key of blobCacheHandle.keys()) {
+			blobCacheHandle.removeEntry(key)
 		}
 
-		resolveBlobCacheDir(h)
+		resolveBlobCacheHandle(blobCacheHandle)
 
 		estimateStorage()
 	})()
@@ -69,7 +73,7 @@ export const useBlobStore = defineStore('blobCache', () => {
 			const cacheName =
 				(handler.value.name ?? 'originPrivate') + '__' + filename
 
-			const cache = await blobCacheDir
+			const cache = await blobCacheHandle
 			const cacheHandle = await cache.getFileHandle(cacheName, {create: true})
 			await queryPermission(cacheHandle)
 
