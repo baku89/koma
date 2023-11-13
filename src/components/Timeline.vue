@@ -1,9 +1,8 @@
 <script lang="ts" setup>
 import {Bndr} from 'bndr-js'
-import {scalar} from 'linearly'
 import Tq from 'tweeq'
 import {useBndr} from 'tweeq'
-import {computed, ref} from 'vue'
+import {computed, onMounted, ref, toRaw, watch} from 'vue'
 
 import {MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
@@ -13,6 +12,7 @@ import Koma from './Koma.vue'
 import TimelineGraph from './TimelineGraph.vue'
 import TimelineMarkers from './TimelineMarkers.vue'
 import TimelineWaveform from './TimelineWaveform.vue'
+import { clamp } from 'lodash'
 
 const project = useProjectStore()
 const viewport = useViewportStore()
@@ -20,17 +20,36 @@ const timeline = useTimelineStore()
 
 const $frameMeasure = ref<null | HTMLElement>(null)
 
-const visibleRegion = computed(() => {
-	return {
-		left: viewport.previewFrame * timeline.komaWidth,
-		width: timeline.komaWidth,
-	}
+const $timeline = ref<null | InstanceType<typeof Tq.Timeline>>(null)
+
+onMounted(() => {
+	watch(() => viewport.previewFrame, (previewFrame) => {
+		const left =  previewFrame * timeline.komaWidth
+		const width =  timeline.komaWidth
+
+		$timeline.value?.showRegion({left, width})
+	}, {immediate: true})
 })
 
-const visibleArea = ref<{left: number; width: number}>({
-	left: 0,
-	width: 0,
-})
+
+const scroll = ref(0)
+
+function onZoom({origin, zoomDelta}: {origin: number, zoomDelta: number}) {
+	const oldZoomFactor = project.timeline.zoomFactor
+	const newZoomFactor = clamp(project.timeline.zoomFactor * zoomDelta, .1, 2)
+
+	const zoomFactorDelta = newZoomFactor / oldZoomFactor
+
+	scroll.value = origin * zoomFactorDelta - (origin - scroll.value)
+	project.timeline.zoomFactor = newZoomFactor
+}
+
+function onUpdateZoomFactor(zoomFactor: number) {
+	const zoomFactorDelta = zoomFactor / project.timeline.zoomFactor
+	project.timeline.zoomFactor = zoomFactor
+
+	scroll.value *= zoomFactorDelta
+}
 
 useBndr($frameMeasure, el => {
 	Bndr.pointer(el)
@@ -42,10 +61,6 @@ useBndr($frameMeasure, el => {
 		})
 })
 
-function onZoomTimeline(factor: number) {
-	const newZoomFactor = project.timeline.zoomFactor * factor
-	project.timeline.zoomFactor = scalar.clamp(newZoomFactor, 0.25, 2)
-}
 
 const layers = computed(() => {
 	const komaLayerCounts = project.komas.map((_, i) => project.layerCount(i))
@@ -112,9 +127,9 @@ const vizStyles = computed(() => {
 			</div>
 		</aside>
 		<Tq.Timeline
-			v-model:visibleArea="visibleArea"
-			:visibleRegion="visibleRegion"
-			@zoomHorizontal="onZoomTimeline"
+			ref="$timeline"
+			v-model:scroll="scroll"
+			@zoom="onZoom"
 		>
 			<div class="viz" :style="vizStyles">
 				<TimelineWaveform />
@@ -141,8 +156,9 @@ const vizStyles = computed(() => {
 					suffix="%"
 					:barOrigin="100"
 					:step="1"
+					:precision="0"
 					style="width: 7em"
-					@update:modelValue="project.timeline.zoomFactor = $event / 100"
+					@update:modelValue="onUpdateZoomFactor($event / 100)"
 					@dblclick="project.timeline.zoomFactor = 1"
 				/>
 			</template>
