@@ -409,23 +409,30 @@ actions.register([
 				return
 			}
 
-			project.$patch(project => {
-				project.komas[frameToDelete].shots.splice(viewport.currentLayer, 1)
+			project.$patch(draft => {
+				draft.komas[frameToDelete].shots.splice(viewport.currentLayer, 1)
 
-				if (project.komas[frameToDelete].shots.length === 0) {
-					project.komas.splice(frameToDelete, 1)
+				const shouldDeleteKoma = draft.komas[frameToDelete].shots.length === 0
+
+				if (shouldDeleteKoma) {
+					// Equivalent to `draft.komas.splice(frameToDelete, 1)`,
+					// but it is way more faster.
+					draft.komas = [
+						...draft.komas.slice(0, frameToDelete),
+						...draft.komas.slice(frameToDelete + 1),
+					]
 
 					if (
 						isDeletingCaptureFrame &&
-						viewport.currentFrame === project.captureShot.frame
+						viewport.currentFrame === draft.captureShot.frame
 					) {
 						viewport.setCurrentFrame(viewport.currentFrame - 1)
 					}
-					if (frameToDelete < project.captureShot.frame) {
-						project.captureShot.frame -= 1
+					if (frameToDelete < draft.captureShot.frame) {
+						draft.captureShot.frame -= 1
 					}
-					if (frameToDelete <= project.previewRange[1]) {
-						project.previewRange[1] -= 1
+					if (frameToDelete <= draft.previewRange[1]) {
+						draft.previewRange[1] -= 1
 					}
 				}
 			})
