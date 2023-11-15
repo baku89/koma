@@ -1,47 +1,52 @@
 <script lang="ts" setup>
-import {Bndr} from 'bndr-js'
+import {clamp} from 'lodash'
 import Tq from 'tweeq'
-import {useBndr} from 'tweeq'
-import {computed, onMounted, ref, toRaw, watch} from 'vue'
+import {computed, onMounted, ref, watch} from 'vue'
 
 import {MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
 
 import Koma from './Koma.vue'
+import TimelineHeader from './Timeline/TimelineHeader.vue'
 import TimelineGraph from './TimelineGraph.vue'
 import TimelineMarkers from './TimelineMarkers.vue'
 import TimelineWaveform from './TimelineWaveform.vue'
-import { clamp } from 'lodash'
 
 const project = useProjectStore()
 const viewport = useViewportStore()
 const timeline = useTimelineStore()
 
-const $frameMeasure = ref<null | HTMLElement>(null)
-
 const $timeline = ref<null | InstanceType<typeof Tq.Timeline>>(null)
 
 onMounted(() => {
-	watch(() => viewport.previewFrame, (previewFrame) => {
-		const left =  previewFrame * timeline.komaWidth
-		const width =  timeline.komaWidth
+	watch(
+		() => viewport.previewFrame,
+		previewFrame => {
+			const left = previewFrame * timeline.komaWidth
+			const width = timeline.komaWidth
 
-		$timeline.value?.showRegion({left, width})
-	}, {immediate: true})
+			$timeline.value?.showRegion({left, width})
+		},
+		{immediate: true}
+	)
 })
-
 
 const scroll = ref(0)
 
-function onZoom({origin, zoomDelta}: {origin: number, zoomDelta: number}) {
+function onZoom({origin, zoomDelta}: {origin: number; zoomDelta: number}) {
 	const oldZoomFactor = project.timeline.zoomFactor
-	const newZoomFactor = clamp(project.timeline.zoomFactor * zoomDelta, .1, 2)
+	const newZoomFactor = clamp(project.timeline.zoomFactor * zoomDelta, 0.1, 2)
+	project.timeline.zoomFactor = newZoomFactor
 
 	const zoomFactorDelta = newZoomFactor / oldZoomFactor
+	const scrollMax = newZoomFactor * timeline.komaWidth * project.allKomas.length
 
-	scroll.value = origin * zoomFactorDelta - (origin - scroll.value)
-	project.timeline.zoomFactor = newZoomFactor
+	scroll.value = clamp(
+		origin * zoomFactorDelta - (origin - scroll.value),
+		0,
+		scrollMax
+	)
 }
 
 function onUpdateZoomFactor(zoomFactor: number) {
@@ -50,17 +55,6 @@ function onUpdateZoomFactor(zoomFactor: number) {
 
 	scroll.value *= zoomFactorDelta
 }
-
-useBndr($frameMeasure, el => {
-	Bndr.pointer(el)
-		.drag({pointerCapture: true, coordinate: 'offset'})
-		.on(d => {
-			const frame = Math.floor(d.current[0] / timeline.komaWidth)
-			viewport.setCurrentFrame(frame)
-			viewport.isPlaying = false
-		})
-})
-
 
 const layers = computed(() => {
 	const komaLayerCounts = project.komas.map((_, i) => project.layerCount(i))
@@ -77,14 +71,6 @@ const layers = computed(() => {
 const seekbarStyles = computed(() => {
 	return {
 		transform: `translateX(calc(${viewport.previewFrame} * var(--koma-width)))`,
-	}
-})
-
-const previewRangeStyles = computed(() => {
-	const [inPoint, outPoint] = project.previewRange
-	return {
-		transform: `translateX(calc(${inPoint} * var(--koma-width)))`,
-		width: `calc(${outPoint - inPoint + 1} * var(--koma-width) + 1px)`,
 	}
 })
 
@@ -109,7 +95,7 @@ const vizStyles = computed(() => {
 			'--onionskin': project.onionskin,
 		}"
 	>
-		<aside>
+		<aside class="aside">
 			<div v-for="(layer, i) in layers" :key="i" class="layer-control">
 				<Tq.InputDropdown
 					:modelValue="layer.mixBlendMode"
@@ -126,27 +112,21 @@ const vizStyles = computed(() => {
 				/>
 			</div>
 		</aside>
-		<Tq.Timeline
-			ref="$timeline"
-			v-model:scroll="scroll"
-			@zoom="onZoom"
-		>
+		<Tq.Timeline ref="$timeline" v-model:scroll="scroll" @zoom="onZoom">
+			<div class="seekbar" :style="seekbarStyles">
+				{{ viewport.previewFrame }}
+				<div class="onionskin" :class="{pos: project.onionskin > 0}" />
+			</div>
+			<TimelineHeader />
 			<div class="viz" :style="vizStyles">
 				<TimelineWaveform />
 				<TimelineGraph />
 				<TimelineMarkers :komaWidth="timeline.komaWidth" />
 			</div>
 			<div class="komas">
-				<div class="seekbar" :style="seekbarStyles">
-					{{ viewport.previewFrame }}
-					<div class="onionskin" :class="{pos: project.onionskin > 0}" />
-				</div>
-				<div class="previewRange" :style="previewRangeStyles" />
 				<div v-for="(_, frame) in project.allKomas" :key="frame" class="koma">
-					<div class="koma-header tq-font-numeric">{{ frame }}</div>
 					<Koma :frame="frame" />
 				</div>
-				<div ref="$frameMeasure" class="frameMeasure" />
 			</div>
 			<template #scrollbarRight>
 				<Tq.InputNumber
@@ -173,7 +153,7 @@ const vizStyles = computed(() => {
 	--header-height 14px
 	--header-margin-bottom 6px
 
-aside
+.aside
 	padding-top calc(var(--header-height) + var(--header-margin-bottom))
 
 .layer-control
@@ -201,16 +181,6 @@ aside
 
 	& > *
 		pointer-events auto
-
-.frameMeasure
-	position absolute
-	top 0
-	width 100%
-	height var(--header-height)
-	background-image linear-gradient(to right, var(--tq-color-on-background) 1px, transparent 1px, transparent var(--koma-width))
-	background-size var(--koma-width) 14px
-	background-repeat repeat-x
-	background-position 0 0
 
 header-frame-text-style()
 	font-size 9px
@@ -254,29 +224,6 @@ header-frame-text-style()
 		right auto
 		width calc(var(--koma-width) * var(--onionskin))
 		border-radius 0 99px 99px 0
-
-.previewRange
-	position absolute
-	height var(--header-height)
-	background linear-gradient(to right, var(--md-sys-color-secondary) 2px, transparent 2px, transparent calc(100% - 2px), var(--md-sys-color-secondary) calc(100% - 2px))
-
-	&:before
-		content ''
-		display block
-		position relative
-		width 100%
-		height 100%
-		top 0
-		left 0
-		background var(--md-sys-color-secondary)
-		opacity 0.2
-
-.koma-header
-	header-frame-text-style()
-	width var(--koma-width)
-	height var(--header-height)
-	border-left 1px solid var(--tq-color-on-background)
-	margin-bottom var(--header-margin-bottom)
 
 .viz
 	position absolute

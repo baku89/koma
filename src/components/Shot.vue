@@ -115,6 +115,7 @@ function printShotInfo(shot: Shot) {
 	margin-left 1px
 	width calc(var(--koma-width) - 1px)
 	height var(--koma-height)
+	overflow hidden
 	&.selected:before
 		content ''
 		display block
