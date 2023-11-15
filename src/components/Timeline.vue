@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {clamp} from 'lodash'
+import {clamp, range} from 'lodash'
 import Tq from 'tweeq'
 import {computed, onMounted, ref, watch} from 'vue'
 
@@ -33,6 +33,19 @@ onMounted(() => {
 })
 
 const scroll = ref(0)
+
+const containerWidth = computed(() => {
+	return $timeline.value?.containerWidth ?? 0
+})
+
+const visibleFrames = computed(() => {
+	const start = Math.floor(scroll.value / timeline.komaWidth)
+	const end = Math.ceil(
+		(scroll.value + containerWidth.value) / timeline.komaWidth
+	)
+
+	return range(start, end + 1)
+})
 
 function onZoom({origin, zoomDelta}: {origin: number; zoomDelta: number}) {
 	const oldZoomFactor = project.timeline.zoomFactor
@@ -113,19 +126,30 @@ const vizStyles = computed(() => {
 			</div>
 		</aside>
 		<Tq.Timeline ref="$timeline" v-model:scroll="scroll" @zoom="onZoom">
-			<div class="seekbar" :style="seekbarStyles">
+			<div class="seekbar header-text-style" :style="seekbarStyles">
 				{{ viewport.previewFrame }}
 				<div class="onionskin" :class="{pos: project.onionskin > 0}" />
 			</div>
-			<TimelineHeader />
-			<div class="viz" :style="vizStyles">
-				<TimelineWaveform />
-				<TimelineGraph />
-				<TimelineMarkers :komaWidth="timeline.komaWidth" />
-			</div>
-			<div class="komas">
-				<div v-for="(_, frame) in project.allKomas" :key="frame" class="koma">
-					<Koma :frame="frame" />
+			<div
+				class="content"
+				:style="{
+					width: project.allKomas.length * timeline.komaWidth + 'px',
+				}"
+			>
+				<TimelineHeader />
+				<div class="viz" :style="vizStyles">
+					<TimelineWaveform />
+					<TimelineGraph />
+					<TimelineMarkers :komaWidth="timeline.komaWidth" />
+				</div>
+				<div class="komas">
+					<Koma
+						v-for="frame in visibleFrames"
+						:key="frame"
+						class="koma"
+						:frame="frame"
+						:style="{left: frame * timeline.komaWidth + 'px'}"
+					/>
 				</div>
 			</div>
 			<template #scrollbarRight>
@@ -165,24 +189,24 @@ const vizStyles = computed(() => {
 	gap 4px
 	justify-content center
 
+.content
+	position relative
+	height 100%
+
 .komas
 	position relative
-	display flex
-	width calc(var(--duration) * var(--koma-width))
+	width 100%
 	z-index 100
-	height 100%
-	pointer-events none
-
-	& > *
-		pointer-events auto
+	height 0
 
 .koma
+	position absolute
 	pointer-events none
 
-	& > *
+	& > :deep(*)
 		pointer-events auto
 
-header-frame-text-style()
+:deep(.header-text-style)
 	font-size 9px
 	text-indent 0.4em
 	line-height var(--header-height)
@@ -196,7 +220,6 @@ header-frame-text-style()
 	background var(--tq-color-primary)
 	height 100%
 	color var(--tq-color-on-primary)
-	header-frame-text-style()
 
 	&:before
 		pointer-events none

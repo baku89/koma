@@ -60,7 +60,7 @@ const measures = computed(() => {
 		<div
 			v-for="{left, text} in measures"
 			:key="text"
-			class="header tq-font-numeric"
+			class="header tq-font-numeric header-text-style"
 			:style="{left}"
 		>
 			{{ text }}
@@ -70,21 +70,15 @@ const measures = computed(() => {
 </template>
 
 <style scoped lang="stylus">
-header-frame-text-style()
-	font-size 9px
-	text-indent 0.3em
-	line-height var(--header-height)
-
 .TimelineHeader
 	position relative
+	width 100%
 	height var(--header-height)
 
 	background-image linear-gradient(to right, var(--tq-color-surface-border) 1px, transparent 1px)
 	background-size var(--koma-width) 100%
 
 .header
-	header-frame-text-style()
-	width fit-content //var(--koma-width)
 	height var(--header-height)
 	border-left 1px solid var(--tq-color-on-background)
 	margin-bottom var(--header-margin-bottom)
