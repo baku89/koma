@@ -21,7 +21,7 @@ import {playSound, speak} from '@/utils'
 import CameraControl from './CameraControl.vue'
 import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
 import MarkerSettings from './MarkerSettings.vue'
-import Timeline from './Timeline.vue'
+import Timeline from './Timeline'
 import TitleBar from './TitleBar.vue'
 import Viewport from './Viewport.vue'
 

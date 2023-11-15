@@ -4,7 +4,7 @@ import {computed} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 
-import Shot from './Shot.vue'
+import TimelineShot from './TimelineShot.vue'
 
 const project = useProjectStore()
 
@@ -27,7 +27,7 @@ const layerIndices = computed(() => {
 
 <template>
 	<div class="Koma">
-		<Shot
+		<TimelineShot
 			v-for="layer in layerIndices"
 			:key="layer"
 			:frame="props.frame"

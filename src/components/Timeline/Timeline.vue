@@ -7,9 +7,9 @@ import {MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
 
-import Koma from './Koma.vue'
-import TimelineHeader from './Timeline/TimelineHeader.vue'
 import TimelineGraph from './TimelineGraph.vue'
+import TimelineHeader from './TimelineHeader.vue'
+import TimelineKoma from './TimelineKoma.vue'
 import TimelineMarkers from './TimelineMarkers.vue'
 import TimelineWaveform from './TimelineWaveform.vue'
 
@@ -143,7 +143,7 @@ const vizStyles = computed(() => {
 					<TimelineMarkers :komaWidth="timeline.komaWidth" />
 				</div>
 				<div class="komas">
-					<Koma
+					<TimelineKoma
 						v-for="frame in visibleFrames"
 						:key="frame"
 						class="koma"

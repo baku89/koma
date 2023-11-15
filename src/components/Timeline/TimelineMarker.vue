@@ -95,7 +95,7 @@ useBndr($marker, $marker => {
 </template>
 
 <style lang="stylus" scoped>
-@import '../../dev_modules/tweeq/src/common.styl'
+@import '../../../dev_modules/tweeq/src/common.styl'
 
 .TimelineMarker
 	position absolute
