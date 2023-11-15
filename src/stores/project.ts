@@ -6,7 +6,6 @@ import {ConfigType} from 'tethr'
 import {computed, nextTick, reactive, shallowRef, toRaw, toRefs} from 'vue'
 
 import {
-	assignReactive,
 	debounceAsync,
 	deepMergeExceptArray,
 	loadJson,
@@ -254,7 +253,7 @@ export const useProjectStore = defineStore('project', () => {
 
 	// Open and Save Projects
 	async function createNew() {
-		assignReactive(project, cloneDeep(emptyProject))
+		Object.assign(project, cloneDeep(emptyProject))
 
 		nextTick(() => history.clear())
 
@@ -308,7 +307,7 @@ export const useProjectStore = defineStore('project', () => {
 			const mergedProject = deepMergeExceptArray(unflatProject, emptyProject)
 
 			autoSave.pause()
-			assignReactive(project, mergedProject)
+			Object.assign(project, mergedProject)
 			autoSave.resume()
 
 			nextTick(() => history.clear())
