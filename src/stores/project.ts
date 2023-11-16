@@ -39,7 +39,6 @@ interface Project<T = Blob> {
 	resolution: vec2
 	timeline: {
 		zoomFactor: number
-		markerSounds: Record<string, T>
 		drawing: PaperJSData
 	}
 	isLooping: boolean
@@ -276,13 +275,6 @@ export const useProjectStore = defineStore('project', () => {
 
 			const unflatProject: Project<Blob> = {
 				...flatProject,
-				timeline: {
-					...flatProject.timeline,
-					markerSounds: await mapValuePromises(
-						flatProject.timeline.markerSounds,
-						src => blobCache.open(directoryHandle, src)
-					),
-				},
 				komas: await mapPromises(flatProject.komas, async koma => {
 					const shots = await mapPromises(koma.shots, shot => {
 						if (shot === null) return null
@@ -345,14 +337,6 @@ export const useProjectStore = defineStore('project', () => {
 
 			const flatProject: Project<string> = {
 				...toRaw(project),
-				timeline: {
-					...project.timeline,
-					markerSounds: await mapValuePromises(
-						project.timeline.markerSounds,
-						(src, name) =>
-							blobCache.save(directoryHandle, `marker_${name}.wav`, src)
-					),
-				},
 				komas: await mapPromises(project.komas, async (koma, frame) => {
 					const shots = await mapPromises(koma.shots, (shot, layer) => {
 						if (shot === null) return null
