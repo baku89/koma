@@ -1,8 +1,11 @@
 import {uniqueId} from 'lodash'
 import {reactive} from 'vue'
 
-import {queryPermission} from './fileSystem'
+import {readFileFromDirectory, writeFileToDirectory} from './fileSystem'
 
+/**
+ * The Blob can be created from an ArrayBuffer as well as from a file existing locally using the File System API. However, its content is lazily loaded when actually needed. Therefore, if it is deleted or overwritten before loading, an error occurs. The Flob interface backs up the content to the specified temporary file directory when the source file is overwritten, preventing errors from occurring during Blob loading.
+ */
 export interface Flob {
 	uid: string
 	content: Blob
@@ -16,7 +19,10 @@ interface Location {
 export class FlobManager {
 	#tempDirectory: FileSystemDirectoryHandle
 
+	// そのLocationから読み出されたFlobが何なのか
 	#openedFlob = new WeakMap<FileSystemDirectoryHandle, Map<string, Flob>>()
+
+	// FlobのUID
 	#locationForUid = new Map<string, Location>()
 
 	constructor(tempDirectory: FileSystemDirectoryHandle) {
@@ -113,32 +119,4 @@ export class FlobManager {
 	#deleteOpenedFlob(directory: FileSystemDirectoryHandle, filename: string) {
 		this.#openedFlob.get(directory)?.delete(filename)
 	}
-}
-
-async function readFileFromDirectory(
-	directory: FileSystemDirectoryHandle,
-	filename: string
-) {
-	const fileHandle = await directory.getFileHandle(filename)
-	await queryPermission(fileHandle, 'readwrite')
-
-	return await fileHandle.getFile()
-}
-
-async function writeFileToDirectory(
-	directory: FileSystemDirectoryHandle,
-	filename: string,
-	blob: Blob
-) {
-	const fileHandle = await directory.getFileHandle(filename, {
-		create: true,
-	})
-
-	await queryPermission(fileHandle, 'readwrite')
-
-	const writer = await fileHandle.createWritable()
-	await writer.write(blob)
-	await writer.close()
-
-	return await fileHandle.getFile()
 }

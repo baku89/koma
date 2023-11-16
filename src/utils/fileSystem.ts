@@ -16,14 +16,14 @@ export async function loadJson<T>(
 
 export async function saveJson<T>(
 	handler: Ref<FileSystemDirectoryHandle | null>,
-	data: T,
-	fileName: string
+	filename: string,
+	data: T
 ) {
 	if (!handler.value) throw new Error('No directory handler')
 
 	const json = JSON.stringify(data)
 
-	const h = await handler.value.getFileHandle(fileName, {
+	const h = await handler.value.getFileHandle(filename, {
 		create: true,
 	})
 
@@ -53,4 +53,32 @@ export async function showReadwriteDirectoryPicker() {
 	await queryPermission(handle)
 
 	return handle
+}
+
+export async function readFileFromDirectory(
+	directory: FileSystemDirectoryHandle,
+	filename: string
+) {
+	const fileHandle = await directory.getFileHandle(filename)
+	await queryPermission(fileHandle, 'readwrite')
+
+	return await fileHandle.getFile()
+}
+
+export async function writeFileToDirectory(
+	directory: FileSystemDirectoryHandle,
+	filename: string,
+	blob: Blob
+) {
+	const fileHandle = await directory.getFileHandle(filename, {
+		create: true,
+	})
+
+	await queryPermission(fileHandle, 'readwrite')
+
+	const writer = await fileHandle.createWritable()
+	await writer.write(blob)
+	await writer.close()
+
+	return await fileHandle.getFile()
 }

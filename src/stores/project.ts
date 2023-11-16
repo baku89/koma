@@ -378,7 +378,7 @@ export const useProjectStore = defineStore('project', () => {
 				},
 			}
 
-			await saveJson(directoryHandle, flatProject, 'project.json')
+			await saveJson(directoryHandle, 'project.json', flatProject)
 		} finally {
 			// console.timeEnd('save')
 		}
