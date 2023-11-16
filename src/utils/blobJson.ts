@@ -1,6 +1,6 @@
 import {isArray, isPlainObject} from 'lodash'
 
-import {loadJson, readFileFromDirectory, saveJson} from './fileSystem'
+import {openJson, readFileFromDirectory, saveJson} from './fileSystem'
 import {mapPromises, mapValuePromises} from './promise'
 
 type Path = (string | number)[]
@@ -59,7 +59,7 @@ export async function saveBlobJson(
  * Load the JSON file and replace the path to the Blob with the Blob itself if necessary
  */
 export async function openBlobJson(directoryHandle: FileSystemDirectoryHandle) {
-	const json = await loadJson(directoryHandle, 'project.json')
+	const json = await openJson(directoryHandle, 'project.json')
 	return unflat(json as any)
 
 	async function unflat(data: Json): Promise<UnflatData> {

@@ -1,5 +1,5 @@
 // File System Access API utils
-export async function loadJson<T>(
+export async function openJson<T>(
 	handler: FileSystemDirectoryHandle,
 	filename: string
 ): Promise<T> {
