@@ -415,8 +415,11 @@ export const useProjectStore = defineStore('project', () => {
 	// Open the auto-saved project in OPFS
 	let isOpeningAutoSavedProject = true
 	blobCache.localDirectoryHandle.then(async handler => {
-		await open(handler)
-		isOpeningAutoSavedProject = false
+		try {
+			await open(handler)
+		} finally {
+			isOpeningAutoSavedProject = false
+		}
 	})
 
 	//----------------------------------------------------------------------------
