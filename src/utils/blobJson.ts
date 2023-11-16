@@ -1,6 +1,5 @@
 import {isArray, isPlainObject} from 'lodash'
 
-import {getObjectURL} from './blob'
 import {openJson, readFileFromDirectory, saveJson} from './fileSystem'
 import {mapPromises, mapValuePromises} from './promise'
 
@@ -68,20 +67,13 @@ export async function openBlobJson(directoryHandle: FileSystemDirectoryHandle) {
 			return mapPromises(data, value => unflat(value))
 		} else if (typeof data === 'object' && data !== null) {
 			if (data.$type === 'blob') {
-				const blob = await readFileFromDirectory(
-					directoryHandle,
-					data.filename as string
-				)
-				getObjectURL(blob)
-				return blob
+				return readFileFromDirectory(directoryHandle, data.filename as string)
 			} else {
 				return mapValuePromises(data, value => unflat(value))
 			}
 		} else {
 			if (typeof data === 'string' && data.match(/\.(jpg|dng)$/)) {
-				const blob = await readFileFromDirectory(directoryHandle, data)
-				getObjectURL(blob)
-				return blob
+				return readFileFromDirectory(directoryHandle, data)
 			} else {
 				return data
 			}

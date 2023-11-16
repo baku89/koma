@@ -26,7 +26,8 @@ const shot = computed(() => project.shot(props.frame, props.layer))
 const selected = computed(() => {
 	return (
 		props.frame === viewport.currentFrame &&
-		props.layer === viewport.currentLayer
+		props.layer === viewport.currentLayer &&
+		viewport.isShotSelected
 	)
 })
 
@@ -45,6 +46,7 @@ function insertEmptyFrame(frame: number) {
 function selectShot() {
 	viewport.setCurrentFrame(props.frame)
 	viewport.setCurrentLayer(props.layer)
+	viewport.selectShot()
 }
 
 function printShotInfo(shot: Shot) {

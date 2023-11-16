@@ -347,7 +347,6 @@ actions.register([
 			if (!project.history.canUndo) return
 
 			project.undo()
-			viewport.setCurrentFrame(project.captureShot.frame)
 		},
 	},
 	{
@@ -358,7 +357,6 @@ actions.register([
 			if (!project.history.canRedo) return
 
 			project.redo()
-			viewport.setCurrentFrame(project.captureShot.frame)
 		},
 	},
 	{
@@ -367,6 +365,7 @@ actions.register([
 		input: ['f', 'right', gamepadAxisRight.down()],
 		perform() {
 			viewport.setCurrentFrame(viewport.currentFrame + 1)
+			viewport.selectShot()
 		},
 	},
 	{
@@ -374,7 +373,8 @@ actions.register([
 		icon: 'lucide:step-back',
 		input: ['d', 'left', gamepadAxisLeft.down()],
 		perform() {
-			viewport.setCurrentFrame(Math.max(0, viewport.currentFrame - 1))
+			viewport.setCurrentFrame(viewport.currentFrame - 1)
+			viewport.selectShot()
 		},
 	},
 	{
@@ -383,6 +383,7 @@ actions.register([
 		input: ['down', gamepadAxisBottom.down()],
 		perform() {
 			viewport.setCurrentLayer(viewport.currentLayer + 1)
+			viewport.selectShot()
 		},
 	},
 	{
@@ -391,52 +392,7 @@ actions.register([
 		input: ['up', gamepadAxisTop.down()],
 		perform() {
 			viewport.setCurrentLayer(viewport.currentLayer - 1)
-		},
-	},
-	{
-		id: 'delete_current_frame',
-		icon: 'mdi:backspace',
-		input: ['delete', 'backspace', gamepad.button('+').longPress(500).pressed],
-		perform() {
-			const isDeletingCaptureFrame =
-				viewport.currentFrame === project.captureShot.frame
-
-			const frameToDelete = isDeletingCaptureFrame
-				? viewport.currentFrame - 1
-				: viewport.currentFrame
-
-			if (frameToDelete < 0 || project.duration <= frameToDelete) {
-				return
-			}
-
-			project.$patch(draft => {
-				draft.komas[frameToDelete].shots.splice(viewport.currentLayer, 1)
-
-				const shouldDeleteKoma = draft.komas[frameToDelete].shots.length === 0
-
-				if (shouldDeleteKoma) {
-					// Equivalent to `draft.komas.splice(frameToDelete, 1)`,
-					// but it is way more faster.
-					draft.komas = [
-						...draft.komas.slice(0, frameToDelete),
-						...draft.komas.slice(frameToDelete + 1),
-					]
-
-					if (
-						isDeletingCaptureFrame &&
-						viewport.currentFrame === draft.captureShot.frame
-					) {
-						viewport.setCurrentFrame(viewport.currentFrame - 1)
-					}
-					if (frameToDelete < draft.captureShot.frame) {
-						draft.captureShot.frame -= 1
-					}
-					if (frameToDelete <= draft.previewRange[1]) {
-						draft.previewRange[1] -= 1
-					}
-				}
-			})
-			playSound('sound/Hit08-1.mp3')
+			viewport.selectShot()
 		},
 	},
 	{

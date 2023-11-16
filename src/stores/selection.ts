@@ -1,7 +1,9 @@
+import {Bndr} from 'bndr-js'
 import {defineStore} from 'pinia'
 import {useActionsStore} from 'tweeq'
 
 interface SelectionOptions {
+	context: string
 	onDelete?: () => void
 	onUnselect?: () => void
 	onCopy?: () => void
@@ -13,8 +15,20 @@ export const useSelectionStore = defineStore('selection', () => {
 	const actions = useActionsStore()
 
 	let selection: SelectionOptions | null = null
+	let willUnselect = true
 
 	function select(options: SelectionOptions) {
+		willUnselect = false
+		setTimeout(() => {
+			willUnselect = true
+		})
+		if (
+			selection &&
+			options.context !== selection.context &&
+			selection.onUnselect
+		) {
+			selection.onUnselect()
+		}
 		selection = options
 	}
 
@@ -35,12 +49,27 @@ export const useSelectionStore = defineStore('selection', () => {
 		if (selection?.onPaste) selection.onPaste()
 	}
 
+	function reserveUnselect() {
+		if (!willUnselect) return
+
+		willUnselect = true
+
+		setTimeout(() => willUnselect && unselect())
+	}
+
 	actions.register([
 		{
 			id: 'delete_selected',
 			icon: 'mdi:backspace',
+			input: [
+				'delete',
+				'backspace',
+				Bndr.gamepad().button('+').longPress(500).pressed,
+			],
 			perform() {
-				if (selection?.onDelete) selection.onDelete()
+				if (selection?.onDelete) {
+					selection.onDelete()
+				}
 			},
 		},
 		{
@@ -69,5 +98,5 @@ export const useSelectionStore = defineStore('selection', () => {
 		},
 	])
 
-	return {select, unselect}
+	return {select, unselect, reserveUnselect}
 })

@@ -4,6 +4,7 @@ import Tq from 'tweeq'
 import {computed, onMounted, ref, watch} from 'vue'
 
 import {MixBlendModeValues, useProjectStore} from '@/stores/project'
+import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
 
@@ -16,6 +17,7 @@ import TimelineWaveform from './TimelineWaveform.vue'
 const project = useProjectStore()
 const viewport = useViewportStore()
 const timeline = useTimelineStore()
+const appSelection = useSelectionStore()
 
 const $timeline = ref<null | InstanceType<typeof Tq.Timeline>>(null)
 
@@ -107,6 +109,7 @@ const vizStyles = computed(() => {
 			'--out-point': project.previewRange[1],
 			'--onionskin': project.onionskin,
 		}"
+		@pointerdown="appSelection.reserveUnselect"
 	>
 		<aside class="aside">
 			<div v-for="(layer, i) in layers" :key="i" class="layer-control">

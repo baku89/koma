@@ -5,10 +5,11 @@ import {defineStore} from 'pinia'
 import {useAppConfigStore} from 'tweeq'
 import {computed, readonly, ref, shallowRef, watch} from 'vue'
 
-import {getObjectURL} from '@/utils'
+import {getObjectURL, playSound} from '@/utils'
 import {scrub, seekAndPlay} from '@/utils'
 
 import {useProjectStore} from './project'
+import {useSelectionStore} from './selection'
 
 type ViewportPopup = null | {type: 'progress'; progress: number}
 
@@ -19,6 +20,7 @@ export const useViewportStore = defineStore('viewport', () => {
 	const enableOnionskin = ref(true)
 	const enableHiRes = ref(false)
 	const appConfig = useAppConfigStore()
+	const appSelection = useSelectionStore()
 
 	const howl = computed(() => {
 		if (!project.audio.src) return null
@@ -42,6 +44,70 @@ export const useViewportStore = defineStore('viewport', () => {
 
 	function setCurrentLayer(value: number) {
 		currentLayer.value = clamp(value, 0, 1)
+	}
+
+	// Selection
+	const isShotSelected = ref(false)
+
+	function selectShot() {
+		isShotSelected.value = true
+
+		appSelection.select({
+			context: 'shot',
+			onDelete: deleteShot,
+			onUnselect: unselectShot,
+		})
+	}
+
+	function unselectShot() {
+		isShotSelected.value = false
+	}
+
+	function deleteShot() {
+		if (!isShotSelected.value) return
+
+		const isDeletingCaptureFrame =
+			currentFrame.value === project.captureShot.frame
+
+		const frameToDelete = isDeletingCaptureFrame
+			? currentFrame.value - 1
+			: currentFrame.value
+
+		if (frameToDelete < 0 || project.duration <= frameToDelete) {
+			return
+		}
+
+		project.$patch(draft => {
+			draft.komas[frameToDelete].shots.splice(currentLayer.value, 1)
+
+			const shouldDeleteKoma = draft.komas[frameToDelete].shots.length === 0
+
+			if (shouldDeleteKoma) {
+				// Equivalent to `draft.komas.splice(frameToDelete, 1)`,
+				// but it is way more faster.
+				draft.komas = [
+					...draft.komas.slice(0, frameToDelete),
+					...draft.komas.slice(frameToDelete + 1),
+				]
+
+				if (
+					isDeletingCaptureFrame &&
+					currentFrame.value === draft.captureShot.frame
+				) {
+					setCurrentFrame(currentFrame.value - 1)
+				}
+				if (frameToDelete < draft.captureShot.frame) {
+					draft.captureShot.frame -= 1
+				}
+				if (frameToDelete <= draft.previewRange[1]) {
+					draft.previewRange[1] -= 1
+				}
+			}
+		})
+
+		isShotSelected.value = false
+
+		playSound('sound/Hit08-1.mp3')
 	}
 
 	const popup = shallowRef<ViewportPopup>(null)
@@ -181,7 +247,9 @@ export const useViewportStore = defineStore('viewport', () => {
 		previewFrame,
 		isPlaying,
 		isLiveview,
+		isShotSelected: readonly(isShotSelected),
 		popup,
 		onionskin,
+		selectShot,
 	}
 })

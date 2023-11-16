@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import {Bndr} from 'bndr-js'
 import {scalar} from 'linearly'
+import {clamp} from 'lodash'
 import {useBndr} from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
 import {useMarkersStore} from '@/stores/markers'
+import {Marker} from '@/stores/project'
 import {useProjectStore} from '@/stores/project'
+import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 import {speak} from '@/utils'
 
@@ -20,6 +23,7 @@ const props = defineProps<Props>()
 const project = useProjectStore()
 const markers = useMarkersStore()
 const timeline = useTimelineStore()
+const appSelection = useSelectionStore()
 
 const $root = ref<null | HTMLElement>(null)
 
@@ -71,6 +75,53 @@ watch(
 	},
 	{deep: true}
 )
+
+// Select and drag
+function select(event: PointerEvent, index: number) {
+	if (!event.shiftKey && markers.isSelected(index) === false) {
+		appSelection.unselect()
+	}
+	markers.addSelection(index)
+}
+
+const markersToDrag: Map<number, Marker> = new Map()
+
+useBndr($root, $root => {
+	Bndr.pointer($root)
+		.drag({
+			pointerCapture: true,
+			selector: '.TimelineMarker',
+		})
+		.on(d => {
+			if (d.justStarted) {
+				markersToDrag.clear()
+				markers.selectedIndices.forEach(i => {
+					markersToDrag.set(i, {...project.markers[i]})
+				})
+			} else {
+				const deltaFrame = Math.round(
+					(d.current[0] - d.start[0]) / timeline.komaWidth
+				)
+				const height = $root.getBoundingClientRect().height
+				const deltaVerticalPosition = (d.current[1] - d.start[1]) / height
+
+				project.$patch(draft => {
+					markersToDrag.forEach((m, i) => {
+						draft.markers[i].frame = clamp(
+							m.frame + deltaFrame,
+							0,
+							project.duration - 1
+						)
+						draft.markers[i].verticalPosition = clamp(
+							m.verticalPosition + deltaVerticalPosition,
+							0,
+							1
+						)
+					})
+				})
+			}
+		})
+})
 </script>
 
 <template>
@@ -85,6 +136,8 @@ watch(
 			:key="i"
 			:index="i"
 			:marker="marker"
+			:selected="markers.isSelected(i)"
+			@pointerdown="select($event, i)"
 		/>
 	</div>
 </template>
@@ -92,7 +145,7 @@ watch(
 <style lang="stylus" scoped>
 .TimelineMarkers
 	position absolute
-	inset var(--koma-height) 0 0 0
+	inset 0
 	z-index 100
 
 .cursor

@@ -1,23 +1,16 @@
 <script setup lang="ts">
-import {Bndr} from 'bndr-js'
-import {scalar} from 'linearly'
-import {useBndr} from 'tweeq'
-import {computed, ref} from 'vue'
+import {computed} from 'vue'
 
-import {useMarkersStore} from '@/stores/markers'
 import {Marker} from '@/stores/project'
-import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 
 interface Props {
-	index?: number
 	marker: Marker
+	selected: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), {index: -1})
+const props = defineProps<Props>()
 
-const markers = useMarkersStore()
-const selection = useSelectionStore()
 const timeline = useTimelineStore()
 
 const styles = computed(() => {
@@ -31,52 +24,44 @@ const styles = computed(() => {
 	}
 })
 
-function remove() {
-	markers.remove(props.index)
-}
+// const $marker = ref<null | HTMLElement>(null)
 
-const $marker = ref<null | HTMLElement>(null)
+// let startMarker: Marker | null = null
+// let dx = 0
+// let dragMarkerIndex = props.index
 
-let startMarker: Marker | null = null
-let dx = 0
-let dragMarkerIndex = props.index
+// useBndr($marker, $marker => {
+// 	Bndr.pointer($marker)
+// 		.drag({pointerCapture: true})
+// 		.on(d => {
+// 			if (d.justStarted) {
+// 				dx = 0
+// 				startMarker = {...props.marker}
 
-useBndr($marker, $marker => {
-	Bndr.pointer($marker)
-		.drag({pointerCapture: true})
-		.on(d => {
-			if (d.justStarted) {
-				if (!d.event.metaKey) {
-					selection.unselect()
-				}
-				markers.addSelection(props.index)
-				dx = 0
-				startMarker = {...props.marker}
+// 				dragMarkerIndex = d.event.altKey
+// 					? markers.add(startMarker)
+// 					: props.index
+// 			} else if (startMarker) {
+// 				dx += d.delta[0] / timeline.komaWidth
 
-				dragMarkerIndex = d.event.altKey
-					? markers.add(startMarker)
-					: props.index
-			} else if (startMarker) {
-				dx += d.delta[0] / timeline.komaWidth
+// 				const {top, bottom} = $marker.parentElement!.getBoundingClientRect()
 
-				const {top, bottom} = $marker.parentElement!.getBoundingClientRect()
+// 				const verticalPosition = scalar.clamp(
+// 					scalar.invlerp(top, bottom, d.current[1]),
+// 					0,
+// 					1
+// 				)
 
-				const verticalPosition = scalar.clamp(
-					scalar.invlerp(top, bottom, d.current[1]),
-					0,
-					1
-				)
+// 				const frame = startMarker.frame + Math.round(dx)
 
-				const frame = startMarker.frame + Math.round(dx)
-
-				markers.update(dragMarkerIndex, {
-					...startMarker,
-					verticalPosition,
-					frame,
-				})
-			}
-		})
-})
+// 				markers.update(dragMarkerIndex, {
+// 					...startMarker,
+// 					verticalPosition,
+// 					frame,
+// 				})
+// 			}
+// 		})
+// })
 </script>
 
 <template>
@@ -84,11 +69,10 @@ useBndr($marker, $marker => {
 		ref="$marker"
 		class="TimelineMarker"
 		:class="{
-			single: marker.duration === 0,
-			selected: markers.isSelected(props.index),
+			'zero-frame': marker.duration === 0,
+			selected,
 		}"
 		:style="styles"
-		@dblclick="remove"
 	>
 		<div class="label">{{ marker.label }}</div>
 	</div>
@@ -113,7 +97,8 @@ useBndr($marker, $marker => {
 		width fit-content
 		text-wrap nowrap
 		pointer-events none
-	&.single
+
+	&.zero-frame
 		margin-left calc(-0.5 * 1em)
 
 		&:before
@@ -134,7 +119,7 @@ useBndr($marker, $marker => {
 			border-radius 0.5em
 			background set-alpha(--tq-color-background, 0.5)
 
-	&:not(.single)
+	&:not(.zero-frame)
 		padding 0 0.25em
 		overflow hidden
 		.label

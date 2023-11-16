@@ -4,7 +4,7 @@ import {reactive} from 'vue'
 import {readFileFromDirectory, writeFileToDirectory} from './fileSystem'
 
 /**
- * The Blob can be created from an ArrayBuffer as well as from a file existing locally using the File System API. However, its content is lazily loaded when actually needed. Therefore, if it is deleted or overwritten before loading, an error occurs. The Flob interface backs up the content to the specified temporary file directory when the source file is overwritten, preventing errors from occurring during Blob loading.
+ * The Blob can be created from an ArrayBuffer as well as from a file existing locally using the File System API. However, its content is lazily loaded when actually needed. Therefore, if it is deleted or overwritten before loading, an error occurs. (e.g. DOMException: The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.) The Flob interface backs up the content to the specified temporary file directory when the source file is overwritten, preventing errors from occurring during lazy-loading Blobs.
  */
 export interface Flob {
 	uid: string

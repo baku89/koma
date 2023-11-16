@@ -63,7 +63,7 @@ interface Project<T = Blob> {
 	markers: Marker[]
 }
 
-type UndoableData = Pick<Project, 'komas' | 'captureShot'>
+type UndoableData = Pick<Project, 'komas' | 'captureShot' | 'markers'>
 
 type SVGString = string
 type PaperJSData = any
@@ -215,11 +215,13 @@ export const useProjectStore = defineStore('project', () => {
 			return {
 				captureShot: project.captureShot,
 				komas: project.komas,
+				markers: project.markers,
 			}
 		},
 		set(data) {
 			project.captureShot = data.captureShot
 			project.komas = data.komas
+			project.markers = data.markers
 		},
 	})
 
@@ -332,7 +334,7 @@ export const useProjectStore = defineStore('project', () => {
 	})
 
 	// Enable autosave
-	const autoSave = pausableWatch(project, save, {deep: true, flush: 'sync'})
+	const autoSave = pausableWatch(project, save, {deep: true})
 
 	// Open the auto-saved project in OPFS
 	let isOpeningAutoSavedProject = true

@@ -1,14 +1,14 @@
 import {pausableWatch} from '@vueuse/core'
 import {defineStore} from 'pinia'
 import {useAppConfigStore} from 'tweeq'
-import {ref} from 'vue'
+import {readonly, ref} from 'vue'
 
 import {Marker, useProjectStore} from './project'
 import {useSelectionStore} from './selection'
 import {useViewportStore} from './viewport'
 
 export const useMarkersStore = defineStore('markers', () => {
-	const selection = ref<Set<number>>(new Set())
+	const selectedIndices = ref<Set<number>>(new Set())
 
 	const project = useProjectStore()
 	const appSelection = useSelectionStore()
@@ -45,19 +45,18 @@ export const useMarkersStore = defineStore('markers', () => {
 
 	function deleteSelected() {
 		project.$patch(d => {
-			const indicesDescending = [...selection.value].sort((a, b) => b - a)
-			indicesDescending.forEach(index => {
-				d.markers.splice(index, 1)
-			})
+			const indices = new Set(selectedIndices.value)
+			unselect()
+			d.markers = d.markers.filter((_, i) => !indices.has(i))
 		})
 	}
 
 	function unselect() {
-		selection.value.clear()
+		selectedIndices.value.clear()
 	}
 
 	function copy() {
-		const markers = [...selection.value].map(i => project.markers[i])
+		const markers = [...selectedIndices.value].map(i => project.markers[i])
 
 		const clipboard = {
 			type: 'markers',
@@ -68,13 +67,14 @@ export const useMarkersStore = defineStore('markers', () => {
 	}
 
 	function addSelection(index: number) {
-		selection.value.add(index)
+		selectedIndices.value.add(index)
 
 		applyCursorSettingsToSelectionWatcher.pause()
 		cursor.value = {...project.markers[index]}
 		applyCursorSettingsToSelectionWatcher.resume()
 
 		appSelection.select({
+			context: 'markers',
 			onDelete: deleteSelected,
 			onUnselect: unselect,
 			onCopy: copy,
@@ -105,7 +105,7 @@ export const useMarkersStore = defineStore('markers', () => {
 	}
 
 	function isSelected(index: number) {
-		return selection.value.has(index)
+		return selectedIndices.value.has(index)
 	}
 
 	const applyCursorSettingsToSelectionWatcher = pausableWatch(
@@ -124,12 +124,15 @@ export const useMarkersStore = defineStore('markers', () => {
 				changed.duration = duration
 			}
 
-			if (Object.keys(changed).length === 0 || selection.value.size === 0) {
+			if (
+				Object.keys(changed).length === 0 ||
+				selectedIndices.value.size === 0
+			) {
 				return
 			}
 
 			project.$patch(d => {
-				selection.value.forEach(index => {
+				selectedIndices.value.forEach(index => {
 					d.markers[index] = {...d.markers[index], ...changed}
 				})
 			})
@@ -144,5 +147,6 @@ export const useMarkersStore = defineStore('markers', () => {
 		remove,
 		addSelection,
 		isSelected,
+		selectedIndices: readonly(selectedIndices),
 	}
 })
