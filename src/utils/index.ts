@@ -4,6 +4,8 @@ export * from './promise'
 export * from './fileSystem'
 export * from './reactivity'
 export * from './format'
+export * from './blobJson'
+export * from './flob'
 
 import {createDefu} from 'defu'
 

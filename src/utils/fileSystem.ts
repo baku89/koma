@@ -1,13 +1,9 @@
-import {Ref} from 'vue'
-
 // File System Access API utils
 export async function loadJson<T>(
-	handler: Ref<FileSystemDirectoryHandle | null>,
+	handler: FileSystemDirectoryHandle,
 	filename: string
 ): Promise<T> {
-	if (!handler.value) throw new Error('No directory handler')
-
-	const h = await handler.value.getFileHandle(filename)
+	const h = await handler.getFileHandle(filename)
 	const f = await h.getFile()
 	const text = await f.text()
 
@@ -15,15 +11,13 @@ export async function loadJson<T>(
 }
 
 export async function saveJson<T>(
-	handler: Ref<FileSystemDirectoryHandle | null>,
+	handler: FileSystemDirectoryHandle,
 	filename: string,
 	data: T
 ) {
-	if (!handler.value) throw new Error('No directory handler')
-
 	const json = JSON.stringify(data)
 
-	const h = await handler.value.getFileHandle(filename, {
+	const h = await handler.getFileHandle(filename, {
 		create: true,
 	})
 

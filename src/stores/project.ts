@@ -9,11 +9,9 @@ import {
 	assignReactive,
 	debounceAsync,
 	deepMergeExceptArray,
-	loadJson,
-	mapPromises,
+	openBlobJson,
 	preventConcurrentExecution,
-	queryString,
-	saveJson,
+	saveBlobJson,
 	showReadwriteDirectoryPicker,
 } from '@/utils'
 
@@ -92,7 +90,6 @@ export interface Marker {
 	verticalPosition: number
 	duration: number
 	color: string
-	sound?: string
 }
 
 export interface Shot<T = Blob> {
@@ -118,7 +115,6 @@ const emptyProject: Project = {
 	onionskin: 0,
 	timeline: {
 		zoomFactor: 1,
-		markerSounds: {},
 		drawing: null,
 	},
 	isLooping: false,
@@ -267,32 +263,13 @@ export const useProjectStore = defineStore('project', () => {
 		async (handler?: FileSystemDirectoryHandle) => {
 			directoryHandle.value = handler ?? (await showReadwriteDirectoryPicker())
 
-			const flatProject = await loadJson<Project<string>>(
-				directoryHandle,
-				'project.json'
-			)
-
-			const unflatProject: Project<Blob> = {
-				...flatProject,
-				komas: await mapPromises(flatProject.komas, async koma => {
-					const shots = await mapPromises(koma.shots, shot => {
-						if (shot === null) return null
-						return openShot(shot)
-					})
-
-					const backupShots = koma.backupShots
-						? await mapPromises(koma.backupShots, openShot)
-						: undefined
-
-					return {...koma, shots, backupShots}
-				}),
-				audio: {
-					...flatProject.audio,
-					src: flatProject.audio.src
-						? await blobCache.open(directoryHandle, flatProject.audio.src)
-						: undefined,
-				},
+			if (!directoryHandle.value) {
+				throw new Error('No directory is selected')
 			}
+
+			const unflatProject = (await openBlobJson(
+				directoryHandle.value
+			)) as unknown as Project
 
 			// In case the latest project format has more properties than the saved one,
 			// merge the saved state with the default state
@@ -327,86 +304,38 @@ export const useProjectStore = defineStore('project', () => {
 	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
 		if (isOpeningAutoSavedProject) return
 
-		// console.time('save')
+		console.time('save')
 
 		try {
 			if (directoryHandle.value === null) {
 				directoryHandle.value = await blobCache.localDirectoryHandle
 			}
+			await saveBlobJson(directoryHandle.value, toRaw(project), {
+				saveBlob: blobCache.save,
+				pathToFilename(path) {
+					const [first, frame, shot, layer, type] = path
 
-			const flatProject: Project<string> = {
-				...toRaw(project),
-				komas: await mapPromises(project.komas, async (koma, frame) => {
-					const shots = await mapPromises(koma.shots, (shot, layer) => {
-						if (shot === null) return null
-						return saveShot(shot, frame, {layer})
-					})
+					if (
+						first === 'komas' &&
+						typeof frame === 'number' &&
+						shot === 'shots' &&
+						typeof layer === 'number' &&
+						typeof type === 'string'
+					) {
+						const lv = type === 'lv' ? '_lv' : ''
+						const seq = frame.toString().padStart(4, '0')
+						const ext = type === 'raw' ? 'dng' : 'jpg'
 
-					const backupShots = koma.backupShots
-						? await mapPromises(koma.backupShots, (shot, index) =>
-								saveShot(shot, frame, {backup: index})
-						  )
-						: undefined
+						return `${project.name}_layer=${layer}${lv}_${seq}.${ext}`
+					}
 
-					return {...koma, shots, backupShots}
-				}),
-				audio: {
-					...project.audio,
-					src: project.audio.src
-						? await blobCache.save(
-								directoryHandle,
-								'audio.wav',
-								project.audio.src
-						  )
-						: undefined,
+					return path.join('-')
 				},
-			}
-
-			await saveJson(directoryHandle, 'project.json', flatProject)
+			})
 		} finally {
-			// console.timeEnd('save')
+			console.timeEnd('save')
 		}
 	})
-
-	async function openShot(shot: Shot<string>): Promise<Shot> {
-		const lv = await blobCache.open(directoryHandle, shot.lv)
-		const jpg = await blobCache.open(directoryHandle, shot.jpg)
-		const raw = shot.raw
-			? await blobCache.open(directoryHandle, shot.raw)
-			: undefined
-
-		return {...shot, lv, jpg, raw}
-	}
-
-	// Saves a frame to the project directrory and replace all Blob entries with the name of the file
-	async function saveShot(
-		shot: Shot,
-		frame: number,
-		query: Record<string, string | number>
-	): Promise<Shot<string>> {
-		const basename = [project.name, queryString(query)].join('_')
-
-		const lv = await saveImageSequence(shot.lv, basename + '_lv', frame, 'jpg')
-		const jpg = await saveImageSequence(shot.jpg, basename, frame, 'jpg')
-		const raw = shot.raw
-			? await saveImageSequence(shot.raw, basename, frame, 'dng')
-			: undefined
-
-		return {...shot, lv, jpg, raw}
-	}
-
-	// Save the blob image to the project directrory and returns the name of the file
-	async function saveImageSequence(
-		blob: Blob,
-		basename: string,
-		frame: number,
-		extension: string
-	) {
-		const suffix = frame.toString().padStart(4, '0')
-		const filename = `${basename}_${suffix}.${extension}`
-
-		return blobCache.save(directoryHandle, filename, blob)
-	}
 
 	// Enable autosave
 	const autoSave = pausableWatch(project, save, {deep: true, flush: 'sync'})

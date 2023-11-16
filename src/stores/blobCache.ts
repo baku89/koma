@@ -1,6 +1,6 @@
 import {debounce} from 'lodash'
 import {defineStore} from 'pinia'
-import {Ref, ref} from 'vue'
+import {ref} from 'vue'
 
 import {queryPermission} from '@/utils'
 
@@ -58,20 +58,20 @@ export const useBlobStore = defineStore('blobCache', () => {
 	 * Open the file with the given handler and name. When opening a file, it is also saved in the cache folder within OPFS and then a reference Blob to that file is returned. This allows the file to be opened without any issues even if it is overwritten.
 	 */
 	async function open(
-		handler: Ref<FileSystemDirectoryHandle | null>,
+		directoryHandle: FileSystemDirectoryHandle,
 		filename: string
 	) {
-		if (!handler.value) throw new Error('No directory handler')
+		if (!directoryHandle) throw new Error('No directory handler')
 
 		// Read the file
 		try {
-			const fileHandle = await handler.value.getFileHandle(filename)
+			const fileHandle = await directoryHandle.getFileHandle(filename)
 			await queryPermission(fileHandle, 'read')
 			const file = await fileHandle.getFile()
 
 			// Save it to the blob diretory and return the blob
 			const cacheName =
-				(handler.value.name ?? 'originPrivate') + '__' + filename
+				(directoryHandle.name ?? 'originPrivate') + '__' + filename
 
 			const cache = await blobCacheHandle
 			const cacheHandle = await cache.getFileHandle(cacheName, {create: true})
@@ -87,7 +87,7 @@ export const useBlobStore = defineStore('blobCache', () => {
 		} catch (e) {
 			throw new Error(
 				'Could not open the file: directory=' +
-					handler.value.name +
+					directoryHandle.name +
 					' filename=' +
 					filename
 			)
@@ -104,25 +104,23 @@ export const useBlobStore = defineStore('blobCache', () => {
 	 * @returns The filename the blob was saved to.
 	 */
 	async function save(
-		handler: Ref<FileSystemDirectoryHandle | null>,
+		directoryHandle: FileSystemDirectoryHandle,
 		filename: string,
 		blob: Blob
 	) {
-		if (!handler.value) throw new Error('No directory handler')
-
 		// Check if the blob is already saved with the same name
-		let map = savedFilenameForBlob.get(handler.value)
+		let map = savedFilenameForBlob.get(directoryHandle)
 
 		if (!map) {
 			map = new WeakMap()
-			savedFilenameForBlob.set(handler.value, map)
+			savedFilenameForBlob.set(directoryHandle, map)
 		}
 
-		const savedFilename = savedFilenameForBlob.get(handler.value)?.get(blob)
+		const savedFilename = savedFilenameForBlob.get(directoryHandle)?.get(blob)
 
 		if (filename !== savedFilename) {
 			// Save it to the destination
-			const fileHandle = await handler.value.getFileHandle(filename, {
+			const fileHandle = await directoryHandle.getFileHandle(filename, {
 				create: true,
 			})
 
