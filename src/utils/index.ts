@@ -2,6 +2,7 @@ export * from './sound'
 export * from './blob'
 export * from './promise'
 export * from './fileSystem'
+export * from './reactivity'
 export * from './format'
 
 import {createDefu} from 'defu'
