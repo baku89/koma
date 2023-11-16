@@ -313,15 +313,9 @@ export const useProjectStore = defineStore('project', () => {
 			await saveBlobJson(directoryHandle.value, toRaw(project), {
 				saveBlob: opfs.save,
 				pathToFilename(path) {
-					const [first, frame, shot, layer, type] = path
+					const [first, frame, , layer, type] = path
 
-					if (
-						first === 'komas' &&
-						typeof frame === 'number' &&
-						shot === 'shots' &&
-						typeof layer === 'number' &&
-						typeof type === 'string'
-					) {
+					if (first === 'komas' && typeof frame === 'number') {
 						const lv = type === 'lv' ? '_lv' : ''
 						const seq = frame.toString().padStart(4, '0')
 						const ext = type === 'raw' ? 'dng' : 'jpg'
