@@ -15,7 +15,7 @@ import {
 	showReadwriteDirectoryPicker,
 } from '@/utils'
 
-import {useBlobStore} from './blobCache'
+import {useOpfsStore} from './opfs'
 
 export const MixBlendModeValues: MixBlendMode[] = [
 	'normal',
@@ -198,14 +198,14 @@ const emptyProject: Project = {
 }
 
 export const useProjectStore = defineStore('project', () => {
-	const blobCache = useBlobStore()
+	const opfs = useOpfsStore()
 
 	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
 
 	const isSavedToDisk = asyncComputed(
 		async () =>
 			directoryHandle.value &&
-			directoryHandle.value !== (await blobCache.localDirectoryHandle)
+			directoryHandle.value !== (await opfs.localDirectoryHandle)
 	)
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
@@ -297,7 +297,7 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	async function saveInOpfs() {
-		directoryHandle.value = await blobCache.localDirectoryHandle
+		directoryHandle.value = await opfs.localDirectoryHandle
 		await save()
 	}
 
@@ -308,10 +308,10 @@ export const useProjectStore = defineStore('project', () => {
 
 		try {
 			if (directoryHandle.value === null) {
-				directoryHandle.value = await blobCache.localDirectoryHandle
+				directoryHandle.value = await opfs.localDirectoryHandle
 			}
 			await saveBlobJson(directoryHandle.value, toRaw(project), {
-				saveBlob: blobCache.save,
+				saveBlob: opfs.save,
 				pathToFilename(path) {
 					const [first, frame, shot, layer, type] = path
 
@@ -342,7 +342,7 @@ export const useProjectStore = defineStore('project', () => {
 
 	// Open the auto-saved project in OPFS
 	let isOpeningAutoSavedProject = true
-	blobCache.localDirectoryHandle.then(async handler => {
+	opfs.localDirectoryHandle.then(async handler => {
 		try {
 			await open(handler)
 		} finally {

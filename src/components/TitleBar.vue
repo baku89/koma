@@ -6,14 +6,14 @@ import Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 
 import {useAuxStore} from '@/stores/aux'
-import {useBlobStore} from '@/stores/blobCache'
 import {useCameraStore} from '@/stores/camera'
+import {useOpfsStore} from '@/stores/opfs'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
 import {useViewportStore} from '@/stores/viewport'
 import {toTime} from '@/utils'
 
-const blobCache = useBlobStore()
+const opfs = useOpfsStore()
 const viewport = useViewportStore()
 const project = useProjectStore()
 const camera = useCameraStore()
@@ -39,9 +39,9 @@ const destinationInfo = computed(() => {
 			html: true,
 		}
 	} else {
-		const usage = prettyBytes(blobCache.usage)
-		const quota = prettyBytes(blobCache.quota)
-		const percent = Math.round((blobCache.usage / blobCache.quota) * 100) + '%'
+		const usage = prettyBytes(opfs.usage)
+		const quota = prettyBytes(opfs.quota)
+		const percent = Math.round((opfs.usage / opfs.quota) * 100) + '%'
 		return {
 			content: `<em>Saved to <a href="https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system">OPFS</a></em><br />${usage}/${quota} (${percent})`,
 			html: true,
@@ -143,3 +143,4 @@ const destinationInfo = computed(() => {
 		</template>
 	</Tq.TitleBar>
 </template>
+@/stores/opfs

@@ -4,21 +4,22 @@ import {ref} from 'vue'
 
 import {queryPermission} from '@/utils'
 
-export const useBlobStore = defineStore('blobCache', () => {
+export const useOpfsStore = defineStore('opfs', () => {
 	let resolveLocalDirectoryHandle: (
 		value: FileSystemDirectoryHandle
 	) => void = () => null
-	let resolveBlobCacheHandle: (value: FileSystemDirectoryHandle) => void = () =>
-		null
+	let resolveTempDirectoryHandle: (
+		value: FileSystemDirectoryHandle
+	) => void = () => null
 
 	const localDirectoryHandle: Promise<FileSystemDirectoryHandle> = new Promise(
 		resolve => {
 			resolveLocalDirectoryHandle = resolve
 		}
 	)
-	const blobCacheHandle: Promise<FileSystemDirectoryHandle> = new Promise(
+	const tempDirectoryHandle: Promise<FileSystemDirectoryHandle> = new Promise(
 		resolve => {
-			resolveBlobCacheHandle = resolve
+			resolveTempDirectoryHandle = resolve
 		}
 	)
 
@@ -41,15 +42,15 @@ export const useBlobStore = defineStore('blobCache', () => {
 			await root.getDirectoryHandle('local', {create: true})
 		)
 
-		const blobCacheHandle = await root.getDirectoryHandle('__blobCache', {
+		const tempDirectoryHandle = await root.getDirectoryHandle('__temp', {
 			create: true,
 		})
 
-		for await (const key of blobCacheHandle.keys()) {
-			blobCacheHandle.removeEntry(key)
+		for await (const key of tempDirectoryHandle.keys()) {
+			tempDirectoryHandle.removeEntry(key)
 		}
 
-		resolveBlobCacheHandle(blobCacheHandle)
+		resolveTempDirectoryHandle(tempDirectoryHandle)
 
 		estimateStorage()
 	})()
@@ -73,7 +74,7 @@ export const useBlobStore = defineStore('blobCache', () => {
 			const cacheName =
 				(directoryHandle.name ?? 'originPrivate') + '__' + filename
 
-			const cache = await blobCacheHandle
+			const cache = await tempDirectoryHandle
 			const cacheHandle = await cache.getFileHandle(cacheName, {create: true})
 			await queryPermission(cacheHandle)
 
