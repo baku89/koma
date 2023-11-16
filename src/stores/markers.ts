@@ -66,11 +66,15 @@ export const useMarkersStore = defineStore('markers', () => {
 		navigator.clipboard.writeText(JSON.stringify(clipboard))
 	}
 
-	function addSelection(index: number) {
-		selectedIndices.value.add(index)
+	function addSelection(...indices: number[]) {
+		if (indices.length === 0) return
+
+		indices.forEach(index => {
+			selectedIndices.value.add(index)
+		})
 
 		applyCursorSettingsToSelectionWatcher.pause()
-		cursor.value = {...project.markers[index]}
+		cursor.value = {...project.markers[indices.at(-1) ?? 0]}
 		applyCursorSettingsToSelectionWatcher.resume()
 
 		appSelection.select({

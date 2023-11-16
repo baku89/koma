@@ -83,4 +83,5 @@ onBeforeUnmount(() => ws?.destroy())
 	position relative
 	height 100%
 	pointer-events none
+	opacity 0.25
 </style>
