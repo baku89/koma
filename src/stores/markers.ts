@@ -23,26 +23,6 @@ export const useMarkersStore = defineStore('markers', () => {
 		color: 'skyblue',
 	})
 
-	function add(marker?: Marker) {
-		project.$patch(d => {
-			d.markers.push(marker ?? cursor.value)
-		})
-
-		return project.markers.length - 1
-	}
-
-	function update(index: number, marker: Marker) {
-		project.$patch(d => {
-			d.markers[index] = marker
-		})
-	}
-
-	function remove(index: number) {
-		project.$patch(d => {
-			d.markers.splice(index, 1)
-		})
-	}
-
 	function deleteSelected() {
 		project.$patch(d => {
 			const indices = new Set(selectedIndices.value)
@@ -66,7 +46,7 @@ export const useMarkersStore = defineStore('markers', () => {
 		navigator.clipboard.writeText(JSON.stringify(clipboard))
 	}
 
-	function addSelection(...indices: number[]) {
+	function select(...indices: number[]) {
 		if (indices.length === 0) return
 
 		indices.forEach(index => {
@@ -146,10 +126,8 @@ export const useMarkersStore = defineStore('markers', () => {
 
 	return {
 		cursor,
-		add,
-		update,
-		remove,
-		addSelection,
+		unselect,
+		select,
 		isSelected,
 		selectedIndices: readonly(selectedIndices),
 	}

@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import {Bndr} from 'bndr-js'
 import {scalar, vec2} from 'linearly'
-import {clamp} from 'lodash'
+import {clamp, range} from 'lodash'
 import {useBndr} from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
 import {useMarkersStore} from '@/stores/markers'
 import {Marker} from '@/stores/project'
 import {useProjectStore} from '@/stores/project'
-import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 import {speak} from '@/utils'
 
@@ -23,7 +22,6 @@ const props = defineProps<Props>()
 const project = useProjectStore()
 const markers = useMarkersStore()
 const timeline = useTimelineStore()
-const appSelection = useSelectionStore()
 
 const $root = ref<null | HTMLElement>(null)
 
@@ -47,12 +45,14 @@ watch(
 	{deep: true}
 )
 
+let alreadySelectedIndices: number[] = []
+
 // Select and drag
-function select(event: PointerEvent, index: number) {
-	if (!event.shiftKey && markers.isSelected(index) === false) {
-		appSelection.unselect()
+function onPressMarker(event: PointerEvent, index: number) {
+	if (!event.metaKey && markers.isSelected(index) === false) {
+		markers.unselect()
 	}
-	markers.addSelection(index)
+	markers.select(index)
 }
 
 const markersToDrag: Map<number, Marker> = new Map()
@@ -74,10 +74,10 @@ useBndr($root, $root => {
 		markers.cursor = {...markers.cursor, frame, verticalPosition}
 	})
 
-	pointer.primary.down().on(() => {
+	pointer.left.down().on(() => {
 		if (!canAddmarker.value) return
 
-		markers.add()
+		project.markers.push(markers.cursor)
 	})
 
 	pointer.on(e => {
@@ -100,6 +100,14 @@ useBndr($root, $root => {
 		})
 		.on(d => {
 			if (canAddmarker.value) return
+
+			if (d.type === 'down') {
+				if (d.event.shiftKey) {
+					alreadySelectedIndices = [...markers.selectedIndices]
+				} else {
+					alreadySelectedIndices = []
+				}
+			}
 
 			const $rootRect = $root.getBoundingClientRect()
 
@@ -145,8 +153,7 @@ useBndr($root, $root => {
 				}
 			})
 
-			appSelection.unselect()
-			markers.addSelection(...indices)
+			markers.select(...alreadySelectedIndices, ...indices)
 		})
 
 	pointer
@@ -157,10 +164,20 @@ useBndr($root, $root => {
 		.on(d => {
 			if (d.type === 'down') {
 				markersToDrag.clear()
+
+				if (d.event.altKey) {
+					const newMarkers = [...markers.selectedIndices].map(i => ({
+						...project.markers[i],
+					}))
+					const start = project.markers.length
+					const end = project.markers.push(...newMarkers)
+					markers.unselect()
+					markers.select(...range(start, end))
+				}
 				markers.selectedIndices.forEach(i => {
 					markersToDrag.set(i, {...project.markers[i]})
 				})
-			} else {
+			} else if (d.type === 'drag') {
 				const offset = vec2.sub(d.current, d.start)
 
 				const deltaFrame = Math.round(offset[0] / timeline.komaWidth)
@@ -213,7 +230,7 @@ useBndr($root, $root => {
 			:index="i"
 			:marker="marker"
 			:selected="markers.isSelected(i)"
-			@pointerdown="select($event, i)"
+			@pointerdown="onPressMarker($event, i)"
 		/>
 		<div v-if="selectionRect" class="selection-rect" :style="selectionRect" />
 	</div>
@@ -233,5 +250,4 @@ useBndr($root, $root => {
 	position absolute
 	z-index 100
 	border 2px solid var(--tq-color-primary)
-	border-radius var(--tq-input-border-radius)
 </style>
