@@ -269,9 +269,9 @@ export const useProjectStore = defineStore('project', () => {
 				throw new Error('No directory is selected')
 			}
 
-			const unflatProject = (await openBlobJson(
-				directoryHandle.value
-			)) as unknown as Project
+			const unflatProject = (await openBlobJson(directoryHandle.value, {
+				openBlob: opfs.open,
+			})) as unknown as Project
 
 			// In case the latest project format has more properties than the saved one,
 			// merge the saved state with the default state

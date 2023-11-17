@@ -14,6 +14,13 @@ interface SaveBlobJsonOptions {
 	) => Promise<any>
 }
 
+interface OpenBlobJsonOptions {
+	openBlob: (
+		directoryHandle: FileSystemDirectoryHandle,
+		filename: string
+	) => Promise<Blob>
+}
+
 type Json = string | number | boolean | null | Json[] | {[key: string]: Json}
 
 type UnflatData =
@@ -58,7 +65,10 @@ export async function saveBlobJson(
 /**
  * Load the JSON file and replace the path to the Blob with the Blob itself if necessary
  */
-export async function openBlobJson(directoryHandle: FileSystemDirectoryHandle) {
+export async function openBlobJson(
+	directoryHandle: FileSystemDirectoryHandle,
+	options: OpenBlobJsonOptions
+) {
 	const json = await openJson(directoryHandle, 'project.json')
 	return unflat(json as any)
 
@@ -67,7 +77,7 @@ export async function openBlobJson(directoryHandle: FileSystemDirectoryHandle) {
 			return mapPromises(data, value => unflat(value))
 		} else if (typeof data === 'object' && data !== null) {
 			if (data.$type === 'blob') {
-				return readFileFromDirectory(directoryHandle, data.filename as string)
+				return options.openBlob(directoryHandle, data.filename as string)
 			} else {
 				return mapValuePromises(data, value => unflat(value))
 			}
