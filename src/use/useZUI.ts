@@ -20,7 +20,7 @@ export function useZUI(
 
 		// Pan
 		const panByDrag = position.while(mmbPressed).delta(vec2.delta)
-		const panByScroll = scroll.map(vec2.negate).while(altPressed.not, false)
+		const panByScroll = scroll.map(vec2.negate).while(altPressed.not(), false)
 
 		Bndr.combine(panByDrag, panByScroll)
 			.map(mat2d.fromTranslation)
