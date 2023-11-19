@@ -2695,7 +2695,7 @@ caniuse-lite@^1.0.30001541:
 
 case@^1.6.3:
   version "1.6.3"
-  resolved "https://registry.npmjs.org/case/-/case-1.6.3.tgz"
+  resolved "https://registry.yarnpkg.com/case/-/case-1.6.3.tgz#0a4386e3e9825351ca2e6216c60467ff5f1ea1c9"
   integrity sha512-mzDSXIPaFwVDvZAHqZ9VlbyF4yyXRuX6IvB06WvPYkqJVO24kX1PPhv9bfpKNFZyxYFmmgo03HUiD8iklmJYRQ==
 
 chai@^4.3.4:
@@ -6690,7 +6690,7 @@ validate-npm-package-license@^3.0.1:
 
 vite-plugin-eslint@^1.8.1:
   version "1.8.1"
-  resolved "https://registry.npmjs.org/vite-plugin-eslint/-/vite-plugin-eslint-1.8.1.tgz"
+  resolved "https://registry.yarnpkg.com/vite-plugin-eslint/-/vite-plugin-eslint-1.8.1.tgz#0381b8272e7f0fd8b663311b64f7608d55d8b04c"
   integrity sha512-PqdMf3Y2fLO9FsNPmMX+//2BF5SF8nEWspZdgl4kSt7UvHDRHVVfHvxsD7ULYzZrJDGRxR81Nq7TOFgwMnUang==
   dependencies:
     "@rollup/pluginutils" "^4.2.1"
