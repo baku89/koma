@@ -8,6 +8,7 @@ import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
 
+import TimelineDrawing from './TimelineDrawing.vue'
 import TimelineGraph from './TimelineGraph.vue'
 import TimelineHeader from './TimelineHeader.vue'
 import TimelineKoma from './TimelineKoma.vue'
@@ -155,6 +156,9 @@ const vizStyles = computed(() => {
 					/>
 				</div>
 			</div>
+			<template #fixed>
+				<TimelineDrawing :style="vizStyles" :scroll="scroll" />
+			</template>
 			<template #scrollbarRight>
 				<Tq.InputNumber
 					:modelValue="project.timeline.zoomFactor * 100"

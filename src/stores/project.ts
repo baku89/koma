@@ -36,7 +36,7 @@ interface Project<T = Blob> {
 	resolution: vec2
 	timeline: {
 		zoomFactor: number
-		drawing: PaperJSData
+		drawing?: PaperJSData
 	}
 	isLooping: boolean
 	shootCondition: JSCode
@@ -63,10 +63,12 @@ interface Project<T = Blob> {
 	markers: Marker[]
 }
 
-type UndoableData = Pick<Project, 'komas' | 'captureShot' | 'markers'>
+type UndoableData = Pick<Project, 'komas' | 'captureShot' | 'markers'> & {
+	drawing?: PaperJSData
+}
 
 type SVGString = string
-type PaperJSData = any
+type PaperJSData = string
 type JSCode = string
 
 type CameraConfigs = Partial<ConfigType>
@@ -115,7 +117,6 @@ const emptyProject: Project = {
 	onionskin: 0,
 	timeline: {
 		zoomFactor: 1,
-		drawing: null,
 	},
 	isLooping: false,
 	shootCondition: `({camera, aux}) => {
@@ -216,12 +217,14 @@ export const useProjectStore = defineStore('project', () => {
 				captureShot: project.captureShot,
 				komas: project.komas,
 				markers: project.markers,
+				drawing: project.timeline.drawing,
 			}
 		},
 		set(data) {
 			project.captureShot = data.captureShot
 			project.komas = data.komas
 			project.markers = data.markers
+			project.timeline.drawing = data.drawing
 		},
 	})
 

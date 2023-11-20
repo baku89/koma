@@ -618,13 +618,18 @@ actions.register([
 									<Tq.Parameter label="Tool">
 										<Tq.InputRadio
 											v-model="timeline.currentTool"
-											:options="[null, 'marker']"
-											:labels="['None', 'Marker']"
+											:options="['select', 'marker', 'pencil', 'eraser']"
 										>
 											<template #option="{value}">
 												<Icon
 													:icon="
-														value === 'marker' ? 'mdi:marker' : 'ph:cursor-fill'
+														value === 'select'
+															? 'ph:cursor-fill'
+															: value === 'marker'
+															? 'subway:mark'
+															: value === 'pencil'
+															? 'mdi:pencil'
+															: 'mdi:eraser'
 													"
 												/>
 											</template>
