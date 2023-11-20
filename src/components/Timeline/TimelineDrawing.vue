@@ -145,12 +145,13 @@ watch(
 .TimelineDrawing
 	position absolute
 	inset 0
-	z-index 400
+	z-index -10
 	pointer-events none
 
 	&.pencil
 	&.eraser
 		pointer-events auto
+		z-index 400
 
 	&.pencil
 		cursor crosshair
