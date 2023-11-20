@@ -55,6 +55,11 @@ export const useOpfsStore = defineStore('opfs', () => {
 		estimateStorage()
 	})()
 
+	const savedFilenameForBlob = new WeakMap<
+		FileSystemDirectoryHandle,
+		WeakMap<Blob, string>
+	>()
+
 	/**
 	 * Open the file with the given handler and name. When opening a file, it is also saved in the cache folder within OPFS and then a reference Blob to that file is returned. This allows the file to be opened without any issues even if it is overwritten.
 	 */
@@ -84,7 +89,18 @@ export const useOpfsStore = defineStore('opfs', () => {
 
 			estimateStorage()
 
-			return await cacheHandle.getFile()
+			const cached = await cacheHandle.getFile()
+
+			let map = savedFilenameForBlob.get(directoryHandle)
+
+			if (!map) {
+				map = new WeakMap()
+				savedFilenameForBlob.set(directoryHandle, map)
+			}
+
+			map.set(cached, filename)
+
+			return cached
 		} catch (e) {
 			throw new Error(
 				'Could not open the file: directory=' +
@@ -94,11 +110,6 @@ export const useOpfsStore = defineStore('opfs', () => {
 			)
 		}
 	}
-
-	const savedFilenameForBlob = new WeakMap<
-		FileSystemDirectoryHandle,
-		WeakMap<Blob, string>
-	>()
 
 	/**
 	 * Memoized function for saving a blob to a file.
