@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {pausableWatch, useElementSize} from '@vueuse/core'
+import {pausableWatch, useElementBounding} from '@vueuse/core'
 import paper from 'paper'
 import {onMounted, ref, watch, watchEffect} from 'vue'
 
@@ -21,7 +21,7 @@ const scope = ref<paper.PaperScope | null>(null)
 
 const tools = ref<Record<string, paper.Tool>>({})
 
-const {height: canvasHeight} = useElementSize($canvas)
+const {height: canvasHeight, width: canvasWidth} = useElementBounding($canvas)
 
 onMounted(() => {
 	const canvas = $canvas.value!
@@ -98,8 +98,20 @@ const savedDrawingWatcher = pausableWatch(
 
 		scope.project.clear()
 		scope.project.importJSON(drawing)
+		scope.project.view.update()
 	},
 	{immediate: true}
+)
+
+watch(
+	() => [canvasWidth.value, canvasHeight.value] as const,
+	([width, height]) => {
+		if ($canvas.value) {
+			$canvas.value.width = width
+			$canvas.value.height = height
+		}
+		scope.value?.view.viewSize.set(width, height)
+	}
 )
 
 watch(
@@ -108,15 +120,14 @@ watch(
 			scope.value,
 			props.scroll,
 			project.timeline.zoomFactor,
+
 			canvasHeight.value,
 		] as const,
 	([scope, scroll, zoom, height]) => {
 		if (!scope) return
 
 		const vertZoom = height / 400
-
 		const matrix = new paper.Matrix(zoom, 0, 0, vertZoom, -scroll, 0)
-
 		scope.view.matrix = matrix
 	}
 )
@@ -124,7 +135,7 @@ watch(
 
 <template>
 	<div class="TimelineDrawing" :class="[timeline.currentTool]">
-		<canvas ref="$canvas" class="canvas" resize />
+		<canvas ref="$canvas" class="canvas" />
 	</div>
 </template>
 
