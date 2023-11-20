@@ -1,10 +1,10 @@
 import {pausableWatch} from '@vueuse/core'
 import {defineStore} from 'pinia'
-import {useAppConfigStore} from 'tweeq'
 import {readonly, ref} from 'vue'
 
 import {Marker, useProjectStore} from './project'
 import {useSelectionStore} from './selection'
+import {useTimelineStore} from './timeline'
 import {useViewportStore} from './viewport'
 
 export const useMarkersStore = defineStore('markers', () => {
@@ -13,15 +13,7 @@ export const useMarkersStore = defineStore('markers', () => {
 	const project = useProjectStore()
 	const appSelection = useSelectionStore()
 	const viewport = useViewportStore()
-	const appConfig = useAppConfigStore()
-
-	const cursor = appConfig.ref<Marker>('marker.cursor', {
-		frame: 0,
-		verticalPosition: 0,
-		label: 'Marker',
-		duration: 1,
-		color: 'skyblue',
-	})
+	const timeline = useTimelineStore()
 
 	function deleteSelected() {
 		project.$patch(d => {
@@ -54,7 +46,10 @@ export const useMarkersStore = defineStore('markers', () => {
 		})
 
 		applyCursorSettingsToSelectionWatcher.pause()
-		cursor.value = {...project.markers[indices.at(-1) ?? 0]}
+		timeline.toolOptions = {
+			...timeline.toolOptions,
+			...project.markers[indices.at(-1) ?? 0],
+		}
 		applyCursorSettingsToSelectionWatcher.resume()
 
 		appSelection.select({
@@ -94,7 +89,11 @@ export const useMarkersStore = defineStore('markers', () => {
 
 	const applyCursorSettingsToSelectionWatcher = pausableWatch(
 		() =>
-			[cursor.value.color, cursor.value.label, cursor.value.duration] as const,
+			[
+				timeline.toolOptions.color,
+				timeline.toolOptions.label,
+				timeline.toolOptions.duration,
+			] as const,
 		([color, label, duration], [pColor, pLabel, pDuration]) => {
 			const changed: Partial<Marker> = {}
 
@@ -125,7 +124,6 @@ export const useMarkersStore = defineStore('markers', () => {
 	)
 
 	return {
-		cursor,
 		unselect,
 		select,
 		isSelected,

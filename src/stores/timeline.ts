@@ -2,7 +2,11 @@ import {defineStore} from 'pinia'
 import {useActionsStore, useAppConfigStore} from 'tweeq'
 import {computed, ref} from 'vue'
 
-import {useProjectStore} from './project'
+import {type Marker, useProjectStore} from './project'
+
+interface PencilProps {
+	color: string
+}
 
 export const useTimelineStore = defineStore('timeline', () => {
 	const appConfig = useAppConfigStore()
@@ -13,6 +17,14 @@ export const useTimelineStore = defineStore('timeline', () => {
 		'timeline.currentTool',
 		'marker'
 	)
+
+	const toolOptions = appConfig.ref<Marker & PencilProps>('tool.options', {
+		frame: 0,
+		verticalPosition: 0,
+		label: 'Marker',
+		duration: 1,
+		color: 'skyblue',
+	})
 
 	const komaWidthBase = ref(60)
 	const komaAspect = ref(3 / 2)
@@ -72,6 +84,7 @@ export const useTimelineStore = defineStore('timeline', () => {
 
 	return {
 		currentTool,
+		toolOptions,
 		komaWidth,
 		komaHeight,
 	}

@@ -1,21 +1,38 @@
 <script lang="ts" setup>
 import Tq from 'tweeq'
+import {computed} from 'vue'
 
-import {useMarkersStore} from '@/stores/markers'
+import {useTimelineStore} from '@/stores/timeline'
 
-const markers = useMarkersStore()
+const timeline = useTimelineStore()
+
+const visibleProps = computed(() => {
+	switch (timeline.currentTool) {
+		case 'select':
+		case 'marker':
+			return ['color', 'label', 'duration']
+		case 'pencil':
+			return ['color', 'strokeWidth']
+		default:
+			return []
+	}
+})
 </script>
 
 <template>
-	<Tq.ParameterGroup label="Marker Settings" name="markerSettings">
-		<Tq.Parameter label="Label">
-			<Tq.InputString v-model="markers.cursor.label" />
+	<Tq.ParameterGroup label="Tool Options" name="toolOptions">
+		<Tq.Parameter v-if="visibleProps.includes('color')" label="Color">
+			<Tq.InputColor v-model="timeline.toolOptions.color" />
 		</Tq.Parameter>
-		<Tq.Parameter label="Color">
-			<Tq.InputColor v-model="markers.cursor.color" />
+		<Tq.Parameter v-if="visibleProps.includes('label')" label="Label">
+			<Tq.InputString v-model="timeline.toolOptions.label" />
 		</Tq.Parameter>
-		<Tq.Parameter label="Duration">
-			<Tq.InputNumber v-model="markers.cursor.duration" :min="0" :step="1" />
+		<Tq.Parameter v-if="visibleProps.includes('duration')" label="Duration">
+			<Tq.InputNumber
+				v-model="timeline.toolOptions.duration"
+				:min="0"
+				:step="1"
+			/>
 		</Tq.Parameter>
 	</Tq.ParameterGroup>
 </template>

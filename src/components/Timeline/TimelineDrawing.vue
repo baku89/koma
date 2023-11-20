@@ -35,7 +35,7 @@ onMounted(() => {
 		pencil.onMouseDrag = function (event: any) {
 			if (!path) {
 				path = new paper.Path({
-					strokeColor: 'white',
+					strokeColor: timeline.toolOptions.color,
 					strokeWidth: 2,
 					joinCap: 'round',
 					lineCap: 'round',
