@@ -27,20 +27,28 @@ export const useTimelineStore = defineStore('timeline', () => {
 
 	actions.register([
 		{
-			id: 'enable_timeline_marker_tool',
-			bind: 'm',
-			icon: 'mdi:marker',
-			perform() {
-				currentTool.value = 'marker'
-			},
-		},
-		{
-			id: 'enable_timeline_select_tool',
-			bind: 'v',
-			icon: 'ph:cursor-fill',
-			perform() {
-				currentTool.value = null
-			},
+			id: 'timeline',
+			icon: 'material-symbols:view-timeline',
+			children: [
+				{
+					id: 'enable_timeline_marker_tool',
+					shortLabel: 'Marker Tool',
+					bind: 'm',
+					icon: 'mdi:marker',
+					perform() {
+						currentTool.value = 'marker'
+					},
+				},
+				{
+					id: 'enable_timeline_select_tool',
+					shortLabel: 'Select Tool',
+					bind: 'v',
+					icon: 'ph:cursor-fill',
+					perform() {
+						currentTool.value = null
+					},
+				},
+			],
 		},
 	])
 

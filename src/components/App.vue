@@ -195,352 +195,396 @@ gamepadAxisNeutral.on(() => {
 
 actions.register([
 	{
-		id: 'create_new',
-		icon: 'mdi:file',
-		bind: 'command+n',
-		async perform() {
-			await project.createNew()
-			viewport.setCurrentFrame(project.captureShot.frame)
-		},
+		id: 'file',
+		icon: 'mdi:folder',
+		children: [
+			{
+				id: 'create_new',
+				icon: 'mdi:file',
+				bind: 'command+n',
+				async perform() {
+					await project.createNew()
+					viewport.setCurrentFrame(project.captureShot.frame)
+				},
+			},
+			{
+				id: 'open_project',
+				label: 'Open Project...',
+				icon: 'material-symbols:folder-open-rounded',
+				bind: 'command+o',
+				async perform() {
+					await project.open()
+					viewport.setCurrentFrame(project.captureShot.frame)
+				},
+			},
+			{
+				id: 'save_project_as',
+				label: 'Save Project As...',
+				icon: 'mdi:content-save',
+				bind: 'command+shift+s',
+				async perform() {
+					await project.saveAs()
+				},
+			},
+			{
+				id: 'save_project_in_opfs',
+				label: 'Save Project in OPFS',
+				icon: 'octicon:cache-16',
+				async perform() {
+					await project.saveInOpfs()
+				},
+			},
+			{
+				id: 'import_audio',
+				icon: 'material-symbols:audio-file',
+				async perform() {
+					const files = await window.showOpenFilePicker({
+						types: [
+							{
+								description: 'Audio Files',
+								accept: {'audio/*': ['.wav']},
+							},
+						],
+					})
+
+					const src = await files[0].getFile()
+
+					project.$patch({audio: {src, startFrame: 0}})
+				},
+			},
+			{
+				id: 'project_settings',
+				icon: 'mdi:gear',
+				bind: 'command+,',
+				async perform() {
+					const result = await $modal.value!.prompt(
+						{
+							name: project.name,
+							fps: project.fps,
+							duration: project.duration,
+							shootCondition: project.shootCondition,
+						},
+						{
+							name: {type: 'string'},
+							fps: {type: 'number', min: 1, max: 60, step: 1},
+							duration: {type: 'number', min: 0, step: 1},
+							shootCondition: {type: 'code', lang: 'javascript'},
+						},
+						{
+							title: 'Project Settings',
+						}
+					)
+
+					project.duration = result.duration
+
+					delete result.duration
+					project.$patch(result)
+				},
+			},
+		],
 	},
 	{
-		id: 'open_project',
-		label: 'Open Project...',
-		icon: 'material-symbols:folder-open-rounded',
-		bind: 'command+o',
-		async perform() {
-			await project.open()
-			viewport.setCurrentFrame(project.captureShot.frame)
-		},
-	},
-	{
-		id: 'save_project_as',
-		label: 'Save Project As...',
-		icon: 'mdi:content-save',
-		bind: 'command+shift+s',
-		async perform() {
-			await project.saveAs()
-		},
-	},
-	{
-		id: 'save_project_in_opfs',
-		label: 'Save Project in OPFS',
-		icon: 'octicon:cache-16',
-		async perform() {
-			await project.saveInOpfs()
-		},
-	},
-	{
-		id: 'shoot',
-		icon: 'mdi:circle',
-		bind: ['enter', 'gamepad:a'],
-		async perform() {
-			const newShot = await shoot()
-
-			project.$patch(state => {
-				const {frame, layer} = state.captureShot
-				project.setShot(frame, layer, newShot)
-
-				// Find next empty frame
-				for (let i = frame + 1; i <= state.komas.length; i++) {
-					if (!state.komas[i] || !state.komas[i]?.shots[0]) {
-						state.captureShot = {frame: i, layer: 0}
-						break
-					}
-				}
-
-				state.previewRange[1] = state.captureShot.frame
-			})
-
-			viewport.setCurrentFrame(project.captureShot.frame)
-			viewport.setCurrentLayer(project.captureShot.layer)
-		},
-	},
-	{
-		id: 'shoot_and_next_layer',
-		icon: 'mdi:circle',
-		bind: ['shift+enter', 'gamepad:+'],
-		async perform() {
-			const newShot = await shoot()
-
-			project.$patch(state => {
-				const {frame, layer} = state.captureShot
-				project.setShot(frame, layer, newShot)
-
-				project.captureShot.layer += 1
-			})
-
-			viewport.setCurrentFrame(project.captureShot.frame)
-			viewport.setCurrentLayer(project.captureShot.layer)
-		},
-	},
-	{
-		id: 'set_capture_frame',
+		id: 'camera',
 		icon: 'mdi:camera',
-		bind: ['a', 'gamepad:zr'],
-		perform() {
-			project.$patch({
-				captureShot: {
-					frame: viewport.currentFrame,
-					layer: viewport.currentLayer,
+		children: [
+			{
+				id: 'nudge_focus_far',
+				icon: 'material-symbols:landscape-outline',
+				bind: ['2', 'gamepad:y'],
+				perform() {
+					if (camera.focusDistance.value === null) return
+					camera.focusDistance.set(camera.focusDistance.value + 0.005)
 				},
-			})
-		},
-	},
-	{
-		id: 'nudge_focus_far',
-		icon: 'material-symbols:landscape-outline',
-		bind: ['2', 'gamepad:y'],
-		perform() {
-			if (camera.focusDistance.value === null) return
-			camera.focusDistance.set(camera.focusDistance.value + 0.005)
-		},
-	},
-	{
-		id: 'nudge_focus_near',
-		icon: 'tabler:macro',
-		bind: ['1', 'gamepad:x'],
-		perform() {
-			if (camera.focusDistance.value === null) return
-			camera.focusDistance.set(camera.focusDistance.value - 0.005)
-		},
-	},
-	{
-		id: 'onion_increase',
-		icon: 'fluent-emoji-high-contrast:onion',
-		bind: ['gamepad:rsr'],
-		perform() {
-			const onionskin = scalar.clamp(project.onionskin + 0.5, -3, 0)
-			project.$patch({onionskin})
-		},
-	},
-	{
-		id: 'onion_decrease',
-		icon: 'fluent-emoji-high-contrast:onion',
-		bind: ['gamepad:rsl'],
-		perform() {
-			const onionskin = scalar.clamp(project.onionskin - 0.5, -3, 0)
-			project.$patch({onionskin})
-		},
-	},
-	{
-		id: 'enable_onionskin',
-		icon: 'fluent-emoji-high-contrast:onion',
-		bind: [gamepad.button('rsl').longPress(500).pressed],
-		perform() {
-			viewport.enableOnionskin = true
-		},
-	},
-	{
-		id: 'disable_onionskin',
-		icon: 'fluent-emoji-high-contrast:onion',
-		bind: [gamepad.button('rsr').longPress(500).pressed],
-		perform() {
-			viewport.enableOnionskin = false
-		},
-	},
-	{
-		id: 'undo',
-		icon: 'mdi:undo',
-		bind: 'command+z',
-		perform() {
-			if (!project.history.canUndo) return
-
-			project.undo()
-		},
-	},
-	{
-		id: 'redo',
-		icon: 'mdi:redo',
-		bind: 'command+shift+z',
-		perform() {
-			if (!project.history.canRedo) return
-
-			project.redo()
-		},
-	},
-	{
-		id: 'go_forward_1_frame',
-		icon: 'lucide:step-forward',
-		bind: ['f', 'right', gamepadAxisRight.down()],
-		perform() {
-			viewport.setCurrentFrame(viewport.currentFrame + 1)
-			viewport.selectShot()
-		},
-	},
-	{
-		id: 'go_backward_1_frame',
-		icon: 'lucide:step-back',
-		bind: ['d', 'left', gamepadAxisLeft.down()],
-		perform() {
-			viewport.setCurrentFrame(viewport.currentFrame - 1)
-			viewport.selectShot()
-		},
-	},
-	{
-		id: 'increment_current_layer',
-		icon: 'mdi:arrow-down',
-		bind: ['down', gamepadAxisBottom.down()],
-		perform() {
-			viewport.setCurrentLayer(viewport.currentLayer + 1)
-			viewport.selectShot()
-		},
-	},
-	{
-		id: 'decrement_current_layer',
-		icon: 'mdi:arrow-up',
-		bind: ['up', gamepadAxisTop.down()],
-		perform() {
-			viewport.setCurrentLayer(viewport.currentLayer - 1)
-			viewport.selectShot()
-		},
-	},
-	{
-		id: 'insert_camera',
-		icon: 'mdi:camera-plus',
-		perform() {
-			project.captureShot.frame = viewport.currentFrame
-		},
-	},
-	{
-		id: 'set_in_point',
-		icon: 'mdi:contain-start',
-		bind: 'b',
-		perform() {
-			project.setInPoint(viewport.currentFrame)
-		},
-	},
-	{
-		id: 'set_out_point',
-		icon: 'mdi:contain-end',
-		bind: 'n',
-		perform() {
-			project.setOutPoint(viewport.currentFrame)
-		},
-	},
-	{
-		id: 'toggle_play',
-		icon: 'mdi:play',
-		bind: ['space'],
-		perform() {
-			viewport.isPlaying = !viewport.isPlaying
-		},
-	},
-	{
-		id: 'toggle_loop',
-		icon: 'material-symbols:laps',
-		bind: 'l',
-		perform() {
-			project.isLooping = !project.isLooping
-		},
-	},
-	{
-		id: 'import_audio',
-		icon: 'material-symbols:audio-file',
-		async perform() {
-			const files = await window.showOpenFilePicker({
-				types: [
-					{
-						description: 'Audio Files',
-						accept: {'audio/*': ['.wav']},
-					},
-				],
-			})
-
-			const src = await files[0].getFile()
-
-			project.$patch({audio: {src, startFrame: 0}})
-		},
-	},
-	{
-		id: 'project_settings',
-		icon: 'mdi:gear',
-		bind: 'command+,',
-		async perform() {
-			const result = await $modal.value!.prompt(
-				{
-					name: project.name,
-					fps: project.fps,
-					duration: project.duration,
-					shootCondition: project.shootCondition,
+			},
+			{
+				id: 'nudge_focus_near',
+				icon: 'tabler:macro',
+				bind: ['1', 'gamepad:x'],
+				perform() {
+					if (camera.focusDistance.value === null) return
+					camera.focusDistance.set(camera.focusDistance.value - 0.005)
 				},
-				{
-					name: {type: 'string'},
-					fps: {type: 'number', min: 1, max: 60, step: 1},
-					duration: {type: 'number', min: 0, step: 1},
-					shootCondition: {type: 'code', lang: 'javascript'},
+			},
+		],
+	},
+	{
+		id: 'capture',
+		icon: 'tabler:capture-filled',
+		children: [
+			{
+				id: 'shoot',
+				icon: 'mdi:circle',
+				bind: ['enter', 'gamepad:a'],
+				async perform() {
+					const newShot = await shoot()
+
+					project.$patch(state => {
+						const {frame, layer} = state.captureShot
+						project.setShot(frame, layer, newShot)
+
+						// Find next empty frame
+						for (let i = frame + 1; i <= state.komas.length; i++) {
+							if (!state.komas[i] || !state.komas[i]?.shots[0]) {
+								state.captureShot = {frame: i, layer: 0}
+								break
+							}
+						}
+
+						state.previewRange[1] = state.captureShot.frame
+					})
+
+					viewport.setCurrentFrame(project.captureShot.frame)
+					viewport.setCurrentLayer(project.captureShot.layer)
 				},
-				{
-					title: 'Project Settings',
-				}
-			)
+			},
+			{
+				id: 'shoot_and_next_layer',
+				icon: 'mdi:circle',
+				bind: ['shift+enter', 'gamepad:+'],
+				async perform() {
+					const newShot = await shoot()
 
-			project.duration = result.duration
+					project.$patch(state => {
+						const {frame, layer} = state.captureShot
+						project.setShot(frame, layer, newShot)
 
-			delete result.duration
-			project.$patch(result)
-		},
+						project.captureShot.layer += 1
+					})
+
+					viewport.setCurrentFrame(project.captureShot.frame)
+					viewport.setCurrentLayer(project.captureShot.layer)
+				},
+			},
+			{
+				id: 'set_capture_frame',
+				icon: 'mdi:camera',
+				bind: ['a', 'gamepad:zr'],
+				perform() {
+					project.$patch({
+						captureShot: {
+							frame: viewport.currentFrame,
+							layer: viewport.currentLayer,
+						},
+					})
+				},
+			},
+		],
 	},
 	{
-		id: 'export_tracker_targets',
-		icon: 'ooui:map-trail',
-		perform() {
-			const trackers = project.previewKomas.flatMap((koma, frame) => {
-				const tracker = koma.shots[0]?.tracker
+		id: 'edit',
+		icon: 'material-symbols:edit',
+		children: [
+			{
+				id: 'undo',
+				icon: 'mdi:undo',
+				bind: 'command+z',
+				perform() {
+					if (!project.history.canUndo) return
 
-				frame += project.previewRange[0]
+					project.undo()
+				},
+			},
+			{
+				id: 'redo',
+				icon: 'mdi:redo',
+				bind: 'command+shift+z',
+				perform() {
+					if (!project.history.canRedo) return
 
-				if (tracker) return tracker ? [{frame, ...tracker}] : []
-			})
-
-			const blob = new Blob([JSON.stringify(trackers, null, 2)], {
-				type: 'application/json',
-			})
-
-			const url = URL.createObjectURL(blob)
-			const link = document.createElement('a')
-			link.download = 'tracker_targets.json'
-			link.href = url
-			link.click()
-		},
+					project.redo()
+				},
+			},
+		],
 	},
 	{
-		id: 'clear_tracker_targets',
-		icon: 'ooui:map-trail',
-		perform() {
-			project.$patch(draft => {
-				for (const koma of draft.komas) {
-					if (koma) {
-						koma.target = {...(koma.target ?? {}), tracker: undefined}
-					}
-				}
-			})
-		},
+		id: 'timeline',
+		children: [
+			{
+				id: 'go_forward_1_frame',
+				icon: 'lucide:step-forward',
+				bind: ['f', 'right', gamepadAxisRight.down()],
+				perform() {
+					viewport.setCurrentFrame(viewport.currentFrame + 1)
+					viewport.selectShot()
+				},
+			},
+			{
+				id: 'go_backward_1_frame',
+				icon: 'lucide:step-back',
+				bind: ['d', 'left', gamepadAxisLeft.down()],
+				perform() {
+					viewport.setCurrentFrame(viewport.currentFrame - 1)
+					viewport.selectShot()
+				},
+			},
+			{
+				id: 'increment_current_layer',
+				icon: 'mdi:arrow-down',
+				bind: ['down', gamepadAxisBottom.down()],
+				perform() {
+					viewport.setCurrentLayer(viewport.currentLayer + 1)
+					viewport.selectShot()
+				},
+			},
+			{
+				id: 'decrement_current_layer',
+				icon: 'mdi:arrow-up',
+				bind: ['up', gamepadAxisTop.down()],
+				perform() {
+					viewport.setCurrentLayer(viewport.currentLayer - 1)
+					viewport.selectShot()
+				},
+			},
+			{
+				id: 'insert_camera',
+				icon: 'mdi:camera-plus',
+				perform() {
+					project.captureShot.frame = viewport.currentFrame
+				},
+			},
+			{
+				id: 'set_in_point',
+				icon: 'mdi:contain-start',
+				bind: 'b',
+				perform() {
+					project.setInPoint(viewport.currentFrame)
+				},
+			},
+			{
+				id: 'set_out_point',
+				icon: 'mdi:contain-end',
+				bind: 'n',
+				perform() {
+					project.setOutPoint(viewport.currentFrame)
+				},
+			},
+			{
+				id: 'export_tracker_targets',
+				icon: 'ooui:map-trail',
+				perform() {
+					const trackers = project.previewKomas.flatMap((koma, frame) => {
+						const tracker = koma.shots[0]?.tracker
+
+						frame += project.previewRange[0]
+
+						if (tracker) return tracker ? [{frame, ...tracker}] : []
+					})
+
+					const blob = new Blob([JSON.stringify(trackers, null, 2)], {
+						type: 'application/json',
+					})
+
+					const url = URL.createObjectURL(blob)
+					const link = document.createElement('a')
+					link.download = 'tracker_targets.json'
+					link.href = url
+					link.click()
+				},
+			},
+			{
+				id: 'clear_tracker_targets',
+				icon: 'ooui:map-trail',
+				perform() {
+					project.$patch(draft => {
+						for (const koma of draft.komas) {
+							if (koma) {
+								koma.target = {...(koma.target ?? {}), tracker: undefined}
+							}
+						}
+					})
+				},
+			},
+			{
+				id: 'import_tracker_targets',
+				icon: 'ooui:map-trail',
+				async perform() {
+					const [fileHandle] = await window.showOpenFilePicker()
+
+					// ファイルを読み取る
+					const file = await fileHandle.getFile()
+					const content = await file.text()
+
+					// JSONをパース
+					const data: {frame: number; position: vec3; rotation: vec4}[] =
+						JSON.parse(content)
+
+					project.$patch(draft => {
+						for (const {frame, position, rotation} of data) {
+							let koma = draft.komas[frame]
+							if (!koma) {
+								koma = {shots: []}
+							}
+							koma.target = {
+								...(koma.target ?? {}),
+								tracker: {position, rotation},
+							}
+						}
+					})
+				},
+			},
+		],
 	},
 	{
-		id: 'import_tracker_targets',
-		icon: 'ooui:map-trail',
-		async perform() {
-			const [fileHandle] = await window.showOpenFilePicker()
-
-			// ファイルを読み取る
-			const file = await fileHandle.getFile()
-			const content = await file.text()
-
-			// JSONをパース
-			const data: {frame: number; position: vec3; rotation: vec4}[] =
-				JSON.parse(content)
-
-			project.$patch(draft => {
-				for (const {frame, position, rotation} of data) {
-					let koma = draft.komas[frame]
-					if (!koma) {
-						koma = {shots: []}
-					}
-					koma.target = {...(koma.target ?? {}), tracker: {position, rotation}}
-				}
-			})
-		},
+		id: 'viewport',
+		icon: 'mdi:frame',
+		children: [
+			{
+				id: 'onion_increase',
+				icon: 'fluent-emoji-high-contrast:onion',
+				bind: ['gamepad:rsr'],
+				perform() {
+					const onionskin = scalar.clamp(project.onionskin + 0.5, -3, 0)
+					project.$patch({onionskin})
+				},
+			},
+			{
+				id: 'onion_decrease',
+				icon: 'fluent-emoji-high-contrast:onion',
+				bind: ['gamepad:rsl'],
+				perform() {
+					const onionskin = scalar.clamp(project.onionskin - 0.5, -3, 0)
+					project.$patch({onionskin})
+				},
+			},
+			{
+				id: 'enable_onionskin',
+				icon: 'fluent-emoji-high-contrast:onion',
+				bind: [gamepad.button('rsl').longPress(500).pressed],
+				perform() {
+					viewport.enableOnionskin = true
+				},
+			},
+			{
+				id: 'disable_onionskin',
+				icon: 'fluent-emoji-high-contrast:onion',
+				bind: [gamepad.button('rsr').longPress(500).pressed],
+				perform() {
+					viewport.enableOnionskin = false
+				},
+			},
+		],
+	},
+	{
+		id: 'playback',
+		icon: 'mdi:animation-play',
+		children: [
+			{
+				id: 'toggle_play',
+				icon: 'mdi:play',
+				bind: ['space'],
+				perform() {
+					viewport.isPlaying = !viewport.isPlaying
+				},
+			},
+			{
+				id: 'toggle_loop',
+				icon: 'material-symbols:laps',
+				bind: 'l',
+				perform() {
+					project.isLooping = !project.isLooping
+				},
+			},
+		],
 	},
 ])
 </script>

@@ -68,12 +68,17 @@ useZUI($wrapper, delta => {
 
 actions.register([
 	{
-		id: 'frame_all',
-		bind: 'h',
-		icon: 'material-symbols:frame-inspect',
-		perform() {
-			project.viewport.transform = 'fit'
-		},
+		id: 'viewport',
+		children: [
+			{
+				id: 'frame_all',
+				bind: 'h',
+				icon: 'material-symbols:frame-inspect',
+				perform() {
+					project.viewport.transform = 'fit'
+				},
+			},
+		],
 	},
 ])
 </script>

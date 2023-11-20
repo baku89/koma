@@ -59,42 +59,47 @@ export const useSelectionStore = defineStore('selection', () => {
 
 	actions.register([
 		{
-			id: 'delete_selected',
-			icon: 'mdi:backspace',
-			bind: [
-				'delete',
-				'backspace',
-				Bndr.gamepad().button('+').longPress(500).pressed,
+			id: 'edit',
+			children: [
+				{
+					id: 'copy',
+					icon: 'mdi:content-copy',
+					bind: 'command+c',
+					perform: copy,
+				},
+				{
+					id: 'cut',
+					icon: 'mdi:content-cut',
+					bind: 'command+x',
+					perform: cut,
+				},
+				{
+					id: 'paste',
+					icon: 'mdi:content-paste',
+					bind: 'command+v',
+					perform: paste,
+				},
+				{
+					id: 'delete',
+					icon: 'mdi:backspace',
+					bind: [
+						'delete',
+						'backspace',
+						Bndr.gamepad().button('+').longPress(500).pressed,
+					],
+					perform() {
+						if (selection?.onDelete) {
+							selection.onDelete()
+						}
+					},
+				},
+				{
+					id: 'unselect',
+					icon: 'mdi:close',
+					bind: 'esc',
+					perform: unselect,
+				},
 			],
-			perform() {
-				if (selection?.onDelete) {
-					selection.onDelete()
-				}
-			},
-		},
-		{
-			id: 'unselect',
-			icon: 'mdi:close',
-			bind: 'esc',
-			perform: unselect,
-		},
-		{
-			id: 'cut',
-			icon: 'mdi:content-cut',
-			bind: 'command+x',
-			perform: cut,
-		},
-		{
-			id: 'copy',
-			icon: 'mdi:content-copy',
-			bind: 'command+c',
-			perform: copy,
-		},
-		{
-			id: 'paste',
-			icon: 'mdi:content-paste',
-			bind: 'command+v',
-			perform: paste,
 		},
 	])
 
