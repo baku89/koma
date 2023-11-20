@@ -100,6 +100,8 @@ const style = computed(() => {
 .ViewportKoma
 	position absolute
 	inset 0
+	pointer-events none
+
 .layer
 img
 video

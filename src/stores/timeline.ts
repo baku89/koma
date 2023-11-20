@@ -28,7 +28,7 @@ export const useTimelineStore = defineStore('timeline', () => {
 	actions.register([
 		{
 			id: 'enable_timeline_marker_tool',
-			input: 'm',
+			bind: 'm',
 			icon: 'mdi:marker',
 			perform() {
 				currentTool.value = 'marker'
@@ -36,7 +36,7 @@ export const useTimelineStore = defineStore('timeline', () => {
 		},
 		{
 			id: 'enable_timeline_select_tool',
-			input: 'v',
+			bind: 'v',
 			icon: 'ph:cursor-fill',
 			perform() {
 				currentTool.value = null

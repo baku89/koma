@@ -61,7 +61,7 @@ export const useSelectionStore = defineStore('selection', () => {
 		{
 			id: 'delete_selected',
 			icon: 'mdi:backspace',
-			input: [
+			bind: [
 				'delete',
 				'backspace',
 				Bndr.gamepad().button('+').longPress(500).pressed,
@@ -75,25 +75,25 @@ export const useSelectionStore = defineStore('selection', () => {
 		{
 			id: 'unselect',
 			icon: 'mdi:close',
-			input: 'esc',
+			bind: 'esc',
 			perform: unselect,
 		},
 		{
 			id: 'cut',
 			icon: 'mdi:content-cut',
-			input: 'command+x',
+			bind: 'command+x',
 			perform: cut,
 		},
 		{
 			id: 'copy',
 			icon: 'mdi:content-copy',
-			input: 'command+c',
+			bind: 'command+c',
 			perform: copy,
 		},
 		{
 			id: 'paste',
 			icon: 'mdi:content-paste',
-			input: 'command+v',
+			bind: 'command+v',
 			perform: paste,
 		},
 	])

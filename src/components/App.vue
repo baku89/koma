@@ -197,7 +197,7 @@ actions.register([
 	{
 		id: 'create_new',
 		icon: 'mdi:file',
-		input: 'command+n',
+		bind: 'command+n',
 		async perform() {
 			await project.createNew()
 			viewport.setCurrentFrame(project.captureShot.frame)
@@ -207,7 +207,7 @@ actions.register([
 		id: 'open_project',
 		label: 'Open Project...',
 		icon: 'material-symbols:folder-open-rounded',
-		input: 'command+o',
+		bind: 'command+o',
 		async perform() {
 			await project.open()
 			viewport.setCurrentFrame(project.captureShot.frame)
@@ -217,7 +217,7 @@ actions.register([
 		id: 'save_project_as',
 		label: 'Save Project As...',
 		icon: 'mdi:content-save',
-		input: 'command+shift+s',
+		bind: 'command+shift+s',
 		async perform() {
 			await project.saveAs()
 		},
@@ -233,7 +233,7 @@ actions.register([
 	{
 		id: 'shoot',
 		icon: 'mdi:circle',
-		input: ['enter', 'gamepad:a'],
+		bind: ['enter', 'gamepad:a'],
 		async perform() {
 			const newShot = await shoot()
 
@@ -259,7 +259,7 @@ actions.register([
 	{
 		id: 'shoot_and_next_layer',
 		icon: 'mdi:circle',
-		input: ['shift+enter', 'gamepad:+'],
+		bind: ['shift+enter', 'gamepad:+'],
 		async perform() {
 			const newShot = await shoot()
 
@@ -277,7 +277,7 @@ actions.register([
 	{
 		id: 'set_capture_frame',
 		icon: 'mdi:camera',
-		input: ['a', 'gamepad:zr'],
+		bind: ['a', 'gamepad:zr'],
 		perform() {
 			project.$patch({
 				captureShot: {
@@ -290,7 +290,7 @@ actions.register([
 	{
 		id: 'nudge_focus_far',
 		icon: 'material-symbols:landscape-outline',
-		input: ['2', 'gamepad:y'],
+		bind: ['2', 'gamepad:y'],
 		perform() {
 			if (camera.focusDistance.value === null) return
 			camera.focusDistance.set(camera.focusDistance.value + 0.005)
@@ -299,7 +299,7 @@ actions.register([
 	{
 		id: 'nudge_focus_near',
 		icon: 'tabler:macro',
-		input: ['1', 'gamepad:x'],
+		bind: ['1', 'gamepad:x'],
 		perform() {
 			if (camera.focusDistance.value === null) return
 			camera.focusDistance.set(camera.focusDistance.value - 0.005)
@@ -308,7 +308,7 @@ actions.register([
 	{
 		id: 'onion_increase',
 		icon: 'fluent-emoji-high-contrast:onion',
-		input: ['gamepad:rsr'],
+		bind: ['gamepad:rsr'],
 		perform() {
 			const onionskin = scalar.clamp(project.onionskin + 0.5, -3, 0)
 			project.$patch({onionskin})
@@ -317,7 +317,7 @@ actions.register([
 	{
 		id: 'onion_decrease',
 		icon: 'fluent-emoji-high-contrast:onion',
-		input: ['gamepad:rsl'],
+		bind: ['gamepad:rsl'],
 		perform() {
 			const onionskin = scalar.clamp(project.onionskin - 0.5, -3, 0)
 			project.$patch({onionskin})
@@ -326,7 +326,7 @@ actions.register([
 	{
 		id: 'enable_onionskin',
 		icon: 'fluent-emoji-high-contrast:onion',
-		input: [gamepad.button('rsl').longPress(500).pressed],
+		bind: [gamepad.button('rsl').longPress(500).pressed],
 		perform() {
 			viewport.enableOnionskin = true
 		},
@@ -334,7 +334,7 @@ actions.register([
 	{
 		id: 'disable_onionskin',
 		icon: 'fluent-emoji-high-contrast:onion',
-		input: [gamepad.button('rsr').longPress(500).pressed],
+		bind: [gamepad.button('rsr').longPress(500).pressed],
 		perform() {
 			viewport.enableOnionskin = false
 		},
@@ -342,7 +342,7 @@ actions.register([
 	{
 		id: 'undo',
 		icon: 'mdi:undo',
-		input: 'command+z',
+		bind: 'command+z',
 		perform() {
 			if (!project.history.canUndo) return
 
@@ -352,7 +352,7 @@ actions.register([
 	{
 		id: 'redo',
 		icon: 'mdi:redo',
-		input: 'command+shift+z',
+		bind: 'command+shift+z',
 		perform() {
 			if (!project.history.canRedo) return
 
@@ -362,7 +362,7 @@ actions.register([
 	{
 		id: 'go_forward_1_frame',
 		icon: 'lucide:step-forward',
-		input: ['f', 'right', gamepadAxisRight.down()],
+		bind: ['f', 'right', gamepadAxisRight.down()],
 		perform() {
 			viewport.setCurrentFrame(viewport.currentFrame + 1)
 			viewport.selectShot()
@@ -371,7 +371,7 @@ actions.register([
 	{
 		id: 'go_backward_1_frame',
 		icon: 'lucide:step-back',
-		input: ['d', 'left', gamepadAxisLeft.down()],
+		bind: ['d', 'left', gamepadAxisLeft.down()],
 		perform() {
 			viewport.setCurrentFrame(viewport.currentFrame - 1)
 			viewport.selectShot()
@@ -380,7 +380,7 @@ actions.register([
 	{
 		id: 'increment_current_layer',
 		icon: 'mdi:arrow-down',
-		input: ['down', gamepadAxisBottom.down()],
+		bind: ['down', gamepadAxisBottom.down()],
 		perform() {
 			viewport.setCurrentLayer(viewport.currentLayer + 1)
 			viewport.selectShot()
@@ -389,7 +389,7 @@ actions.register([
 	{
 		id: 'decrement_current_layer',
 		icon: 'mdi:arrow-up',
-		input: ['up', gamepadAxisTop.down()],
+		bind: ['up', gamepadAxisTop.down()],
 		perform() {
 			viewport.setCurrentLayer(viewport.currentLayer - 1)
 			viewport.selectShot()
@@ -405,7 +405,7 @@ actions.register([
 	{
 		id: 'set_in_point',
 		icon: 'mdi:contain-start',
-		input: 'b',
+		bind: 'b',
 		perform() {
 			project.setInPoint(viewport.currentFrame)
 		},
@@ -413,7 +413,7 @@ actions.register([
 	{
 		id: 'set_out_point',
 		icon: 'mdi:contain-end',
-		input: 'n',
+		bind: 'n',
 		perform() {
 			project.setOutPoint(viewport.currentFrame)
 		},
@@ -421,7 +421,7 @@ actions.register([
 	{
 		id: 'toggle_play',
 		icon: 'mdi:play',
-		input: ['space'],
+		bind: ['space'],
 		perform() {
 			viewport.isPlaying = !viewport.isPlaying
 		},
@@ -429,7 +429,7 @@ actions.register([
 	{
 		id: 'toggle_loop',
 		icon: 'material-symbols:laps',
-		input: 'l',
+		bind: 'l',
 		perform() {
 			project.isLooping = !project.isLooping
 		},
@@ -455,7 +455,7 @@ actions.register([
 	{
 		id: 'project_settings',
 		icon: 'mdi:gear',
-		input: 'command+,',
+		bind: 'command+,',
 		async perform() {
 			const result = await $modal.value!.prompt(
 				{
