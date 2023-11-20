@@ -2,7 +2,7 @@
 import {mat4, vec3} from 'linearly'
 import {range} from 'lodash'
 import {Euler, Quaternion} from 'three'
-import {computed, ref} from 'vue'
+import {computed} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
@@ -185,14 +185,6 @@ const targetPositions = computed(() => {
 	})
 })
 
-const rangeX = ref<[min: number, max: number]>([0, 0])
-const rangeY = ref<[min: number, max: number]>([0, 0])
-const rangeZ = ref<[min: number, max: number]>([0, 0])
-
-const rangePitches = ref<[min: number, max: number]>([0, 0])
-const rangeYaws = ref<[min: number, max: number]>([0, 0])
-const rangeRolls = ref<[min: number, max: number]>([0, 0])
-
 const targetPositionsX = computed(() => {
 	return targetPositions.value.map(m => m?.[0] ?? null)
 })
@@ -309,8 +301,8 @@ const viewBox = computed(() => {
 		/>
 		<!-- Positions -->
 		<TimelineGraphPolyline
-			v-model:range="rangeX"
 			:values="positionsX"
+			:referenceValues="targetPositionsX"
 			:valueAtCaptureFrame="0"
 			:minRange="0.1"
 			:maxRange="1"
@@ -319,8 +311,8 @@ const viewBox = computed(() => {
 			transform="translate(0, 0.15) scale(1, 0.7)"
 		/>
 		<TimelineGraphPolyline
-			v-model:range="rangeY"
 			:values="positionsY"
+			:referenceValues="targetPositionsY"
 			:valueAtCaptureFrame="0"
 			:minRange="0.1"
 			:maxRange="1"
@@ -329,8 +321,8 @@ const viewBox = computed(() => {
 			transform="translate(0, 0.175) scale(1, 0.7)"
 		/>
 		<TimelineGraphPolyline
-			v-model:range="rangeZ"
 			:values="positionsZ"
+			:referenceValues="targetPositionsZ"
 			:valueAtCaptureFrame="0"
 			:minRange="0.1"
 			:maxRange="1"
@@ -338,35 +330,10 @@ const viewBox = computed(() => {
 			style="--stroke-width: 1px"
 			transform="translate(0, 0.2) scale(1, 0.7)"
 		/>
-		<!-- Target Positions -->
-		<TimelineGraphPolyline
-			:values="targetPositionsX"
-			:range="rangeX"
-			color="#ff000077"
-			style="--stroke-width: 1px"
-			:startFrame="0"
-			transform="translate(0, 0.15) scale(1, 0.7)"
-		/>
-		<TimelineGraphPolyline
-			:values="targetPositionsY"
-			color="#00ff0077"
-			:range="rangeY"
-			style="--stroke-width: 1px"
-			:startFrame="0"
-			transform="translate(0, 0.175) scale(1, 0.7)"
-		/>
-		<TimelineGraphPolyline
-			:values="targetPositionsZ"
-			color="#44f7"
-			:range="rangeZ"
-			style="--stroke-width: 1px"
-			:startFrame="0"
-			transform="translate(0, 0.2) scale(1, 0.7)"
-		/>
 		<!-- Rotations -->
 		<TimelineGraphPolyline
-			v-model:range="rangePitches"
 			:values="pitches"
+			:referenceValues="targetPitches"
 			:valueAtCaptureFrame="0"
 			:minRange="Math.PI / 16"
 			color="#afa"
@@ -374,8 +341,8 @@ const viewBox = computed(() => {
 			transform="translate(0, 0.225) scale(1, 0.7)"
 		/>
 		<TimelineGraphPolyline
-			v-model:range="rangeYaws"
 			:values="yaws"
+			:referenceValues="targetYaws"
 			:valueAtCaptureFrame="0"
 			:minRange="Math.PI / 16"
 			color="#f55"
@@ -383,8 +350,8 @@ const viewBox = computed(() => {
 			transform="translate(0, 0.25) scale(1, 0.7)"
 		/>
 		<TimelineGraphPolyline
-			v-model:range="rangeRolls"
 			:values="rolls"
+			:referenceValues="targetRolls"
 			:valueAtCaptureFrame="0"
 			:minRange="Math.PI / 16"
 			color="#aaf"
@@ -397,30 +364,6 @@ const viewBox = computed(() => {
 			:minRange="0.1"
 			color="#fff"
 			transform="translate(0, 0.29) scale(1, 0.7)"
-		/>
-		<!-- Target Rotations -->
-		<TimelineGraphPolyline
-			:values="targetPitches"
-			:range="rangePitches"
-			color="#afa7"
-			style="--stroke-dasharray: 4 4; --stroke-width: 1px"
-			:startFrame="0"
-			transform="translate(0, 0.225) scale(1, 0.7)"
-		/>
-		<TimelineGraphPolyline
-			:values="targetYaws"
-			color="#f557"
-			style="--stroke-dasharray: 4 4; --stroke-width: 1px"
-			:startFrame="0"
-			transform="translate(0, 0.25) scale(1, 0.7)"
-		/>
-		<TimelineGraphPolyline
-			:values="targetRolls"
-			:range="rangeRolls"
-			color="#aaf7"
-			style="--stroke-dasharray: 4 4; --stroke-width: 1px"
-			:startFrame="0"
-			transform="translate(0, 0.275) scale(1, 0.7)"
 		/>
 		<!-- Shoot Time -->
 		<TimelineGraphPolyline

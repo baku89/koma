@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import {scalar, vec2} from 'linearly'
-import {computed, watchEffect} from 'vue'
+import {isNumber} from 'lodash'
+import {computed} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 
 interface Props {
 	values: unknown[]
+	referenceValues?: unknown[]
 	color: string
 	valueAtCaptureFrame?: unknown
 	minRange?: number
 	maxRange?: number
 	startFrame?: number
-	range?: [min: number, max: number]
 	filter?: (v: number) => number
 }
 
@@ -20,51 +21,39 @@ const props = withDefaults(defineProps<Props>(), {
 	maxRange: 100000,
 })
 
-const emit = defineEmits<{
-	'update:range': [range: [min: number, max: number]]
-}>()
-
 const project = useProjectStore()
 
-const mappedValues = computed(() => {
-	const {filter: fn} = props
-	if (fn) {
-		return props.values.map(v => (typeof v === 'number' ? fn(v) : null))
-	} else {
-		return props.values.map(v => (typeof v === 'number' ? v : null))
-	}
+const filterFn = computed(
+	() => (v: unknown) => (typeof v === 'number' ? props.filter?.(v) ?? v : null)
+)
+
+// Captured values
+const capturedValues = computed(() => {
+	return props.values.map(filterFn.value)
+})
+
+const capturedRange = computed(() => {
+	const numericValues = capturedValues.value.filter(isNumber)
+
+	const min = Math.min(...numericValues)
+	const max = Math.max(...numericValues)
+
+	return [min, max] as const
 })
 
 const realtimeValues = computed(() => {
-	const captureFrame = project.captureShot.frame
+	const v = filterFn.value(props.valueAtCaptureFrame)
+	const i = project.captureShot.frame - project.previewRange[0]
 
-	if (
-		typeof props.valueAtCaptureFrame !== 'number' ||
-		captureFrame < project.previewRange[0] ||
-		project.previewRange[1] < captureFrame
-	) {
-		return mappedValues.value
-	}
+	if (i < 0 || i >= capturedValues.value.length) return capturedValues.value
 
-	const v =
-		typeof props.valueAtCaptureFrame === 'number'
-			? props.filter?.(props.valueAtCaptureFrame) ?? props.valueAtCaptureFrame
-			: null
-
-	const values = [...mappedValues.value]
-	values[captureFrame - project.previewRange[0]] = v
+	const values = [...capturedValues.value]
+	values[i] = v
 	return values
 })
 
 const rangeComputed = computed<[min: number, max: number]>(() => {
-	let min = Infinity
-	let max = -Infinity
-
-	for (const v of realtimeValues.value) {
-		if (typeof v !== 'number') continue
-		min = Math.min(min, v)
-		max = Math.max(max, v)
-	}
+	let [min, max] = capturedRange.value
 
 	if (max - min < props.minRange) {
 		const mid = (max + min) / 2
@@ -78,21 +67,39 @@ const rangeComputed = computed<[min: number, max: number]>(() => {
 			min = props.valueAtCaptureFrame - props.maxRange
 		}
 	}
-
 	return [min, max]
 })
 
-watchEffect(() => {
-	emit('update:range', rangeComputed.value)
+const points = computed(() => {
+	return convertValuesToPoints(realtimeValues.value, project.previewRange[0])
 })
 
-const points = computed(() => {
-	const [min, max] = props.range ?? rangeComputed.value
-	const startFrame = props.startFrame ?? project.previewRange[0]
+const polylinePath = computed(() => convertToPolylinePath(points.value))
+const dotsPath = computed(() => convertToDotsPath(points.value))
+
+// Reference values
+const referencePoints = computed(() => {
+	const points = props.referenceValues?.map(filterFn.value) ?? []
+
+	return convertValuesToPoints(points, 0)
+})
+
+const referencePolylinePath = computed(() =>
+	convertToPolylinePath(referencePoints.value)
+)
+const referenceDotsPath = computed(() =>
+	convertToDotsPath(referencePoints.value)
+)
+
+//------------------------------------------------------------------------------
+// Helpers
+
+function convertValuesToPoints(values: (number | null)[], startFrame: number) {
+	const [min, max] = rangeComputed.value
 
 	const points: vec2[] = []
 
-	for (const [i, v] of realtimeValues.value.entries()) {
+	for (const [i, v] of values.entries()) {
 		if (v === null) continue
 		const x = i + startFrame
 		const y = scalar.invlerp(max, min, v)
@@ -101,18 +108,18 @@ const points = computed(() => {
 	}
 
 	return points
-})
+}
 
-const polylinePath = computed(() => {
+function convertToPolylinePath(points: vec2[]) {
 	const commands: string[] = []
 
-	const firstPoint = points.value[0] ?? [NaN, NaN]
+	const firstPoint = points[0] ?? [NaN, NaN]
 
 	let prevX = firstPoint[0]
 	let prevY = firstPoint[1]
 	let drawing = false
 
-	for (const [x, y] of points.value) {
+	for (const [x, y] of points) {
 		if (prevY !== y) {
 			if (!drawing) {
 				commands.push(`M${prevX},${prevY}`)
@@ -128,14 +135,12 @@ const polylinePath = computed(() => {
 	}
 
 	return commands.join(' ')
-})
+}
 
-const dotsPath = computed(() => {
-	const _points = points.value
-
-	const filteredPoints = _points.filter(([, y], i) => {
-		const prevY = _points[i - 1]?.at(1) ?? y
-		const nextY = _points[i + 1]?.at(1) ?? y
+function convertToDotsPath(points: vec2[]) {
+	const filteredPoints = points.filter(([, y], i) => {
+		const prevY = points[i - 1]?.at(1) ?? y
+		const nextY = points[i + 1]?.at(1) ?? y
 
 		if (prevY === y && y === nextY) return false
 
@@ -143,13 +148,15 @@ const dotsPath = computed(() => {
 	})
 
 	return filteredPoints.map(([x, y]) => `M${x},${y} L${x},${y}`).join(' ')
-})
+}
 </script>
 
 <template>
 	<g :stroke="color">
 		<path class="polyline" :d="polylinePath" />
 		<path class="dots" :d="dotsPath" />
+		<path class="polyline reference" :d="referencePolylinePath" />
+		<path class="dots reference" :d="referenceDotsPath" />
 	</g>
 </template>
 
@@ -167,4 +174,7 @@ const dotsPath = computed(() => {
 .dots
 	stroke-linecap var(--stroke-linecap, round)
 	stroke-width calc(var(--stroke-width, 1px) + 5px)
+
+.reference
+	opacity 0.4
 </style>
