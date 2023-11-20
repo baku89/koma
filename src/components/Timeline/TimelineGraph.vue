@@ -5,6 +5,7 @@ import {Euler, Quaternion} from 'three'
 import {computed} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
+import {useDmxStore} from '@/stores/dmx'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
 import {useTrackerStore} from '@/stores/tracker'
@@ -15,6 +16,7 @@ const project = useProjectStore()
 const timer = useTimerStore()
 const camera = useCameraStore()
 const tracker = useTrackerStore()
+const dmx = useDmxStore()
 
 const positionMatrixInverse = computed(() => {
 	const m = mat4.clone(tracker.matrix)
@@ -226,6 +228,18 @@ const targetRolls = computed(() => {
 })
 
 //------------------------------------------------------------------------------
+// DMX
+const dmxValues = computed<(number | null)[][]>(() => {
+	const visibleAddresses = range(16).filter(
+		i => project.visibleProperties[`dmx${i + 1}`]?.visible
+	)
+
+	return visibleAddresses.map(i => {
+		return project.previewKomas.map(koma => koma.shots[0]?.dmx?.at(i) ?? null)
+	})
+})
+
+//------------------------------------------------------------------------------
 // Utils
 
 function isPropertyVisible(name: string) {
@@ -374,6 +388,17 @@ const viewBox = computed(() => {
 			:minRange="1000 * 60"
 			style="--stroke-dasharray: 1 7"
 			transform="translate(0, 0.3) scale(1, 0.7)"
+		/>
+		<!-- DMX -->
+		<TimelineGraphPolyline
+			v-for="(values, i) in dmxValues"
+			:key="i"
+			:values="values"
+			:valueAtCaptureFrame="dmx.values[i].value"
+			:color="project.visibleProperties['dmx' + (i + 1)]?.color ?? 'white'"
+			:range="[0, 1]"
+			style="--stroke-width: 2px; --stroke-linecap: square"
+			transform="translate(0, 0.5) scale(1, 0.5)"
 		/>
 	</svg>
 </template>

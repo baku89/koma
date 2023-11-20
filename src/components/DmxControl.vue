@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Icon} from '@iconify/vue'
-import Tq, {useAppConfigStore, useThemeStore} from 'tweeq'
+import Tq, {useAppConfigStore} from 'tweeq'
 
 import {useDmxStore} from '@/stores/dmx'
 import {useProjectStore} from '@/stores/project'
@@ -8,7 +8,6 @@ import {useProjectStore} from '@/stores/project'
 const project = useProjectStore()
 const dmx = useDmxStore()
 const appConfig = useAppConfigStore()
-const theme = useThemeStore()
 const showAll = appConfig.ref('dmxControl.showAll', true)
 
 function getVisibility(index: number) {
@@ -27,10 +26,7 @@ function toggleVisibility(index: number) {
 }
 
 function getColor(index: number) {
-	return (
-		project.visibleProperties[`dmx${index + 1}`]?.color ??
-		theme.colorGrayOnBackground
-	)
+	return project.visibleProperties[`dmx${index + 1}`]?.color ?? 'white'
 }
 
 function setColor(index: number, color: string) {

@@ -10,9 +10,9 @@ interface Props {
 	referenceValues?: unknown[]
 	color: string
 	valueAtCaptureFrame?: unknown
+	range?: [min: number, max: number]
 	minRange?: number
 	maxRange?: number
-	startFrame?: number
 	filter?: (v: number) => number
 }
 
@@ -53,6 +53,8 @@ const realtimeValues = computed(() => {
 })
 
 const rangeComputed = computed<[min: number, max: number]>(() => {
+	if (props.range) return props.range
+
 	let [min, max] = capturedRange.value
 
 	if (max - min < props.minRange) {
