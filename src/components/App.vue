@@ -16,7 +16,7 @@ import {useTimerStore} from '@/stores/timer'
 import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
 import {preventConcurrentExecution} from '@/utils'
-import {playSound, speak} from '@/utils'
+import {playSound, resizeBlobImage, speak} from '@/utils'
 
 import CameraControl from './CameraControl.vue'
 import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
@@ -103,9 +103,6 @@ const {fn: shoot} = preventConcurrentExecution(
 				? {position: tracker.position, rotation: tracker.rotation}
 				: undefined
 
-			const lv = await tethr.getLiveViewImage()
-			if (lv.status !== 'ok') throw new Error('Failed to get liveview image')
-
 			viewport.popup = {
 				type: 'progress',
 				progress: 0.1,
@@ -148,12 +145,15 @@ const {fn: shoot} = preventConcurrentExecution(
 				playSound('sound/Accent36-1.mp3')
 			}
 
+			// Resize jpg to fit the resolution of the project
+			const lv = await resizeBlobImage(jpg, project.resolution)
+
 			return {
 				jpg,
 				raw,
+				lv,
 				jpgFilename,
 				rawFilename,
-				lv: lv.value,
 				cameraConfigs,
 				shootTime: timer.current,
 				captureDate,

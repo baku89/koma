@@ -105,8 +105,6 @@ export const useViewportStore = defineStore('viewport', () => {
 			}
 		})
 
-		isShotSelected.value = false
-
 		playSound('sound/Hit08-1.mp3')
 	}
 
