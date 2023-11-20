@@ -44,28 +44,39 @@ function setColor(index: number, color: string) {
 
 <template>
 	<Tq.ParameterGroup name="dmxControl" label="DMX Control">
-		<Tq.Parameter v-for="(v, i) in dmx.values" :key="i" :label="'#' + (i + 1)">
-			<template #label>
-				<Icon
-					v-if="showAll"
-					class="visibility"
-					:icon="getVisibility(i) ? 'mdi:eye' : 'mdi:eye-closed'"
-					@click="toggleVisibility(i)"
-				/>
-				<Tq.InputColor
-					class="color"
-					:modelValue="getColor(i)"
-					@update:modelValue="setColor(i, $event)"
-				>
+		<template #headingRight>
+			<button class="show-all-button" @click="showAll = !showAll">
+				{{ showAll ? 'Collapse' : 'Show All' }}
+			</button>
+		</template>
+		<template v-for="(v, i) in dmx.values">
+			<Tq.Parameter
+				v-if="showAll || getVisibility(i)"
+				:key="i"
+				:label="'#' + (i + 1)"
+			>
+				<template #label>
 					<Icon
-						icon="material-symbols:fluorescent"
-						:style="{color: getColor(i)}"
+						v-if="showAll"
+						class="visibility"
+						:icon="getVisibility(i) ? 'mdi:eye' : 'mdi:eye-closed'"
+						@click="toggleVisibility(i)"
 					/>
-				</Tq.InputColor>
-				{{ '#' + (i + 1) }}
-			</template>
-			<Tq.InputNumber v-model="v.value" :min="0" :max="1" />
-		</Tq.Parameter>
+					<Tq.InputColor
+						class="color"
+						:modelValue="getColor(i)"
+						@update:modelValue="setColor(i, $event)"
+					>
+						<Icon
+							icon="material-symbols:fluorescent"
+							:style="{color: getColor(i)}"
+						/>
+					</Tq.InputColor>
+					{{ '#' + (i + 1) }}
+				</template>
+				<Tq.InputNumber v-model="v.value" :min="0" :max="1" />
+			</Tq.Parameter>
+		</template>
 	</Tq.ParameterGroup>
 </template>
 
