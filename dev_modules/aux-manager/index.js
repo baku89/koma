@@ -27,8 +27,6 @@ function handleOpenVRTarcker() {
 		return
 	}
 
-	console.clear()
-
 	setInterval(updatePoses, 1000 / REFRESH_RATE)
 
 	function updatePoses() {
@@ -43,6 +41,7 @@ function handleOpenVRTarcker() {
 
 		const trackers = trackerIndices.map(i => poses[i])
 
+		process.stdout.cursorTo(0, 3)
 		process.stdout.write('* No Tracker Detected\n')
 
 		trackers.forEach(updateTracker)
