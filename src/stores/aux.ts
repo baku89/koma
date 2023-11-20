@@ -7,7 +7,7 @@ import {useOscStore} from './osc'
 export const useAuxStore = defineStore('aux', () => {
 	const osc = useOscStore()
 
-	const tracker = osc.messages({
+	const tracker = osc.receivers({
 		position: {
 			address: '/tracker0/position',
 			type: 'fff',

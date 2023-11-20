@@ -8,6 +8,7 @@ import {useActionsStore} from 'tweeq'
 import {ref, watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
+import {useDmxStore} from '@/stores/dmx'
 import {useOscStore} from '@/stores/osc'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
@@ -20,6 +21,7 @@ import {playSound, resizeBlobImage, speak} from '@/utils'
 
 import CameraControl from './CameraControl.vue'
 import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
+import DmxControl from './DmxControl.vue'
 import MarkerSettings from './MarkerSettings.vue'
 import Timeline from './Timeline'
 import TitleBar from './TitleBar.vue'
@@ -37,6 +39,7 @@ const timeline = useTimelineStore()
 const project = useProjectStore()
 const camera = useCameraStore()
 const osc = useOscStore()
+const dmx = useDmxStore()
 const timer = useTimerStore()
 const tracker = useTrackerStore()
 const shootAlerts = useShootAlertsStore()
@@ -103,6 +106,8 @@ const {fn: shoot} = preventConcurrentExecution(
 				? {position: tracker.position, rotation: tracker.rotation}
 				: undefined
 
+			const dmxData = dmx.values.map(v => v.value)
+
 			viewport.popup = {
 				type: 'progress',
 				progress: 0.1,
@@ -158,6 +163,7 @@ const {fn: shoot} = preventConcurrentExecution(
 				shootTime: timer.current,
 				captureDate,
 				tracker: trackerData,
+				dmx: dmxData,
 			}
 		} finally {
 			viewport.popup = null
@@ -169,7 +175,7 @@ const {fn: shoot} = preventConcurrentExecution(
 	}
 )
 
-const oscIn = osc.messages({
+const oscIn = osc.receivers({
 	shoot: {address: '/shoot', type: 'b', default: 0},
 })
 
@@ -636,6 +642,7 @@ actions.register([
 										</Tq.InputRadio>
 									</Tq.Parameter>
 									<CameraControl />
+									<DmxControl />
 									<Tq.ParameterGroup label="Viewport" name="viewportSettings">
 										<Tq.Parameter
 											icon="fluent-emoji-high-contrast:onion"

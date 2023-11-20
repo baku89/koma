@@ -72,16 +72,34 @@ export const useOscStore = defineStore('osc', () => {
 		}
 	})
 
-	function messages<S extends OscMessageScheme>(
+	function receivers<S extends OscMessageScheme>(
 		scheme: S
 	): OscMessageResult<S> {
 		return mapValues(scheme, option => {
 			return computed(() => {
 				// TODO: check if the type of messages is correct
-				return (receivedMessages as any).value[option.address] ?? option.default
+				return receivedMessages.value[option.address] ?? option.default
 			})
 		})
 	}
 
-	return {osc, connected, messages}
+	function senders<S extends OscMessageScheme>(scheme: S) {
+		const ret = mapValues(scheme, option => {
+			const r = ref(option.default)
+			watch(r, r => osc.send(new OSC.Message(option.address, r as any)))
+			return r
+		}) as OscMessageResult<S>
+
+		const pairs = Object.entries(ret)
+
+		setInterval(() => {
+			pairs.forEach(([address, r]) => {
+				osc.send(new OSC.Message(address, r.value as any))
+			})
+		}, 1000)
+
+		return ret
+	}
+
+	return {osc, connected, receivers, senders}
 })
