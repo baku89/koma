@@ -1,5 +1,7 @@
-;({camera, aux}) => {
+;({camera, aux, viewport, project}) => {
 	const alerts = []
+
+	const prevShot = project.shot(viewport.currentFrame - 1, 0)
 
 	if (camera.tethr) {
 		if (camera.exposureMode.value !== 'M') {
@@ -14,8 +16,30 @@
 			alerts.push('White balance must be set to Fluorescent')
 		}
 
+		if (camera.colorMode.value !== 'off') {
+			alerts.push('Color mode must be set to Off')
+		}
+
 		if (camera.destinationToSave.value !== 'camera,pc') {
 			alerts.push('Destination to save must be set to Camera, PC')
+		}
+
+		if (!['1/25', '1/50'].includes(camera.shutterSpeed.value)) {
+			alerts.push(
+				'Shutter speed must be set to times of 1/50 to avoid flickering'
+			)
+		}
+
+		if (viewport.currentLayer > 0) {
+			const baseShot = project.shot(viewport.currentFrame, 0)
+
+			const cameraConfig = baseShot.cameraConfigs ?? {}
+
+			for (const prop of ['iso', 'shutterSpeed', 'aperture']) {
+				if (cameraConfig[prop] !== camera[prop].value) {
+					alerts.push(`Camera ${prop} must be set to ${cameraConfig[prop]}`)
+				}
+			}
 		}
 	} else {
 		alerts.push('Camera must be connected')
@@ -24,6 +48,11 @@
 	if (aux.tracker.enabled) {
 		if (vec3.len(aux.tracker.velocity) >= 0.05) {
 			alerts.push('Tracker must be stable')
+		}
+
+		const prevPos = prevShot?.tracker.position
+		if (prevPos && vec3.dist(aux.tracker.position, prevPos) >= 0.1) {
+			alerts.push('The camera movement must be less than 10cm')
 		}
 	} else {
 		alerts.push('Tracker must be connected')
