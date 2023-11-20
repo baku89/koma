@@ -56,13 +56,8 @@ function onZoom({origin, zoomDelta}: {origin: number; zoomDelta: number}) {
 	project.timeline.zoomFactor = newZoomFactor
 
 	const zoomFactorDelta = newZoomFactor / oldZoomFactor
-	const scrollMax = newZoomFactor * timeline.komaWidth * project.allKomas.length
 
-	scroll.value = clamp(
-		origin * zoomFactorDelta - (origin - scroll.value),
-		0,
-		scrollMax
-	)
+	scroll.value = origin * zoomFactorDelta - (origin - scroll.value)
 }
 
 function onUpdateZoomFactor(zoomFactor: number) {
