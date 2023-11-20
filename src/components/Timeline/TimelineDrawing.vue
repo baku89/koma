@@ -94,10 +94,12 @@ function saveDrawing() {
 const savedDrawingWatcher = pausableWatch(
 	() => [project.timeline.drawing, scope.value] as const,
 	([drawing, scope]) => {
-		if (!drawing || !scope) return
+		if (!scope) return
 
 		scope.project.clear()
-		scope.project.importJSON(drawing)
+		if (drawing) {
+			scope.project.importJSON(drawing)
+		}
 		scope.project.view.update()
 	},
 	{immediate: true}
