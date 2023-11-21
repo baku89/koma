@@ -41,8 +41,8 @@ Koma、しいては僕が開発している他のプロジェクト[^tools]を�
 
 コマ撮りという狭い分野ではありますが、「コミュニティによる制作ツールの内製化」を推し進めるべく、無理のないペースで開発を進めて行きたいと考えています。もし興味を持ってくださる個人や企業の方がいらっしゃれば、お気軽にお問い合わせください。
 
-Mail: [b@ins-stud.io](mailto:b@ins-stud.io) (マネージメント [INS Studio](https://ins-stud.io))
-投げ銭: [Become a sponsor to Baku 麦](https://github.com/sponsors/baku89)
+ - メール: [b@ins-stud.io](mailto:b@ins-stud.io) (マネージメント [INS Studio](https://ins-stud.io))  
+ - 投げ銭: [Become a sponsor to Baku 麦](https://github.com/sponsors/baku89)
 
 ------
 
