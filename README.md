@@ -8,9 +8,11 @@
 	<br>
 </div>
 
-An open-source stop-motion tool that runs on browsers. It allows you to shoot while tethering usb-connected cameras such as DSLMs, DSLRs, and webcams. Technically, it's built upon [Picture Transfer Protocol](https://en.wikipedia.org/wiki/Picture_Transfer_Protocol), [WebUSB API](https://developer.mozilla.org/en-US/docs/Web/API/USB) and its wrapper library [Tethr](https://github.com/baku89/tethr). Note that this project has been developed for my animation project and is still in the early stage of working-in-progress. So it might not work in your environment yet.
+An open-source stop-motion tool that runs on browsers. It allows you to shoot while tethering USB-connected cameras such as DSLMs, DSLRs, and webcams. Technically, it's built upon [Picture Transfer Protocol](https://en.wikipedia.org/wiki/Picture_Transfer_Protocol), [WebUSB API](https://developer.mozilla.org/en-US/docs/Web/API/USB) and its wrapper library [Tethr](https://github.com/baku89/tethr). Note that this project has been developed for my animation project and is still in the early stage of working in progress. So it might not work in your environment yet.
 
 FYI, Koma (コマ) means “frames” in Japanese, but I'm wondering if the app has a nicer name.
+
+[日本語での解説はこちら](./README.ja.md)
 
 ## Development
 
