@@ -42,30 +42,26 @@ function handleOpenVRTarcker() {
 		const trackers = trackerIndices.map(i => poses[i])
 
 		process.stdout.cursorTo(0, 3)
-		process.stdout.write('* No Tracker Detected\n')
+		process.stdout.clearLine(1)
 
-		trackers.forEach(updateTracker)
+		if (trackers.length === 0) {
+			process.stdout.write('* No Tracker Detected\n')
+		} else {
+			process.stdout.write(
+				chalk.bold(`* ${trackers.length} Tracker Detected\n`)
+			)
+			trackers.forEach(updateTracker)
+		}
 	}
 
 	const prevTrackers = []
-	const tickers = []
 
 	function updateTracker(tracker, index) {
 		const prevTracker = prevTrackers[index] ?? {}
-		const ticker = (tickers[index] ??= fps({every: 10}))
 
 		if (isEqual(tracker, prevTracker)) {
 			return
 		}
-
-		process.stdout.cursorTo(0, 3)
-		process.stdout.clearLine(1)
-		process.stdout.write(
-			chalk.bold(`* Tracker: ${chalk.red(index)}`) +
-				` (${Math.round(ticker.rate)}fps)\n`
-		)
-
-		ticker.tick()
 
 		// The matrix returned from OpenVR lib is 4 x 3 row-major order,
 		// while the last row [0, 0, 0, 1] is omitted.

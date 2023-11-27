@@ -21,6 +21,7 @@ const sentAddresses = []
 
 function sendOsc(address, ...args) {
 	osc.send(new OSC.Message(address, ...args))
+	printKeyValue(address, printVector(args))
 }
 
 function printKeyValue(key, value) {
