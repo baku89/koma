@@ -13,7 +13,7 @@ process.stdout.write('┌──────────────────�
 process.stdout.write('│ Koma Aux Manager │\n')
 process.stdout.write('└──────────────────┘\n')
 
-// killPTPProcess()
+killPTPProcess()
 
 const REFRESH_RATE = 60
 

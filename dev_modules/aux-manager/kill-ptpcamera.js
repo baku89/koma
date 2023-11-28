@@ -1,6 +1,6 @@
 const {exec} = require('node:child_process')
 
-// Run the command `(ps aux | grep "[p]tpcamera" | awk '{print $2}'`
+// Run the command `ps aux | grep "[p]tpcamera" | awk '{print $2}'`
 // to get the PID of the ptpcamera process.
 // Then run `kill -9 <PID>` to kill the process.
 // This is a workaround for the bug of the ptpcamera process
