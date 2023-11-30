@@ -9,7 +9,7 @@ export const useDmxStore = defineStore('dmx', () => {
 	const senders = osc.senders(
 		Object.fromEntries(
 			range(16).map(i => [
-				`dmx${i}`,
+				`dmx${i + 1}`,
 				{address: `/dmx${i + 1}`, type: 'f', default: 0},
 			])
 		)
