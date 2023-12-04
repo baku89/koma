@@ -46,4 +46,4 @@ function printVector(vec) {
 		.join(', ')
 }
 
-module.exports = {sendOsc}
+module.exports = {sendOsc, osc}

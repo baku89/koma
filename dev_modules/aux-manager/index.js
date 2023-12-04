@@ -2,9 +2,9 @@ const openvr = require('../node-openvr')
 
 const {isEqual} = require('lodash')
 const {mat4} = require('linearly')
-const fps = require('fps')
 const {killPTPProcess} = require('./kill-ptpcamera')
-const {sendOsc} = require('./osc')
+const {sendOsc, osc} = require('./osc')
+const {sendDmx} = require('./dmx')
 const chalk = require('chalk')
 
 console.clear()
@@ -14,6 +14,20 @@ process.stdout.write('│ Koma Aux Manager │\n')
 process.stdout.write('└──────────────────┘\n')
 
 killPTPProcess()
+
+// Send DMX
+osc.on('*', e => {
+	const {address, args} = e
+	const [value] = args
+
+	if (!address.startsWith('/dmx')) {
+		return
+	}
+
+	const channel = parseInt(address.slice(4))
+
+	sendDmx(channel, value)
+})
 
 const REFRESH_RATE = 60
 
