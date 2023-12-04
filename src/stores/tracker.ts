@@ -13,17 +13,14 @@ export const useTrackerStore = defineStore('tracker', () => {
 
 	const groundLevel = appConfig.ref('tracker.groundLevel', 0)
 
-	const calibrationMatrix = appConfig.ref<mat4>(
-		'tracker.calibrationMatrix',
+	const originMatrix = appConfig.ref<mat4>(
+		'tracker.originMatrix',
 		mat4.identity
 	)
 
-	function setOrigin(matrix: mat4) {
-		const McInv = mat4.invert(trackerToCameraMatrix.value) ?? mat4.ident
-		const MoInv = mat4.invert(matrix) ?? mat4.ident
-
-		calibrationMatrix.value = mat4.mul(McInv, MoInv)
-	}
+	const originMatrixInverse = computed(() => {
+		return mat4.invert(originMatrix.value) ?? mat4.ident
+	})
 
 	const cameraOffset = appConfig.ref<vec3>('tracker.offset', vec3.zero)
 
@@ -51,6 +48,10 @@ export const useTrackerStore = defineStore('tracker', () => {
 		)
 	})
 
+	const trackerToCameraMatrixInverse = computed(() => {
+		return mat4.invert(trackerToCameraMatrix.value) ?? mat4.ident
+	})
+
 	const rawMatrix = computed(() => {
 		return mat4.fromRotationTranslation(
 			aux.tracker.rotation,
@@ -58,12 +59,17 @@ export const useTrackerStore = defineStore('tracker', () => {
 		)
 	})
 
-	const matrix = computed(() => {
+	function compensateRawMatrix(rawMatrix: mat4) {
 		return mat4.mul(
-			calibrationMatrix.value,
-			rawMatrix.value,
+			trackerToCameraMatrixInverse.value,
+			originMatrixInverse.value,
+			rawMatrix,
 			trackerToCameraMatrix.value
 		)
+	}
+
+	const matrix = computed(() => {
+		return compensateRawMatrix(rawMatrix.value)
 	})
 
 	const position = computed(() => {
@@ -110,25 +116,64 @@ export const useTrackerStore = defineStore('tracker', () => {
 		}
 	})
 
-	project.shot(project.captureShot.frame - 1, 0)?.tracker
-	project.captureShot.frame
+	/**
+	 * Receives two matrices in the camera coordinate system and calibrates the origin matrix so that the source matrix matches the destination matrix.
+	 * @param srcMatrix A source matrix in the camera coordinate system
+	 * @param destMatrix A destination matrix in the camera coordinate system
+	 */
+	function calibrateOriginMatrix(srcMatrix: mat4, destMatrix: mat4) {
+		originMatrix.value = mat4.mul(
+			originMatrix.value,
+			trackerToCameraMatrix.value,
+			srcMatrix,
+			mat4.invert(destMatrix) ?? mat4.ident,
+			trackerToCameraMatrixInverse.value
+		)
+	}
 
 	return {
+		/**
+		 * The calibrated matrix considering origin and camera offset
+		 */
 		matrix,
+		/**
+		 * The calibrated position of the camera
+		 */
 		position,
+		/**
+		 * The calibrated rotation of the camera
+		 */
 		rotation,
+		/**
+		 * The ground level of the tracking space
+		 */
 		groundLevel,
 
-		// Tracker information
+		/**
+		 * Whether the tracker is enabled
+		 */
 		enabled: computed(() => aux.tracker.enabled),
+
+		/**
+		 * The raw matrix from the tracker
+		 */
 		rawMatrix,
 
 		// Calibration information
-		calibrationMatrix,
-		setOrigin,
+		originMatrix,
 		cameraOffset,
+		trackerToCameraMatrixInverse,
 		trackerToCameraMatrix,
+		compensateRawMatrix,
+		calibrateOriginMatrix,
+
+		/**
+		 * X-direction of camera coordinate system relative to the tracker
+		 */
 		cameraAxisX,
+		/**
+		 * Y-direction of camera coordinate system relative to the tracker
+		 */
 		cameraAxisY,
 
 		// Average information

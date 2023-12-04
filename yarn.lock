@@ -5166,10 +5166,15 @@ line-intersect@^3.0.0:
   resolved "https://registry.npmjs.org/line-intersect/-/line-intersect-3.0.0.tgz"
   integrity sha512-MAkwgBwwpyJhTWZ9EppTTFD6JxzYgh3BZxgI41CA2vSlANu4s5CXyTEJxKU3LRHitcF2vObHvE/s/lHxvKl2Kw==
 
-linearly@0.20.3, linearly@^0.20.3:
+linearly@^0.20.3:
   version "0.20.3"
   resolved "https://registry.npmjs.org/linearly/-/linearly-0.20.3.tgz"
   integrity sha512-i8+X2PfDKaq3VgpMSp3iej2rwc91ngZY4ecFQTeLPt6LNf/QyAsNVAwny7j7hBPUaue5Gt7SBCFshxhvWsOlOQ==
+
+linearly@^0.21.0:
+  version "0.21.0"
+  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.21.0.tgz#e70be6aac52e2e6d43197ed91f9c544d54a4dc0d"
+  integrity sha512-+8a9jfbdKqSxSx2qmDtNeXjbhZFgUel1xnHU2LBazKaIwXNH5cmV2eZEmYcSiC1oZBiyr1KFO1eAt86w6QBXuQ==
 
 lines-and-columns@^1.1.6:
   version "1.2.4"

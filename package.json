@@ -60,6 +60,6 @@
 		"wavesurfer.js": "^7.3.4"
 	},
 	"dependencies": {
-		"linearly": "0.20.3"
+		"linearly": "^0.21.0"
 	}
 }

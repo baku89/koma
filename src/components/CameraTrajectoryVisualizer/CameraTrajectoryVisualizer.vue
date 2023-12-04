@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {useElementSize} from '@vueuse/core'
-import {mat4, quat, vec3} from 'linearly'
+import {mat2d, mat3, mat4, quat, vec2, vec3} from 'linearly'
 import * as THREE from 'three'
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
 import {
@@ -91,56 +91,57 @@ function onRendererReady(trois: any) {
 
 const moveOrigin = ref<mat4 | null>(null)
 
-function setMove(matrix: mat4) {
+function setMove(rawMatrix: mat4) {
+	const matrix = tracker.compensateRawMatrix(rawMatrix)
+
 	if (!moveOrigin.value) {
 		moveOrigin.value = matrix
 	} else {
-		tracker.calibrationMatrix = mat4.mul(
-			tracker.calibrationMatrix,
-			moveOrigin.value,
-			mat4.invert(matrix) ?? mat4.ident
-		)
+		tracker.calibrateOriginMatrix(matrix, moveOrigin.value)
 		moveOrigin.value = null
 	}
 }
 
 const yOrigin = ref<mat4 | null>(null)
 
-function setUp(matrix: mat4) {
+function setUp(rawMatrix: mat4) {
+	const matrix = tracker.compensateRawMatrix(rawMatrix)
 	if (!yOrigin.value) {
 		yOrigin.value = matrix
 	} else {
 		const originPos = mat4.getTranslation(yOrigin.value)
-		const targetPos = mat4.getTranslation(matrix)
-		const yAxis = vec3.normalize(vec3.sub(targetPos, originPos))
-		const zAxis = vec3.normalize(
-			vec3.cross([yOrigin.value[0], yOrigin.value[1], yOrigin.value[2]], yAxis)
-		)
+		const offsetPos = mat4.getTranslation(matrix)
+
+		const oldXAxis: vec3 = [
+			yOrigin.value[0],
+			yOrigin.value[1],
+			yOrigin.value[2],
+		]
+
+		const yAxis = vec3.normalize(vec3.sub(offsetPos, originPos))
+		const zAxis = vec3.normalize(vec3.cross(oldXAxis, yAxis))
 		const xAxis = vec3.cross(yAxis, zAxis)
 
-		const targetXform = mat4.fromAxesTranslation(xAxis, yAxis, zAxis, originPos)
-
-		console.log({
-			targetXform,
-			delta: mat4.mul(mat4.invert(yOrigin.value) ?? mat4.ident, targetXform),
-		})
-
-		tracker.calibrationMatrix = mat4.mul(
-			tracker.calibrationMatrix,
-			yOrigin.value,
-			mat4.invert(targetXform) ?? mat4.ident
+		const targetMatrix: mat4 = mat4.fromAxesTranslation(
+			xAxis,
+			yAxis,
+			zAxis,
+			originPos
 		)
+
+		tracker.calibrateOriginMatrix(yOrigin.value, targetMatrix)
 
 		yOrigin.value = null
 	}
 }
 
 /**
- * First and second points represents +Z axis, third point is to determine +Y axis
+ * First and second points represents +Z axis, and the third point is to determine +Y axis
  */
 const horizonSamples = ref<vec3[]>([])
 
-function addHorizonSample(matrix: mat4) {
+function addHorizonSample(rawMatrix: mat4) {
+	const matrix = tracker.compensateRawMatrix(rawMatrix)
 	const t = mat4.getTranslation(matrix)
 
 	horizonSamples.value = [...horizonSamples.value, t]
@@ -148,21 +149,23 @@ function addHorizonSample(matrix: mat4) {
 	if (horizonSamples.value.length === 3) {
 		const [p0, p1, p2] = horizonSamples.value
 
-		const z = vec3.normalize(vec3.sub(p1, p0))
-		let y = vec3.normalize(vec3.cross(z, vec3.sub(p2, p0)))
+		// Detemrine the new Z axis at first
+		const zAxis = vec3.normalize(vec3.sub(p1, p0))
 
-		if (y[1] < 0) {
-			y = vec3.negate(y)
+		// Determine the new Y axis
+		let yAxis = vec3.normalize(vec3.cross(zAxis, vec3.sub(p2, p0)))
+
+		if (yAxis[1] < 0) {
+			yAxis = vec3.negate(yAxis)
 		}
 
-		const x = vec3.cross(y, z)
+		// Then, determine the new X axis so that the new matrix is orthogonal
+		const xAxis = vec3.cross(yAxis, zAxis)
 
-		const origin = mat4.getTranslation(
-			mat4.invert(tracker.calibrationMatrix) ?? mat4.ident
+		tracker.calibrateOriginMatrix(
+			mat4.fromAxesTranslation(xAxis, yAxis, zAxis),
+			mat4.ident
 		)
-
-		tracker.calibrationMatrix =
-			mat4.invert(mat4.fromAxesTranslation(x, y, z, origin)) ?? mat4.ident
 
 		horizonSamples.value = []
 	}
@@ -170,16 +173,16 @@ function addHorizonSample(matrix: mat4) {
 
 const panOrigin = ref<mat4 | null>(null)
 
-function setPan(matrix: mat4) {
+function setPan(rawMatrix: mat4) {
 	if (!panOrigin.value) {
-		panOrigin.value = mat4.invert(matrix) ?? mat4.ident
+		panOrigin.value = mat4.invert(rawMatrix) ?? mat4.ident
 	} else {
-		const delta = mat4.mul(matrix, panOrigin.value)
+		const delta = mat4.mul(rawMatrix, panOrigin.value)
 		const q = mat4.getRotation(delta)
 
 		const up = quat.axisAngle(q).axis
 
-		const matrixInv = mat4.clone(mat4.invert(matrix) ?? mat4.ident)
+		const matrixInv = mat4.clone(mat4.invert(rawMatrix) ?? mat4.ident)
 		matrixInv[12] = matrixInv[13] = matrixInv[14] = 0
 
 		tracker.cameraAxisY = vec3.transformMat4(up, matrixInv)
@@ -189,16 +192,16 @@ function setPan(matrix: mat4) {
 
 const tiltOrigin = ref<mat4 | null>(null)
 
-function setTilt(matrix: mat4) {
+function setTilt(rawMatrix: mat4) {
 	if (!tiltOrigin.value) {
-		tiltOrigin.value = mat4.invert(matrix) ?? mat4.ident
+		tiltOrigin.value = mat4.invert(rawMatrix) ?? mat4.ident
 	} else {
-		const delta = mat4.mul(matrix, tiltOrigin.value)
+		const delta = mat4.mul(rawMatrix, tiltOrigin.value)
 		const q = quat.invert(mat4.getRotation(delta))
 
 		const left = quat.axisAngle(q).axis
 
-		const matrixInv = mat4.clone(mat4.invert(matrix) ?? mat4.ident)
+		const matrixInv = mat4.clone(mat4.invert(rawMatrix) ?? mat4.ident)
 		matrixInv[12] = matrixInv[13] = matrixInv[14] = 0
 
 		tracker.cameraAxisX = vec3.transformMat4(left, matrixInv)
@@ -237,6 +240,11 @@ const paneExpanded = ref(false)
 
 <template>
 	<div ref="$root" class="CameraTrajectoryVisualizer">
+		<div class="info tq-font-numeric">
+			X = {{ tracker.position[0].toFixed(3) }} <br />
+			Y = {{ tracker.position[1].toFixed(3) }} <br />
+			Z = {{ tracker.position[2].toFixed(3) }} <br />
+		</div>
 		<Renderer
 			ref="$trois"
 			resize="true"
@@ -284,16 +292,19 @@ const paneExpanded = ref(false)
 					<Tq.InputNumber v-model="tracker.groundLevel" :min="-2" :max="2" />
 				</Tq.Parameter>
 				<Tq.Parameter label="Origin" icon="carbon:center-circle">
-					<TrackerRecButton label="Set" @record="tracker.setOrigin" />
+					<TrackerRecButton
+						label="Set"
+						@record="tracker.originMatrix = $event"
+					/>
 				</Tq.Parameter>
-				<Tq.Parameter label="Move" icon="material-symbols:move">
+				<Tq.Parameter label="Move Receiver" icon="material-symbols:move">
 					<TrackerRecButton
 						:label="!moveOrigin ? 'Record Matrix' : 'Delta Matrix'"
 						:blink="!!moveOrigin"
 						@record="setMove"
 					/>
 				</Tq.Parameter>
-				<Tq.Parameter label="Up" icon="material-symbols:move">
+				<Tq.Parameter label="Set Up" icon="material-symbols:move">
 					<TrackerRecButton
 						:label="!yOrigin ? 'Set Slider-Down' : 'Set Slider-Up'"
 						:blink="!!yOrigin"
