@@ -86,7 +86,12 @@ export const useOscStore = defineStore('osc', () => {
 	function senders<S extends OscMessageScheme>(scheme: S) {
 		const ret = mapValues(scheme, option => {
 			const r = ref(option.default)
-			watch(r, r => osc.send(new OSC.Message(option.address, r as any)))
+			watch(
+				() => [oscRef.value, r.value] as const,
+				([osc, r]) => {
+					osc?.send(new OSC.Message(option.address, r as any))
+				}
+			)
 			return r
 		}) as OscMessageResult<S>
 
@@ -94,7 +99,7 @@ export const useOscStore = defineStore('osc', () => {
 
 		setInterval(() => {
 			pairs.forEach(([address, r]) => {
-				osc.send(new OSC.Message(address, r.value as any))
+				oscRef.value?.send(new OSC.Message(address, r.value as any))
 			})
 		}, 1000)
 

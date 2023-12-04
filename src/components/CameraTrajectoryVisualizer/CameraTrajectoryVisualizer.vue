@@ -104,6 +104,37 @@ function setMove(matrix: mat4) {
 	}
 }
 
+const yOrigin = ref<mat4 | null>(null)
+
+function setUp(matrix: mat4) {
+	if (!yOrigin.value) {
+		yOrigin.value = matrix
+	} else {
+		const originPos = mat4.getTranslation(yOrigin.value)
+		const targetPos = mat4.getTranslation(matrix)
+		const yAxis = vec3.normalize(vec3.sub(targetPos, originPos))
+		const zAxis = vec3.normalize(
+			vec3.cross([yOrigin.value[0], yOrigin.value[1], yOrigin.value[2]], yAxis)
+		)
+		const xAxis = vec3.cross(yAxis, zAxis)
+
+		const targetXform = mat4.fromAxesTranslation(xAxis, yAxis, zAxis, originPos)
+
+		console.log({
+			targetXform,
+			delta: mat4.mul(mat4.invert(yOrigin.value) ?? mat4.ident, targetXform),
+		})
+
+		tracker.calibrationMatrix = mat4.mul(
+			tracker.calibrationMatrix,
+			yOrigin.value,
+			mat4.invert(targetXform) ?? mat4.ident
+		)
+
+		yOrigin.value = null
+	}
+}
+
 /**
  * First and second points represents +Z axis, third point is to determine +Y axis
  */
@@ -262,6 +293,13 @@ const paneExpanded = ref(false)
 						@record="setMove"
 					/>
 				</Tq.Parameter>
+				<Tq.Parameter label="Up" icon="material-symbols:move">
+					<TrackerRecButton
+						:label="!yOrigin ? 'Set Slider-Down' : 'Set Slider-Up'"
+						:blink="!!yOrigin"
+						@record="setUp"
+					/>
+				</Tq.Parameter>
 				<Tq.Parameter label="Horizon" icon="ph:road-horizon">
 					<TrackerRecButton
 						:label="
@@ -278,7 +316,7 @@ const paneExpanded = ref(false)
 				<Tq.Parameter label="Offset" icon="mdi:axis-arrow">
 					<Tq.InputVec v-model="tracker.cameraOffset" />
 				</Tq.Parameter>
-				<Tq.Parameter label="Up" icon="mdi:axis-z-rotate-counterclockwise">
+				<Tq.Parameter label="Y Axis" icon="mdi:axis-z-rotate-counterclockwise">
 					<Tq.InputVec v-model="tracker.cameraAxisY" :min="-1" :max="1" />
 					<TrackerRecButton
 						:label="panOrigin ? 'Set Pan-Left' : 'Set Pan-Right'"
