@@ -126,6 +126,7 @@ function printShotInfo(shot: Shot) {
 		border 2px solid var(--md-sys-color-tertiary)
 		border-radius var(--tq-input-border-radius)
 		z-index 10
+		pointer-events none
 
 .captured
 .liveview
