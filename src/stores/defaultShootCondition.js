@@ -1,4 +1,4 @@
-;({camera, aux, viewport, project}) => {
+;({camera, tracker, viewport, project}) => {
 	const alerts = []
 
 	const prevShot = project.shot(viewport.currentFrame - 1, 0)
@@ -45,14 +45,18 @@
 		alerts.push('Camera must be connected')
 	}
 
-	if (aux.tracker.enabled) {
-		if (vec3.len(aux.tracker.velocity) >= 0.05) {
+	if (tracker.enabled) {
+		if (vec3.len(tracker.velocity) >= 0.05) {
 			alerts.push('Tracker must be stable')
 		}
 
 		const prevPos = prevShot?.tracker.position
-		if (prevPos && vec3.dist(aux.tracker.position, prevPos) >= 0.1) {
-			alerts.push('The camera movement must be less than 10cm')
+		if (prevPos && vec3.dist(tracker.position, prevPos) >= 0.1) {
+			alerts.push(
+				'The camera movement must be less than 10cm, got ' +
+					(vec3.dist(tracker.position, prevPos) * 100).toFixed(1) +
+					'cm'
+			)
 		}
 	} else {
 		alerts.push('Tracker must be connected')

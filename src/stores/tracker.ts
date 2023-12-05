@@ -149,6 +149,8 @@ export const useTrackerStore = defineStore('tracker', () => {
 		 */
 		groundLevel,
 
+		velocity: aux.tracker.velocity,
+
 		/**
 		 * Whether the tracker is enabled
 		 */
