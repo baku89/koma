@@ -11,16 +11,16 @@ async function removeExifOrientation(blob: Blob): Promise<Blob> {
 	const pieces: {recess: number; offset: number}[] = []
 	let i = 0
 
-	if (dv.getUint16(offset) == 0xffd8) {
+	if (dv.getUint16(offset) === 0xffd8) {
 		offset += 2
 		let app1 = dv.getUint16(offset)
 		offset += 2
 		while (offset < dv.byteLength) {
-			if (app1 == 0xffe1) {
+			if (app1 === 0xffe1) {
 				pieces[i] = {recess: recess, offset: offset - 2}
 				recess = offset + dv.getUint16(offset)
 				i++
-			} else if (app1 == 0xffda) {
+			} else if (app1 === 0xffda) {
 				break
 			}
 			offset += dv.getUint16(offset)
@@ -38,7 +38,6 @@ async function removeExifOrientation(blob: Blob): Promise<Blob> {
 		}
 	}
 
-	console.log('do nothing')
 	return blob
 }
 
