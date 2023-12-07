@@ -553,19 +553,11 @@ actions.register([
 				},
 			},
 			{
-				id: 'enable_onionskin',
+				id: 'toggle_onionskin',
 				icon: 'fluent-emoji-high-contrast:onion',
-				bind: [gamepad.button('rsl').longPress(500).pressed],
+				bind: ['gamepad:r'],
 				perform() {
-					viewport.enableOnionskin = true
-				},
-			},
-			{
-				id: 'disable_onionskin',
-				icon: 'fluent-emoji-high-contrast:onion',
-				bind: [gamepad.button('rsr').longPress(500).pressed],
-				perform() {
-					viewport.enableOnionskin = false
+					viewport.enableOnionskin = !viewport.enableOnionskin
 				},
 			},
 		],
