@@ -5,12 +5,12 @@ import prettyBytes from 'pretty-bytes'
 import Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 
-import {useViewportStore} from '@/stores/viewport'
 import {useAuxStore} from '@/stores/aux'
 import {useCameraStore} from '@/stores/camera'
 import {useOpfsStore} from '@/stores/opfs'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
+import {useViewportStore} from '@/stores/viewport'
 import {toTime} from '@/utils'
 
 const opfs = useOpfsStore()

@@ -1,13 +1,15 @@
 import {vec3} from 'linearly'
 import {defineStore} from 'pinia'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
 import saferEval from 'safer-eval'
 import {computed} from 'vue'
 
 import {useCameraStore} from './camera'
 import {useProjectStore} from './project'
 import {useTimerStore} from './timer'
-import {useViewportStore} from './viewport'
 import {useTrackerStore} from './tracker'
+import {useViewportStore} from './viewport'
 
 interface Stores {
 	project: ReturnType<typeof useProjectStore>
