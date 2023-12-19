@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {useElementSize} from '@vueuse/core'
-import {mat2d, mat3, mat4, quat, vec2, vec3} from 'linearly'
+import {mat4, quat, vec3} from 'linearly'
 import * as THREE from 'three'
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
 import {
@@ -30,7 +30,7 @@ const tracker = useTrackerStore()
 // ThreeJS
 const cameraControlPosition = appConfig.ref('cameraControl.position', [
 	2, 2, 2,
-] as const)
+] as vec3)
 
 let renderer: THREE.WebGLRenderer
 let camera: THREE.PerspectiveCamera
@@ -69,7 +69,7 @@ function onRendererReady(trois: any) {
 
 	cameraControl.enablePan = false
 	cameraControl.addEventListener('end', () => {
-		cameraControlPosition.value = camera.position.toArray() as any
+		cameraControlPosition.value = camera.position.toArray()
 	})
 
 	guide.add(new THREE.GridHelper(10, 10))
