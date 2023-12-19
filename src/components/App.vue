@@ -48,10 +48,6 @@ const $modal = ref<typeof Tq.PaneModalComplex | null>(null)
 
 const gamepad = Bndr.gamepad()
 
-Bndr.or(Bndr.keyboard().pressed('5'), gamepad.button('r')).on(pressed => {
-	viewport.liveToggle = pressed
-})
-
 watch(() => project.captureShot, timer.reset)
 
 //------------------------------------------------------------------------------
