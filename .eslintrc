@@ -7,10 +7,10 @@
 	"extends": [
 		"eslint:recommended",
 		"plugin:@typescript-eslint/recommended",
-		"plugin:vue/recommended",
-		"plugin:prettier-vue/recommended",
+		"plugin:vue/vue3-essential",
 		"prettier"
 	],
+
 	"parserOptions": {
 		"parser": "@typescript-eslint/parser",
 		"ecmaVersion": 2022,

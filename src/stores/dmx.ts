@@ -1,9 +1,9 @@
 import {range} from 'lodash'
 import {defineStore} from 'pinia'
-
-import {useOscStore} from './osc'
 import {useAppConfigStore} from 'tweeq'
 import {watchEffect} from 'vue'
+
+import {useOscStore} from './osc'
 
 export const useDmxStore = defineStore('dmx', () => {
 	const osc = useOscStore()

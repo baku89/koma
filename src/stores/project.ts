@@ -279,6 +279,7 @@ export const useProjectStore = defineStore('project', () => {
 	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
 		if (isOpeningAutoSavedProject) return
 
+		// eslint-disable-next-line no-console
 		console.time('save')
 
 		try {
@@ -302,6 +303,7 @@ export const useProjectStore = defineStore('project', () => {
 				},
 			})
 		} finally {
+			// eslint-disable-next-line no-console
 			console.timeEnd('save')
 		}
 	})
