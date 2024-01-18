@@ -105,15 +105,13 @@ const savedDrawingWatcher = pausableWatch(
 	{immediate: true}
 )
 
+// Update canvas size
 watch(
-	() => [canvasWidth.value, canvasHeight.value] as const,
+	[canvasWidth, canvasHeight],
 	([width, height]) => {
-		if ($canvas.value) {
-			$canvas.value.width = width
-			$canvas.value.height = height
-		}
 		scope.value?.view.viewSize.set(width, height)
-	}
+	},
+	{immediate: true}
 )
 
 watch(
@@ -122,7 +120,6 @@ watch(
 			scope.value,
 			props.scroll,
 			project.timeline.zoomFactor,
-
 			canvasHeight.value,
 		] as const,
 	([scope, scroll, zoom, height]) => {
