@@ -61,7 +61,7 @@ onMounted(() => {
 			const lastPoint: paper.Point = event.lastPoint
 			const delta: paper.Point = event.delta
 
-			const divs = Math.floor(delta.length) + 2
+			const divs = Math.floor(delta.length / 2) + 2
 
 			for (let i = 0; i < divs; i++) {
 				const t = i / (divs - 1)
