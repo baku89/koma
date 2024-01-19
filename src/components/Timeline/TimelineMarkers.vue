@@ -71,13 +71,13 @@ useBndr($root, $root => {
 		const frame = Math.floor(x / props.komaWidth)
 		const verticalPosition = scalar.clamp(y / $root.clientHeight, 0, 1)
 
-		markers.cursor = {...markers.cursor, frame, verticalPosition}
+		timeline.toolOptions = {...timeline.toolOptions, frame, verticalPosition}
 	})
 
 	pointer.left.down().on(() => {
 		if (!canAddmarker.value) return
 
-		project.markers.push(markers.cursor)
+		project.markers.push(timeline.toolOptions)
 	})
 
 	pointer.on(e => {
@@ -221,7 +221,7 @@ useBndr($root, $root => {
 		<TimelineMarker
 			v-if="canAddmarker"
 			class="cursor"
-			:marker="markers.cursor"
+			:marker="timeline.toolOptions"
 			:selected="false"
 		/>
 		<TimelineMarker

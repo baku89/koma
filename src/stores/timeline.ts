@@ -4,7 +4,7 @@ import {computed, ref} from 'vue'
 
 import {type Marker, useProjectStore} from './project'
 
-interface PencilProps {
+interface PencilOption {
 	color: string
 }
 
@@ -18,7 +18,7 @@ export const useTimelineStore = defineStore('timeline', () => {
 		'marker'
 	)
 
-	const toolOptions = appConfig.ref<Marker & PencilProps>('tool.options', {
+	const toolOptions = appConfig.ref<Marker & PencilOption>('tool.options', {
 		frame: 0,
 		verticalPosition: 0,
 		label: 'Marker',

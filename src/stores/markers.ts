@@ -1,6 +1,6 @@
 import {pausableWatch} from '@vueuse/core'
 import {defineStore} from 'pinia'
-import {reactive, readonly, ref} from 'vue'
+import {readonly, ref} from 'vue'
 
 import {Marker, useProjectStore} from './project'
 import {useSelectionStore} from './selection'
@@ -123,19 +123,10 @@ export const useMarkersStore = defineStore('markers', () => {
 		{flush: 'sync'}
 	)
 
-	const cursor: Marker = reactive({
-		label: '',
-		frame: 0,
-		verticalPosition: 0.5,
-		duration: 0,
-		color: '#ffffff',
-	})
-
 	return {
 		unselect,
 		select,
 		isSelected,
 		selectedIndices: readonly(selectedIndices),
-		cursor,
 	}
 })
