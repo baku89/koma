@@ -28,7 +28,7 @@ const $root = ref<null | HTMLElement>(null)
 
 const cursorVisible = ref(false)
 
-const canAddmarker = computed(() => {
+const canAddMarker = computed(() => {
 	return cursorVisible.value && timeline.currentTool === 'marker'
 })
 
@@ -75,12 +75,6 @@ useBndr($root, $root => {
 		timeline.toolOptions = {...timeline.toolOptions, frame, verticalPosition}
 	})
 
-	pointer.left.down().on(() => {
-		if (!canAddmarker.value) return
-
-		project.markers.push(timeline.toolOptions)
-	})
-
 	pointer.on(e => {
 		if (
 			e.target !== $root ||
@@ -93,6 +87,8 @@ useBndr($root, $root => {
 		}
 	})
 
+	let drawingMarkerIndex: number | null = null
+
 	pointer
 		.drag({
 			pointerCapture: true,
@@ -100,7 +96,25 @@ useBndr($root, $root => {
 			coordinate: 'offset',
 		})
 		.on(d => {
-			if (canAddmarker.value) return
+			if (canAddMarker.value) {
+				cursorVisible.value = false
+
+				if (d.type === 'down') {
+					drawingMarkerIndex = project.markers.push(timeline.toolOptions) - 1
+				} else if (d.type === 'drag') {
+					const duration = Math.max(
+						0,
+						timeline.toolOptions.frame -
+							project.markers[drawingMarkerIndex!].frame
+					)
+
+					project.$patch(draft => {
+						draft.markers[drawingMarkerIndex!].duration = duration
+					})
+				}
+
+				return
+			}
 
 			if (d.type === 'down') {
 				if (d.event.shiftKey) {
@@ -215,7 +229,7 @@ useBndr($root, $root => {
 <template>
 	<div ref="$root" class="TimelineMarkers">
 		<TimelineMarker
-			v-if="canAddmarker"
+			v-if="canAddMarker"
 			class="cursor"
 			:marker="timeline.toolOptions"
 			:selected="false"
