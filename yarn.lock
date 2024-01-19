@@ -981,6 +981,17 @@
     "@babel/helper-validator-identifier" "^7.22.20"
     to-fast-properties "^2.0.0"
 
+"@baku89/pave@0.2":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@baku89/pave/-/pave-0.2.0.tgz#380ae95da13c651f7f83ac2bcbc37d736181c5be"
+  integrity sha512-+GIUj7yB2sxTPDwew+NZO4833JV17diZuuUVwuLF3mNsZX42JzIlyHnOXbHIvkMwvY6oWQHvAasMIKtExeCvrQ==
+  dependencies:
+    "@types/bezier-js" "^4.1.3"
+    bezier-js "^6.1.4"
+    linearly "^0.21.0"
+    paper "^0.12.17"
+    paperjs-offset "^1.0.8"
+
 "@bcoe/v8-coverage@^0.2.3":
   version "0.2.3"
   resolved "https://registry.npmjs.org/@bcoe/v8-coverage/-/v8-coverage-0.2.3.tgz"
@@ -1748,6 +1759,11 @@
   integrity sha512-Lsh766rGEFbaxMIDH7Qa+Yha8cMVI3qAK6CHt3OR0YfxOIn5Z54iHiyDRycHrBqeIiqGa20Kpsv1cavfBKkRSw==
   dependencies:
     "@babel/types" "^7.20.7"
+
+"@types/bezier-js@^4.1.3":
+  version "4.1.3"
+  resolved "https://registry.yarnpkg.com/@types/bezier-js/-/bezier-js-4.1.3.tgz#237d4fe7e9aae7edd0c27a71f9f236f4ddc1c562"
+  integrity sha512-FNVVCu5mx/rJCWBxLTcL7oOajmGtWtBTDjq6DSUWUI12GeePivrZZXz+UgE0D6VYsLEjvExRO03z4hVtu3pTEQ==
 
 "@types/chroma-js@^2.4.1":
   version "2.4.2"
@@ -2695,6 +2711,11 @@ base64id@2.0.0, base64id@~2.0.0:
   version "2.0.0"
   resolved "https://registry.yarnpkg.com/base64id/-/base64id-2.0.0.tgz#2770ac6bc47d312af97a8bf9a634342e0cd25cb6"
   integrity sha512-lGe34o6EHj9y3Kts9R4ZYs/Gr+6N7MCaMlIFA3F1R2O5/m7K06AxfSeO5530PEERE6/WyEg3lsuyw4GHlPZHog==
+
+bezier-js@^6.1.4:
+  version "6.1.4"
+  resolved "https://registry.yarnpkg.com/bezier-js/-/bezier-js-6.1.4.tgz#c7828f6c8900562b69d5040afb881bcbdad82001"
+  integrity sha512-PA0FW9ZpcHbojUCMu28z9Vg/fNkwTj5YhusSAjHHDfHDGLxJ6YUKrAN2vk1fP2MMOxVw4Oko16FMlRGVBGqLKg==
 
 bidi-js@^1.0.2:
   version "1.0.3"
@@ -5766,10 +5787,17 @@ pako@^0.2.5:
   resolved "https://registry.npmjs.org/pako/-/pako-0.2.9.tgz"
   integrity sha512-NUcwaKxUxWrZLpDG+z/xZaCgQITkA/Dv4V/T6bw7VON6l1Xz/VnrBqrYjZQ12TamKHzITTfOEIYUj48y2KXImA==
 
-paper@^0.12.17:
+paper@^0.12.17, paper@^0.12.4:
   version "0.12.17"
   resolved "https://registry.npmjs.org/paper/-/paper-0.12.17.tgz"
   integrity sha512-oCe+e1C2w8hKIcGoAqUjD0GGxGPv+itrRXlEFUmp3H8tY/NTnHOkYgpJFPGw6OJ8Q1Wa6+RgzlY7Dx/2WWHtkA==
+
+paperjs-offset@^1.0.8:
+  version "1.0.8"
+  resolved "https://registry.yarnpkg.com/paperjs-offset/-/paperjs-offset-1.0.8.tgz#3ddb297785a45b99126e3da3bca852e3612b3d68"
+  integrity sha512-rUXMtHH4bTNVrCgDcu+x71qyGoPe+01yZtrPD7bowji4VfWiDWzl4EUdRxiZnG5ooPg7b07mk6jVx33hNSojaA==
+  dependencies:
+    paper "^0.12.4"
 
 parent-module@^1.0.0:
   version "1.0.1"

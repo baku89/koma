@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {BBox} from '@baku89/pave'
 import {Bndr} from 'bndr-js'
 import {scalar, vec2} from 'linearly'
 import {clamp, range} from 'lodash'
@@ -109,23 +110,17 @@ useBndr($root, $root => {
 				}
 			}
 
-			const $rootRect = $root.getBoundingClientRect()
+			const rootRect: BBox = [
+				[0, 0],
+				BBox.fromDOMRect($root.getBoundingClientRect())[1],
+			]
 
-			let [xLower, xUpper] =
-				d.start[0] < d.current[0]
-					? [d.start[0], d.current[0]]
-					: [d.current[0], d.start[0]]
+			const dragRect = BBox.fromPoints(d.start, d.current)
 
-			xLower = clamp(xLower, 0, $rootRect.width)
-			xUpper = clamp(xUpper, 0, $rootRect.width)
-
-			let [yLower, yUpper] =
-				d.start[1] < d.current[1]
-					? [d.start[1], d.current[1]]
-					: [d.current[1], d.start[1]]
-
-			yLower = clamp(yLower, 0, $rootRect.height)
-			yUpper = clamp(yUpper, 0, $rootRect.height)
+			const [[xLower, yLower], [xUpper, yUpper]] = BBox.intersect(
+				rootRect,
+				dragRect
+			)
 
 			const frameLower = Math.ceil(xLower / props.komaWidth)
 			const frameUpper = Math.floor(xUpper / props.komaWidth)
@@ -153,6 +148,7 @@ useBndr($root, $root => {
 				}
 			})
 
+			markers.unselect()
 			markers.select(...alreadySelectedIndices, ...indices)
 		})
 
