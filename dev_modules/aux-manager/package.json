@@ -10,10 +10,10 @@
 	"private": true,
 	"dependencies": {
 		"artnet": "^1.4.0",
-		"chalk": "4.1.2",
+		"chalk": "5.3.0",
 		"dmx-ts": "^0.3.0",
 		"fps": "^0.0.3",
-		"linearly": "^0.20.3",
+		"linearly": "^0.21.0",
 		"lodash": "^4.17.21",
 		"osc-js": "^2.4.0"
 	},
