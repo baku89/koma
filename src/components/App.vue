@@ -184,8 +184,8 @@ const gamepadAxis = gamepad.axisDirection()
 const gamepadAxisNeutral = gamepadAxis.filter(v => v === null)
 const gamepadAxisLeft = gamepadAxis.map(v => v && v[0] === -1)
 const gamepadAxisRight = gamepadAxis.map(v => v && v[0] === 1)
-const gamepadAxisTop = gamepadAxis.map(v => v && v[1] === -1)
-const gamepadAxisBottom = gamepadAxis.map(v => v && v[1] === 1)
+// const gamepadAxisTop = gamepadAxis.map(v => v && v[1] === -1)
+// const gamepadAxisBottom = gamepadAxis.map(v => v && v[1] === 1)
 
 gamepadAxisRight.longPress(500).pressed.on(() => {
 	viewport.isPlaying = true
@@ -422,7 +422,7 @@ actions.register([
 			{
 				id: 'increment_current_layer',
 				icon: 'mdi:arrow-down',
-				bind: ['down', gamepadAxisBottom.down()],
+				bind: ['down' /*, gamepadAxisBottom.down()*/],
 				perform() {
 					viewport.setCurrentLayer(viewport.currentLayer + 1)
 					viewport.selectShot()
@@ -431,7 +431,7 @@ actions.register([
 			{
 				id: 'decrement_current_layer',
 				icon: 'mdi:arrow-up',
-				bind: ['up', gamepadAxisTop.down()],
+				bind: ['up' /*, gamepadAxisTop.down()*/],
 				perform() {
 					viewport.setCurrentLayer(viewport.currentLayer - 1)
 					viewport.selectShot()
