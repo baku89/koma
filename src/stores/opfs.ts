@@ -87,6 +87,8 @@ export const useOpfsStore = defineStore('opfs', () => {
 			await cacheWriter.write(file)
 			await cacheWriter.close()
 
+			console.info('Cached the file: ' + filename)
+
 			estimateStorage()
 
 			const cached = await cacheHandle.getFile()

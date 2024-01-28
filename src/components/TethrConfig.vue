@@ -161,9 +161,9 @@ function increment(dir: 1 | -1) {
 				typeof config.value === 'number' && config.option?.type === 'range'
 			"
 			:modelValue="config.value"
-			:min="config.option.min"
-			:max="config.option.max"
-			:step="config.option.step"
+			:min="config.option.min as number"
+			:max="config.option.max as number"
+			:step="config.option.step as number"
 			:disabled="!config.writable"
 			:prefix="prefix"
 			:suffix="suffix"

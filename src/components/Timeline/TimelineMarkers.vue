@@ -124,9 +124,11 @@ useBndr($root, $root => {
 				}
 			}
 
+			const {height} = $root.getBoundingClientRect()
+
 			const rootRect: BBox = [
 				[0, 0],
-				BBox.fromDOMRect($root.getBoundingClientRect())[1],
+				[Infinity, height],
 			]
 
 			const dragRect = BBox.fromPoints(d.start, d.current)

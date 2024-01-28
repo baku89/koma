@@ -2716,20 +2716,10 @@ bindings@^1.5.0:
   dependencies:
     file-uri-to-path "1.0.0"
 
-bndr-js@0.14.2:
+bndr-js@0.14.2, bndr-js@^0.14.2:
   version "0.14.2"
   resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.14.2.tgz#43c5d9c6e86ee387593f64f9a30fc0eedf317674"
   integrity sha512-wfDW9c/6SVQ+PWB/4o3JAIfdxttk9epnWincKtvBrb/SkRttRa6NGaRj4aiy5J2gQ7aVOyxx2rzb2c9QdZaJBw==
-  dependencies:
-    case "^1.6.3"
-    hotkeys-js "^3.10.2"
-    linearly "^0.20.3"
-    lodash "^4.17.21"
-
-bndr-js@^0.14.0:
-  version "0.14.0"
-  resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.14.0.tgz#89778f5f9fd0ee41c4ad4e67ee07df01b69cf9b2"
-  integrity sha512-BjLuIEtfoellcUXY4c0eUfJtp3wRYjX9Jggpo6NJtsuxbgf/3z26gvMyyBaD0ELoTxSRS4/5/pL4R73C3LFsBw==
   dependencies:
     case "^1.6.3"
     hotkeys-js "^3.10.2"
@@ -5304,9 +5294,9 @@ pify@^3.0.0:
   resolved "https://registry.npmjs.org/pify/-/pify-3.0.0.tgz"
   integrity sha512-C3FsVNH1udSEX48gGX1xfvwTWfsYWj5U+8/uK15BGzIGrKoUpghX8hWZwa/OFnakBiiVNmBvemTJR5mcy7iPcg==
 
-pinia@^2.1.6, pinia@^2.1.7:
+pinia@^2.1.7:
   version "2.1.7"
-  resolved "https://registry.npmjs.org/pinia/-/pinia-2.1.7.tgz"
+  resolved "https://registry.yarnpkg.com/pinia/-/pinia-2.1.7.tgz#4cf5420d9324ca00b7b4984d3fbf693222115bbc"
   integrity sha512-+C2AHFtcFqjPih0zpYuvof37SFxMQ7OEG2zV9jRI12i9BOy3YQVAHwdKtyyc8pDcDyIc33WCIsZaCFWU7WWxGQ==
   dependencies:
     "@vue/devtools-api" "^6.5.0"
@@ -6550,7 +6540,7 @@ vue@3.3.4:
     "@vue/server-renderer" "3.3.4"
     "@vue/shared" "3.3.4"
 
-vue@^3.3.4, vue@^3.4.15:
+vue@^3.3.4:
   version "3.4.15"
   resolved "https://registry.yarnpkg.com/vue/-/vue-3.4.15.tgz#91f979844ffca9239dff622ba4c79c5d5524b88c"
   integrity sha512-jC0GH4KkWLWJOEQjOpkqU1bQsBwf4R1rsFtw5GQJbjHVKWDzO6P0nWWBTmjp1xSemAioDFj1jdaK1qa3DnMQoQ==
