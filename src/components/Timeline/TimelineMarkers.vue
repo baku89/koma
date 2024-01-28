@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {BBox} from '@baku89/pave'
-import {Bndr} from 'bndr-js'
+import * as Bndr from 'bndr-js'
 import {scalar, vec2} from 'linearly'
 import {clamp, range} from 'lodash'
 import {useBndr} from 'tweeq'

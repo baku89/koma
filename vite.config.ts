@@ -51,12 +51,6 @@ export default defineConfig({
 				replacement: fileURLToPath(new URL('./src', import.meta.url)),
 			},
 			{
-				find: 'bndr-js',
-				replacement: fileURLToPath(
-					new URL('./dev_modules/bndr-js/src', import.meta.url)
-				),
-			},
-			{
 				find: 'tweeq',
 				replacement: fileURLToPath(
 					new URL('./dev_modules/tweeq/src', import.meta.url)

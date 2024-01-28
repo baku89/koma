@@ -1,4 +1,4 @@
-import {Bndr} from 'bndr-js'
+import * as Bndr from 'bndr-js'
 import {mat2d, vec2} from 'linearly'
 import {useBndr} from 'tweeq'
 import {Ref} from 'vue'

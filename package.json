@@ -16,7 +16,7 @@
 		"dev_modules/*"
 	],
 	"devDependencies": {
-		"@baku89/pave": "0.2",
+		"@baku89/pave": "^0.2.0",
 		"@iconify/vue": "^4.1.1",
 		"@types/dateformat": "^5.0.2",
 		"@types/howler": "^2.2.11",
@@ -26,6 +26,7 @@
 		"@typescript-eslint/parser": "^6.19.1",
 		"@vitejs/plugin-vue": "^5.0.3",
 		"@vueuse/core": "^10.7.2",
+		"bndr-js": "0.14.2",
 		"case": "^1.6.3",
 		"dateformat": "^5.0.3",
 		"defu": "^6.1.4",

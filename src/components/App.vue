@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import {Icon} from '@iconify/vue/dist/iconify.js'
 import {whenever} from '@vueuse/core'
-import {Bndr} from 'bndr-js'
+import * as Bndr from 'bndr-js'
 import {scalar, vec3, vec4} from 'linearly'
 import Tq, {useTweeq} from 'tweeq'
 import {useActionsStore} from 'tweeq'
@@ -620,10 +620,10 @@ actions.register([
 														value === 'select'
 															? 'ph:cursor-fill'
 															: value === 'marker'
-															? 'subway:mark'
-															: value === 'pencil'
-															? 'mdi:pencil'
-															: 'mdi:eraser'
+																? 'subway:mark'
+																: value === 'pencil'
+																	? 'mdi:pencil'
+																	: 'mdi:eraser'
 													"
 												/>
 											</template>

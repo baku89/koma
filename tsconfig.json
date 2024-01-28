@@ -22,7 +22,6 @@
 		/* For consistency with Vite */
 		"paths": {
 			"@/*": ["./src/*"],
-			"bndr-js": ["./dev_modules/bndr-js/src/index.ts"],
 			"tweeq": ["./dev_modules/tweeq/src/index.ts"],
 			"tethr": ["./dev_modules/tethr/src/index.ts"]
 		}

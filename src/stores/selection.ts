@@ -1,4 +1,4 @@
-import {Bndr} from 'bndr-js'
+import * as Bndr from 'bndr-js'
 import {defineStore} from 'pinia'
 import {useActionsStore} from 'tweeq'
 
