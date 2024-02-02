@@ -26,7 +26,6 @@
 		"@typescript-eslint/parser": "^6.19.1",
 		"@vitejs/plugin-vue": "^5.0.3",
 		"@vueuse/core": "^10.7.2",
-		"bndr-js": "0.14.2",
 		"case": "^1.6.3",
 		"dateformat": "^5.0.3",
 		"defu": "^6.1.4",
