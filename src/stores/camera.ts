@@ -126,6 +126,13 @@ export const useCameraStore = defineStore('camera', () => {
 		cam.setLog(false)
 		await cam.open()
 
+		const initialConfigs = {...toRaw(configs.value)}
+
+		// Remove colorTemperature if whiteBalance is not manual
+		if (configs.value.whiteBalance !== 'manual') {
+			delete initialConfigs['colorTemperature']
+		}
+
 		await cam.importConfigs(configs.value)
 
 		cam.on('disconnect', () => {
