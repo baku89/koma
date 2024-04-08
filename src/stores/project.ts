@@ -279,33 +279,25 @@ export const useProjectStore = defineStore('project', () => {
 	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
 		if (isOpeningAutoSavedProject) return
 
-		// eslint-disable-next-line no-console
-		console.time('save')
-
-		try {
-			if (directoryHandle.value === null) {
-				directoryHandle.value = await opfs.localDirectoryHandle
-			}
-			await saveBlobJson(directoryHandle.value, toRaw(project), {
-				saveBlob: opfs.save,
-				pathToFilename(path) {
-					const [first, frame, , layer, type] = path
-
-					if (first === 'komas' && typeof frame === 'number') {
-						const lv = type === 'lv' ? '_lv' : ''
-						const seq = frame.toString().padStart(4, '0')
-						const ext = type === 'raw' ? 'dng' : 'jpg'
-
-						return `${project.name}_layer=${layer}${lv}_${seq}.${ext}`
-					}
-
-					return path.join('-')
-				},
-			})
-		} finally {
-			// eslint-disable-next-line no-console
-			console.timeEnd('save')
+		if (directoryHandle.value === null) {
+			directoryHandle.value = await opfs.localDirectoryHandle
 		}
+		await saveBlobJson(directoryHandle.value, toRaw(project), {
+			saveBlob: opfs.save,
+			pathToFilename(path) {
+				const [first, frame, , layer, type] = path
+
+				if (first === 'komas' && typeof frame === 'number') {
+					const lv = type === 'lv' ? '_lv' : ''
+					const seq = frame.toString().padStart(4, '0')
+					const ext = type === 'raw' ? 'dng' : 'jpg'
+
+					return `${project.name}_layer=${layer}${lv}_${seq}.${ext}`
+				}
+
+				return path.join('-')
+			},
+		})
 	})
 
 	// Enable autosave
