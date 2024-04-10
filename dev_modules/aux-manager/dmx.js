@@ -19,7 +19,8 @@ function sendDmx(address, value) {
 		return
 	}
 
-	universe.update({[address - 1]: value})
+	// Offset by 16
+	universe.update({[address - 1 + 16]: value})
 }
 
 module.exports = {sendDmx}
