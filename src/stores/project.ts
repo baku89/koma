@@ -294,8 +294,6 @@ export const useProjectStore = defineStore('project', () => {
 
 					return `${project.name}_layer=${layer}${lv}_${seq}.${ext}`
 				}
-
-				return path.join('-')
 			},
 		})
 	})

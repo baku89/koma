@@ -6,7 +6,7 @@ import {mapPromises, mapValuePromises} from './promise'
 type Path = (string | number)[]
 
 interface SaveBlobJsonOptions {
-	pathToFilename?: (path: Path) => string
+	pathToFilename?: (path: Path) => string | undefined
 	saveBlob: (
 		directoryHandle: FileSystemDirectoryHandle,
 		filename: string,
@@ -50,7 +50,16 @@ export async function saveBlobJson(
 		} else if (isPlainObject(data)) {
 			return mapValuePromises(data, (value, key) => flat(value, [...path, key]))
 		} else if (data instanceof Blob) {
-			const filename = options.pathToFilename?.(path) ?? path.join('-')
+			let filename = options.pathToFilename?.(path) ?? path.join('.')
+
+			if (data instanceof File) {
+				const ext = data.name.split('.').pop()
+
+				if (ext) {
+					filename += `.${ext}`
+				}
+			}
+
 			await options.saveBlob(directoryHandle, filename, data)
 			return {
 				$type: 'blob',
