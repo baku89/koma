@@ -162,8 +162,8 @@ function printShotInfo(shot: Shot) {
 	background var(--tq-color-primary-container)
 
 .empty
-	background var(--tq-color-input)
-	opacity 0.2
+	background transparent
+	opacity 0.8
 
 	&:hover
 		background var(--tq-color-input-hover)

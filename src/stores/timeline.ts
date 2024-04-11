@@ -15,7 +15,7 @@ export const useTimelineStore = defineStore('timeline', () => {
 
 	const currentTool = appConfig.ref<'select' | 'marker' | 'pencil' | 'eraser'>(
 		'timeline.currentTool',
-		'marker'
+		'select'
 	)
 
 	const toolOptions = appConfig.ref<Marker & PencilOption>('tool.options', {

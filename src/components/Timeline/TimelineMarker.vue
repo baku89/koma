@@ -19,7 +19,7 @@ const styles = computed(() => {
 	return {
 		'--duration': duration,
 		left: `${frame * timeline.komaWidth}px`,
-		top: `calc(${verticalPosition} * 100%)`,
+		top: `${verticalPosition * 100}%`,
 		color,
 	}
 })

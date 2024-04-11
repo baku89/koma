@@ -50,9 +50,16 @@ const visibleFrames = computed(() => {
 	return range(start, end + 1)
 })
 
+const minZoom = 0.1
+const maxZoom = 1
+
 function onZoom({origin, zoomDelta}: {origin: number; zoomDelta: number}) {
 	const oldZoomFactor = project.timeline.zoomFactor
-	const newZoomFactor = clamp(project.timeline.zoomFactor * zoomDelta, 0.1, 2)
+	const newZoomFactor = clamp(
+		project.timeline.zoomFactor * zoomDelta,
+		minZoom,
+		maxZoom
+	)
 	project.timeline.zoomFactor = newZoomFactor
 
 	const zoomFactorDelta = newZoomFactor / oldZoomFactor
@@ -87,9 +94,7 @@ const seekbarStyles = computed(() => {
 
 const vizStyles = computed(() => {
 	return {
-		top: `calc(var(--header-height) + var(--header-margin-bottom) + var(--koma-height) * ${
-			2 /*layers.value.length*/
-		})`,
+		top: 'calc(var(--header-height) + var(--header-margin-bottom) + var(--koma-height))',
 	}
 })
 </script>
@@ -139,7 +144,7 @@ const vizStyles = computed(() => {
 				<div class="viz" :style="vizStyles">
 					<TimelineWaveform />
 					<TimelineGraph />
-					<TimelineMarkers :komaWidth="timeline.komaWidth" />
+					<TimelineMarkers />
 				</div>
 				<div class="komas">
 					<TimelineKoma
@@ -157,10 +162,10 @@ const vizStyles = computed(() => {
 			<template #scrollbarRight>
 				<Tq.InputNumber
 					:modelValue="project.timeline.zoomFactor * 100"
-					:min="10"
-					:max="200"
+					:min="minZoom * 100"
+					:max="maxZoom * 100"
 					suffix="%"
-					:barOrigin="100"
+					:bar="100"
 					:step="1"
 					:precision="0"
 					style="width: 7em"
@@ -197,9 +202,6 @@ const vizStyles = computed(() => {
 
 .komas
 	position relative
-	width 100%
-	z-index 100
-	height 0
 
 .koma
 	position absolute
@@ -241,8 +243,7 @@ const vizStyles = computed(() => {
 	right 100%
 	height var(--header-height)
 	background var(--md-sys-color-on-tertiary-container)
-	opacity 0.5
-	border-radius 99px 0 0 99px
+	opacity 0.4
 
 	&.pos
 		left var(--koma-width)

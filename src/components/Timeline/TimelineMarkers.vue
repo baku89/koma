@@ -14,12 +14,6 @@ import {speak} from '@/utils'
 
 import TimelineMarker from './TimelineMarker.vue'
 
-interface Props {
-	komaWidth: number
-}
-
-const props = defineProps<Props>()
-
 const project = useProjectStore()
 const markers = useMarkersStore()
 const timeline = useTimelineStore()
@@ -69,7 +63,7 @@ useBndr($root, $root => {
 	const pointer = Bndr.pointer($root)
 
 	pointer.position({coordinate: 'offset'}).on(([x, y]) => {
-		const frame = Math.floor(x / props.komaWidth)
+		const frame = Math.floor(x / timeline.komaWidth)
 		const verticalPosition = scalar.clamp(y / $root.clientHeight, 0, 1)
 
 		timeline.toolOptions = {...timeline.toolOptions, frame, verticalPosition}
@@ -138,8 +132,8 @@ useBndr($root, $root => {
 				dragRect
 			)
 
-			const frameLower = Math.ceil(xLower / props.komaWidth)
-			const frameUpper = Math.floor(xUpper / props.komaWidth)
+			const frameLower = Math.ceil(xLower / timeline.komaWidth)
+			const frameUpper = Math.floor(xUpper / timeline.komaWidth)
 
 			const verticalPositionLower = yLower / $root.clientHeight
 			const verticalPositionUpper = yUpper / $root.clientHeight
@@ -229,7 +223,14 @@ useBndr($root, $root => {
 </script>
 
 <template>
-	<div ref="$root" class="TimelineMarkers">
+	<div
+		ref="$root"
+		class="TimelineMarkers"
+		:class="{
+			active:
+				timeline.currentTool === 'marker' || timeline.currentTool === 'select',
+		}"
+	>
 		<TimelineMarker
 			v-if="canAddMarker"
 			class="cursor"
@@ -252,7 +253,10 @@ useBndr($root, $root => {
 .TimelineMarkers
 	position absolute
 	inset 0
-	z-index 100
+	pointer-events none
+
+	&.active
+		pointer-events auto
 
 .cursor
 	opacity 0.5
