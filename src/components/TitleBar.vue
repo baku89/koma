@@ -7,6 +7,7 @@ import {computed, onUnmounted, ref} from 'vue'
 
 import {useAuxStore} from '@/stores/aux'
 import {useCameraStore} from '@/stores/camera'
+import {useCncStore} from '@/stores/cnc'
 import {useOpfsStore} from '@/stores/opfs'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
@@ -19,6 +20,7 @@ const project = useProjectStore()
 const camera = useCameraStore()
 const timer = useTimerStore()
 const aux = useAuxStore()
+const cnc = useCncStore()
 
 const gamepads = ref<string[]>([])
 
@@ -140,6 +142,17 @@ const destinationInfo = computed(() => {
 				icon="tabler:gizmo"
 				:active="aux.tracker.enabled"
 			/>
+			<vTooltip>
+				<Tq.IconIndicator
+					icon="game-icons:mechanical-arm"
+					:active="cnc.connected"
+				/>
+				<template #popper>
+					<p>{{ cnc.connected ? 'CNC Connected' : 'No CNC Available' }}</p>
+					<pre>{{ cnc.log }}</pre>
+					<Tq.InputButton label="Status" />
+				</template>
+			</vTooltip>
 		</template>
 	</Tq.TitleBar>
 </template>
