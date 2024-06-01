@@ -53,7 +53,7 @@ const destinationInfo = computed(() => {
 </script>
 
 <template>
-	<Tq.TitleBar name="Koma" class="title" icon="favicon.svg">
+	<Tq.TitleBar name="Koma" icon="favicon.svg">
 		<template #left>
 			<Tq.InputString v-model="project.name" style="width: 8em" />
 			<Tq.IconIndicator
