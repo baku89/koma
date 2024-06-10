@@ -3,11 +3,11 @@ import {defineStore} from 'pinia'
 import {useAppConfigStore} from 'tweeq'
 import {computed} from 'vue'
 
-import {useAuxStore} from './aux'
+import {useAuxDevicesStore} from './auxDevices'
 import {useProjectStore} from './project'
 
 export const useTrackerStore = defineStore('tracker', () => {
-	const aux = useAuxStore()
+	const aux = useAuxDevicesStore()
 	const project = useProjectStore()
 	const appConfig = useAppConfigStore()
 
@@ -91,10 +91,14 @@ export const useTrackerStore = defineStore('tracker', () => {
 		const rotationVelocities: quat[] = []
 
 		for (let i = 0; i < averageSamples.value; i++) {
-			const tracker = project.shot(project.captureShot.frame - 1 - i, 0)
-				?.tracker
-			const prevTracker = project.shot(project.captureShot.frame - 2 - i, 0)
-				?.tracker
+			const tracker = project.shot(
+				project.captureShot.frame - 1 - i,
+				0
+			)?.tracker
+			const prevTracker = project.shot(
+				project.captureShot.frame - 2 - i,
+				0
+			)?.tracker
 
 			if (tracker && prevTracker) {
 				const p = vec3.sub(tracker.position, prevTracker.position)

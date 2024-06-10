@@ -5,7 +5,7 @@ import prettyBytes from 'pretty-bytes'
 import Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 
-import {useAuxStore} from '@/stores/aux'
+import {useAuxDevicesStore} from '@/stores/auxDevices'
 import {useCameraStore} from '@/stores/camera'
 import {useCncStore} from '@/stores/cnc'
 import {useOpfsStore} from '@/stores/opfs'
@@ -19,7 +19,7 @@ const viewport = useViewportStore()
 const project = useProjectStore()
 const camera = useCameraStore()
 const timer = useTimerStore()
-const aux = useAuxStore()
+const aux = useAuxDevicesStore()
 const cnc = useCncStore()
 
 const gamepads = ref<string[]>([])

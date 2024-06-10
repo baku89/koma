@@ -4,7 +4,7 @@ import {computed} from 'vue'
 
 import {useOscStore} from './osc'
 
-export const useAuxStore = defineStore('aux', () => {
+export const useAuxDevicesStore = defineStore('aux', () => {
 	const osc = useOscStore()
 
 	const tracker = osc.receivers({

@@ -2,7 +2,7 @@
 import {mat4, quat, vec3, vec4} from 'linearly'
 import Tq from 'tweeq'
 
-import {useAuxStore} from '@/stores/aux'
+import {useAuxDevicesStore} from '@/stores/auxDevices'
 import {useOscStore} from '@/stores/osc'
 
 defineProps<{
@@ -14,7 +14,7 @@ const emit = defineEmits<{
 	record: [matrix: mat4]
 }>()
 
-const aux = useAuxStore()
+const aux = useAuxDevicesStore()
 const osc = useOscStore()
 
 let positions: vec3[] = []
