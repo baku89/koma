@@ -60,7 +60,5 @@
 		"vue-eslint-parser": "^9.4.2",
 		"wavesurfer.js": "^7.7.1"
 	},
-	"dependencies": {
-		"linearly": "^0.21.0"
-	}
+	"dependencies": {}
 }
