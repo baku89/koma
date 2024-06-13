@@ -23,14 +23,6 @@ import {debounceAsync} from '@/utils'
 export interface Config<T> {
 	writable: boolean
 	value: T | null
-	set: (value: T) => Promise<void>
-	option: ConfigDesc<T>['option']
-}
-
-export interface TethrConfig<T> {
-	writable: boolean
-	value: T | null
-	target: T | null
 	set: (value: T) => void
 	option?: ConfigDescOption<T>
 }
@@ -38,11 +30,10 @@ export interface TethrConfig<T> {
 function useConfig<N extends ConfigName>(
 	camera: Ref<Tethr | null>,
 	name: N
-): TethrConfig<ConfigType[N]> {
-	const config = shallowReactive<TethrConfig<ConfigType[N]>>({
+): Config<ConfigType[N]> {
+	const config = shallowReactive<Config<ConfigType[N]>>({
 		writable: false,
 		value: null,
-		target: null,
 		set: () => null,
 		option: undefined,
 	})
@@ -63,17 +54,13 @@ function useConfig<N extends ConfigName>(
 			config.value = desc.value
 			config.option = desc.option
 
-			const {fn: set} = debounceAsync(
+			const {fn: set, isExecuting: isSetting} = debounceAsync(
 				(value: ConfigType[N]) => {
-					config.value = value
 					return camera.set(name, value)
 				},
 				{
 					onQueue(value) {
-						config.target = value
-					},
-					onFinish() {
-						config.target = null
+						config.value = value
 					},
 				}
 			)
@@ -81,9 +68,7 @@ function useConfig<N extends ConfigName>(
 			config.set = set
 
 			camera.on(`${name}Change` as any, (desc: ConfigDesc<ConfigType[N]>) => {
-				const isSetting = config.target !== null && config.target !== desc.value
-
-				if (isSetting) return
+				if (isSetting.value) return
 
 				config.value = desc.value
 				config.writable = desc.writable
@@ -93,7 +78,7 @@ function useConfig<N extends ConfigName>(
 		{immediate: true}
 	)
 
-	return readonly(config) as TethrConfig<ConfigType[N]>
+	return readonly(config) as Config<ConfigType[N]>
 }
 
 export const useCameraStore = defineStore('camera', () => {
