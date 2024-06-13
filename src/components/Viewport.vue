@@ -129,7 +129,7 @@ actions.register([
 	overflow hidden
 
 	&.liveview
-		border-color var(--tq-color-tinted-input-active)
+		border-color var(--tq-color-rec)
 
 .wrapper
 	position relative
@@ -197,13 +197,13 @@ actions.register([
 	li
 		display grid
 		grid-template-columns min-content 1fr
-		background set-alpha(--tq-color-surface, 0.8)
+		background var(--tq-color-surface)
 		border-radius var(--tq-input-border-radius)
 		backdrop-filter blur(4px)
 		padding 1rem
 		gap 9px
 		line-height 20px
-		border 1px solid var(--tq-color-on-error)
+		border 2px solid var(--tq-color-rec)
 
 	.iconify
 		color var(--tq-color-error)

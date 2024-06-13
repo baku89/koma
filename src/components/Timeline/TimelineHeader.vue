@@ -76,7 +76,7 @@ const measures = computed(() => {
 	height var(--header-height)
 	pointer-events auto
 
-	background-image linear-gradient(to right, var(--tq-color-surface-border) 1px, transparent 1px)
+	background-image linear-gradient(to right, var(--tq-color-border) 1px, transparent 1px)
 	background-size var(--koma-width) 100%
 
 .header
@@ -88,6 +88,6 @@ const measures = computed(() => {
 .preview-range
 	position absolute
 	height var(--header-height)
-	background var(--tq-color-on-input)
+	background var(--tq-color-on-background)
 	opacity 0.2
 </style>

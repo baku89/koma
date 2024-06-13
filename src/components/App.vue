@@ -29,7 +29,7 @@ import Viewport from './Viewport.vue'
 
 useTweeq('com.baku89.koma', {
 	colorMode: 'dark',
-	accentColor: '#ff0000',
+	accentColor: '#C85168',
 })
 
 const actions = useActionsStore()
@@ -270,7 +270,7 @@ actions.register([
 							name: {type: 'string'},
 							fps: {type: 'number', min: 1, max: 60, step: 1},
 							duration: {type: 'number', min: 0, step: 1},
-							shootCondition: {type: 'code', lang: 'javascript'},
+							shootCondition: {type: 'string', ui: 'code', lang: 'javascript'},
 						},
 						{
 							title: 'Project Settings',

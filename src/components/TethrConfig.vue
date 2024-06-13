@@ -136,11 +136,12 @@ function increment(dir: 1 | -1) {
 			v-if="canIncrement"
 			icon="ic:round-minus"
 			@click="increment(-1)"
+			gray
+			horizontalPosition="left"
 		/>
 		<Tq.InputString
 			v-if="config.value === null || !config.option"
 			:modelValue="config.value ? String(config.value) : '-'"
-			font="monospace"
 			align="center"
 			disabled
 		/>
@@ -149,7 +150,6 @@ function increment(dir: 1 | -1) {
 			:modelValue="config.value"
 			:options="config.option.values"
 			:disabled="config.writable"
-			font="monospace"
 			align="center"
 			v-bind="inputAttrs"
 			@focus="focusing = true"
@@ -174,8 +174,10 @@ function increment(dir: 1 | -1) {
 		/>
 		<Tq.InputButton
 			v-if="canIncrement"
+			gray
 			icon="ic:round-plus"
 			@click="increment(1)"
+			horizontalPosition="right"
 		/>
 	</div>
 </template>
@@ -183,5 +185,4 @@ function increment(dir: 1 | -1) {
 <style lang="stylus" scoped>
 .TethrConfig
 	display flex
-	gap 6px
 </style>

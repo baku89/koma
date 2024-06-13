@@ -62,7 +62,7 @@ const styles = computed(() => {
 	&:hover
 	&.selected
 		&:before
-			outline 3px solid set-alpha(--tq-color-on-background, 0.5)
+			outline 3px solid set-alpha(--tq-color-selection, 0.5)
 
 	.label
 		width fit-content

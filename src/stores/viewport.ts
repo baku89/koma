@@ -19,7 +19,7 @@ export const useViewportStore = defineStore('viewport', () => {
 	const liveToggle = ref(false)
 	const enableOnionskin = ref(true)
 	const enableHiRes = ref(false)
-	const appConfig = useAppConfigStore()
+	const config = useAppConfigStore().group('viewport')
 	const appSelection = useSelectionStore()
 
 	const howl = computed(() => {
@@ -35,8 +35,8 @@ export const useViewportStore = defineStore('viewport', () => {
 		return previewFrame.value === project.captureShot.frame
 	})
 
-	const currentFrame = appConfig.ref('viewprot.currentFrame', 0)
-	const currentLayer = appConfig.ref('viewport.currentLayer', 0)
+	const currentFrame = config.ref('currentFrame', 0)
+	const currentLayer = config.ref('currentLayer', 0)
 
 	function setCurrentFrame(value: number) {
 		currentFrame.value = clamp(value, 0, project.allKomas.length - 1)

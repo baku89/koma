@@ -118,12 +118,13 @@ function printShotInfo(shot: Shot) {
 	width calc(var(--koma-width) - 1px)
 	height var(--koma-height)
 	overflow hidden
+
 	&.selected:before
 		content ''
 		display block
 		position absolute
 		inset 0
-		border 2px solid var(--md-sys-color-tertiary)
+		border 2px solid var(--tq-color-selection)
 		border-radius var(--tq-input-border-radius)
 		z-index 10
 		pointer-events none
@@ -143,7 +144,7 @@ function printShotInfo(shot: Shot) {
 
 .captured
 	overflow hidden
-	box-shadow inset 0 0 0 1px var(--tq-color-surface-border)
+	box-shadow inset 0 0 0 1px var(--tq-color-border)
 
 	img
 		height 100%
@@ -159,7 +160,7 @@ function printShotInfo(shot: Shot) {
 	margin 0
 
 .liveview
-	background var(--tq-color-accent-container)
+	background var(--tq-color-rec)
 
 .empty
 	background transparent

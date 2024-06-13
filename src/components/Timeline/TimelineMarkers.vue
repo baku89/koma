@@ -265,5 +265,5 @@ useBndr($root, $root => {
 .selection-rect
 	position absolute
 	z-index 100
-	border 2px solid var(--tq-color-accent)
+	border 2px solid var(--tq-color-selection)
 </style>

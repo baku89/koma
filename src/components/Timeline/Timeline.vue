@@ -242,8 +242,8 @@ const vizStyles = computed(() => {
 	left calc(var(--koma-width) * var(--onionskin))
 	right 100%
 	height var(--header-height)
-	background var(--md-sys-color-on-tertiary-container)
-	opacity 0.4
+	background var(--tq-color-selection)
+	opacity 0.5
 
 	&.pos
 		left var(--koma-width)

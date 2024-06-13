@@ -9,24 +9,21 @@ import {useProjectStore} from './project'
 export const useTrackerStore = defineStore('tracker', () => {
 	const aux = useAuxDevicesStore()
 	const project = useProjectStore()
-	const appConfig = useAppConfigStore()
+	const config = useAppConfigStore().group('tracker')
 
-	const groundLevel = appConfig.ref('tracker.groundLevel', 0)
+	const groundLevel = config.ref('groundLevel', 0)
 
-	const originMatrix = appConfig.ref<mat4>(
-		'tracker.originMatrix',
-		mat4.identity
-	)
+	const originMatrix = config.ref<mat4>('originMatrix', mat4.identity)
 
 	const originMatrixInverse = computed(() => {
 		return mat4.invert(originMatrix.value) ?? mat4.ident
 	})
 
-	const cameraOffset = appConfig.ref<vec3>('tracker.offset', vec3.zero)
+	const cameraOffset = config.ref<vec3>('offset', vec3.zero)
 
 	// Camera coordinate system relative to the tracker
-	const cameraAxisX = appConfig.ref<vec3>('tracker.xAxis', vec3.unitX)
-	const cameraAxisY = appConfig.ref<vec3>('tracker.yAxis', vec3.unitY)
+	const cameraAxisX = config.ref<vec3>('xAxis', vec3.unitX)
+	const cameraAxisY = config.ref<vec3>('yAxis', vec3.unitY)
 
 	const trackerToCameraMatrix = computed(() => {
 		// const y = vec3.normalize(cameraAxisY.value)
@@ -80,7 +77,7 @@ export const useTrackerStore = defineStore('tracker', () => {
 		return mat4.getRotation(matrix.value)
 	})
 
-	const averageSamples = appConfig.ref('tracker.averageSamples', 1)
+	const averageSamples = config.ref('tracker.averageSamples', 1)
 
 	const averageTarget = computed(() => {
 		const lastTracker = project.shot(project.captureShot.frame - 1, 0)?.tracker
