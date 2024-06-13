@@ -78,18 +78,15 @@ const style = computed(() => {
 		>
 			<img v-if="layer.type === 'jpg'" :src="layer.src" />
 			<video
-				v-if="camera.liveviewMediaStream"
+				v-if="camera.liveview.value"
 				v-show="layer.type === 'lv'"
-				:srcObject.prop="camera.liveviewMediaStream"
+				:srcObject.prop="camera.liveview.value"
 				autoplay
 				loop
 				muted
 				playsinline
 			/>
-			<div
-				v-if="layer.type === 'lv' && !camera.liveviewMediaStream"
-				class="no-lv"
-			>
+			<div v-if="layer.type === 'lv' && !camera.liveview.value" class="no-lv">
 				<Icon icon="mdi:camera-off" />
 			</div>
 		</div>

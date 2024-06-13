@@ -1,11 +1,11 @@
 import {defineStore} from 'pinia'
-import {ConfigDesc, ConfigName, ConfigType, detectCameras, Tethr} from 'tethr'
+import {ConfigDesc, ConfigName, ConfigType, Tethr, TethrManager} from 'tethr'
 import {useAppConfigStore} from 'tweeq'
 import {
 	onUnmounted,
-	reactive,
 	readonly,
 	Ref,
+	shallowReactive,
 	shallowRef,
 	toRaw,
 	watch,
@@ -24,7 +24,7 @@ export function useConfig<N extends ConfigName>(
 	camera: Ref<Tethr | null>,
 	name: N
 ): Config<ConfigType[N]> {
-	const config = reactive({
+	const config = shallowReactive({
 		writable: false,
 		value: null,
 		set: async () => undefined,
@@ -86,11 +86,11 @@ export function useConfig<N extends ConfigName>(
 }
 
 export const useCameraStore = defineStore('camera', () => {
+	const manager = new TethrManager()
+
 	const tethr = shallowRef<Tethr | null>(null)
 
 	const appConfig = useAppConfigStore()
-
-	const liveviewMediaStream = shallowRef<null | MediaStream>(null)
 
 	const configs = appConfig.ref<Partial<ConfigType>>('cameraConfigs', {
 		exposureMode: 'M',
@@ -109,10 +109,10 @@ export const useCameraStore = defineStore('camera', () => {
 			return
 		}
 
-		let tethrs: Tethr[]
+		let cam: Tethr | null
 		try {
-			tethrs = await detectCameras()
-			if (tethrs.length === 0) {
+			cam = await manager.requestCamera('ptpusb')
+			if (!cam) {
 				throw new Error('No camera detected')
 			}
 		} catch (err) {
@@ -122,7 +122,6 @@ export const useCameraStore = defineStore('camera', () => {
 			return
 		}
 
-		const cam = tethrs[0]
 		cam.setLog(false)
 		await cam.open()
 
@@ -138,11 +137,8 @@ export const useCameraStore = defineStore('camera', () => {
 		cam.on('disconnect', () => {
 			tethr.value = null
 		})
-		cam.on('liveviewStreamUpdate', (ms: MediaStream | null) => {
-			liveviewMediaStream.value = ms
-		})
 		cam.on('change', async () => {
-			const exportedConfigs = (await tethr.value?.exportConfigs()) ?? {}
+			const exportedConfigs = await tethr.value?.exportConfigs()
 
 			configs.value = {
 				...toRaw(configs.value),
@@ -165,7 +161,6 @@ export const useCameraStore = defineStore('camera', () => {
 
 	return {
 		tethr,
-		liveviewMediaStream,
 		toggleConnection,
 
 		// DPC
@@ -190,7 +185,7 @@ export const useCameraStore = defineStore('camera', () => {
 		focusDistance: useConfig(tethr, 'focusDistance'),
 		focusPeaking: useConfig(tethr, 'focusPeaking'),
 		liveviewMagnifyRatio: useConfig(tethr, 'liveviewMagnifyRatio'),
-		liveviewEnabled: useConfig(tethr, 'liveviewEnabled'),
+		liveview: useConfig(tethr, 'liveview'),
 		liveviewSize: useConfig(tethr, 'liveviewSize'),
 		destinationToSave: useConfig(tethr, 'destinationToSave'),
 		batteryLevel: useConfig(tethr, 'batteryLevel'),

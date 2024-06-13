@@ -59,7 +59,7 @@ export default defineConfig({
 			{
 				find: 'tethr',
 				replacement: fileURLToPath(
-					new URL('./dev_modules/tethr/src', import.meta.url)
+					new URL('./dev_modules/tethr/core/src', import.meta.url)
 				),
 			},
 		],

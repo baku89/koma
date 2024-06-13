@@ -23,7 +23,7 @@
 		"paths": {
 			"@/*": ["./src/*"],
 			"tweeq": ["./dev_modules/tweeq/src/index.ts"],
-			"tethr": ["./dev_modules/tethr/src/index.ts"]
+			"tethr": ["./dev_modules/tethr/core/src/index.ts"]
 		}
 	},
 	"include": ["src"]
