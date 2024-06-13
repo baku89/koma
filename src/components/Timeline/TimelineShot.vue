@@ -159,7 +159,7 @@ function printShotInfo(shot: Shot) {
 	margin 0
 
 .liveview
-	background var(--tq-color-primary-container)
+	background var(--tq-color-accent-container)
 
 .empty
 	background transparent
@@ -185,5 +185,5 @@ function printShotInfo(shot: Shot) {
 
 	&:hover:before
 		transform scaleX(1)
-		background var(--tq-color-primary)
+		background var(--tq-color-accent)
 </style>

@@ -1,5 +1,12 @@
 import {defineStore} from 'pinia'
-import {ConfigDesc, ConfigName, ConfigType, Tethr, TethrManager} from 'tethr'
+import {
+	ConfigDesc,
+	ConfigDescOption,
+	ConfigName,
+	ConfigType,
+	Tethr,
+	TethrManager,
+} from 'tethr'
 import {useAppConfigStore} from 'tweeq'
 import {
 	onUnmounted,
@@ -20,16 +27,25 @@ export interface Config<T> {
 	option: ConfigDesc<T>['option']
 }
 
-export function useConfig<N extends ConfigName>(
+export interface TethrConfig<T> {
+	writable: boolean
+	value: T | null
+	target: T | null
+	set: (value: T) => void
+	option?: ConfigDescOption<T>
+}
+
+function useConfig<N extends ConfigName>(
 	camera: Ref<Tethr | null>,
 	name: N
-): Config<ConfigType[N]> {
-	const config = shallowReactive({
+): TethrConfig<ConfigType[N]> {
+	const config = shallowReactive<TethrConfig<ConfigType[N]>>({
 		writable: false,
 		value: null,
-		set: async () => undefined,
+		target: null,
+		set: () => null,
 		option: undefined,
-	}) as Config<ConfigType[N]>
+	})
 
 	watch(
 		camera,
@@ -37,7 +53,6 @@ export function useConfig<N extends ConfigName>(
 			if (!camera) {
 				config.writable = false
 				config.value = null
-				config.set = async () => undefined
 				config.option = undefined
 				return
 			}
@@ -48,31 +63,27 @@ export function useConfig<N extends ConfigName>(
 			config.value = desc.value
 			config.option = desc.option
 
-			let targetValue: ConfigType[N] | null = null
-
-			const setProp = debounceAsync(
-				async (value: ConfigType[N]) => {
-					await camera.set(name, value)
+			const {fn: set} = debounceAsync(
+				(value: ConfigType[N]) => {
+					config.value = value
+					return camera.set(name, value)
 				},
 				{
 					onQueue(value) {
-						targetValue = value
+						config.target = value
 					},
 					onFinish() {
-						targetValue = null
+						config.target = null
 					},
 				}
-			).fn
+			)
 
-			config.set = async (value: ConfigType[N]) => {
-				config.value = value
-				setProp(value)
-			}
+			config.set = set
 
 			camera.on(`${name}Change` as any, (desc: ConfigDesc<ConfigType[N]>) => {
-				const doSkip = targetValue !== null && targetValue !== desc.value
+				const isSetting = config.target !== null && config.target !== desc.value
 
-				if (doSkip) return
+				if (isSetting) return
 
 				config.value = desc.value
 				config.writable = desc.writable
@@ -82,7 +93,7 @@ export function useConfig<N extends ConfigName>(
 		{immediate: true}
 	)
 
-	return readonly(config) as Config<ConfigType[N]>
+	return readonly(config) as TethrConfig<ConfigType[N]>
 }
 
 export const useCameraStore = defineStore('camera', () => {

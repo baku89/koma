@@ -46,7 +46,7 @@ debouncedWatch(
 	{debounce: 200}
 )
 
-// TODO: Update on the primary color has changed
+// TODO: Update on the accent color has changed
 watch(
 	() => [project.audio.src] as const,
 	([src]) => {

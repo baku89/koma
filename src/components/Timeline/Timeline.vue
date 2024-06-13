@@ -221,9 +221,9 @@ const vizStyles = computed(() => {
 	width 2px
 	margin-left -1px
 	z-index 10
-	background var(--tq-color-primary)
+	background var(--tq-color-accent)
 	height 100%
-	color var(--tq-color-on-primary)
+	color var(--tq-color-on-accent)
 
 	&:before
 		pointer-events none
@@ -233,7 +233,7 @@ const vizStyles = computed(() => {
 		left 1px
 		height var(--header-height)
 		width var(--koma-width)
-		background var(--tq-color-primary)
+		background var(--tq-color-accent)
 		z-index -1
 
 .onionskin
