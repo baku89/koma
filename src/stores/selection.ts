@@ -1,6 +1,6 @@
 import * as Bndr from 'bndr-js'
 import {defineStore} from 'pinia'
-import {useActionsStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 
 interface SelectionOptions {
 	context: string
@@ -12,7 +12,7 @@ interface SelectionOptions {
 }
 
 export const useSelectionStore = defineStore('selection', () => {
-	const actions = useActionsStore()
+	const Tq = useTweeq()
 
 	let selection: SelectionOptions | null = null
 	let willUnselect = true
@@ -57,7 +57,7 @@ export const useSelectionStore = defineStore('selection', () => {
 		setTimeout(() => willUnselect && unselect())
 	}
 
-	actions.register([
+	Tq.actions.register([
 		{
 			id: 'edit',
 			children: [

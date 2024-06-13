@@ -1,6 +1,6 @@
 import {mat4, quat, vec3, vec4} from 'linearly'
 import {defineStore} from 'pinia'
-import {useAppConfigStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 import {computed} from 'vue'
 
 import {useAuxDevicesStore} from './auxDevices'
@@ -9,7 +9,7 @@ import {useProjectStore} from './project'
 export const useTrackerStore = defineStore('tracker', () => {
 	const aux = useAuxDevicesStore()
 	const project = useProjectStore()
-	const config = useAppConfigStore().group('tracker')
+	const config = useTweeq().config.group('tracker')
 
 	const groundLevel = config.ref('groundLevel', 0)
 

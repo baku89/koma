@@ -12,8 +12,7 @@ import {
 	Renderer,
 	Scene,
 } from 'troisjs'
-import {useAppConfigStore, useThemeStore} from 'tweeq'
-import Tq from 'tweeq'
+import {useTweeq} from 'tweeq'
 import {ref, shallowRef, watch} from 'vue'
 
 import {useTrackerStore} from '@/stores/tracker'
@@ -22,13 +21,12 @@ import Axis from './Axis.vue'
 import CameraTrajectory from './CameraTrajectory.vue'
 import TrackerRecButton from './TrackerRecButton.vue'
 
-const appConfig = useAppConfigStore()
-const theme = useThemeStore()
+const Tq = useTweeq()
 const tracker = useTrackerStore()
 
 //------------------------------------------------------------------------------
 // ThreeJS
-const cameraControlPosition = appConfig.ref('cameraControl.position', [
+const cameraControlPosition = Tq.config.ref('cameraControl.position', [
 	2, 2, 2,
 ] as vec3)
 
@@ -254,9 +252,9 @@ const paneExpanded = ref(false)
 			@ready="onRendererReady"
 		>
 			<Camera />
-			<Scene ref="$scene" :background="theme.colorBackground">
-				<PointLight :color="theme.colorOnBackground" :position="{y: 10}" />
-				<AmbientLight :color="theme.colorOnBackground" :intensity="0.5" />
+			<Scene ref="$scene" :background="Tq.theme.colorBackground">
+				<PointLight :color="Tq.theme.colorOnBackground" :position="{y: 10}" />
+				<AmbientLight :color="Tq.theme.colorOnBackground" :intensity="0.5" />
 				<Group v-bind="matrixToThree(tracker.matrix)">
 					<FbxModel src="./camera.fbx" @load="onLoadCameraModel" />
 				</Group>
@@ -317,8 +315,8 @@ const paneExpanded = ref(false)
 							horizonSamples.length === 0
 								? 'Record First Point'
 								: horizonSamples.length === 1
-								? 'Record +Z Point'
-								: 'Record alternative Point'
+									? 'Record +Z Point'
+									: 'Record alternative Point'
 						"
 						:blink="horizonSamples.length > 0"
 						@record="addHorizonSample"

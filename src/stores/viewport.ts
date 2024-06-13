@@ -2,7 +2,7 @@ import {Howl} from 'howler'
 import {scalar} from 'linearly'
 import {clamp} from 'lodash'
 import {defineStore} from 'pinia'
-import {useAppConfigStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 import {computed, readonly, ref, shallowRef, watch} from 'vue'
 
 import {getObjectURL, playSound} from '@/utils'
@@ -19,7 +19,7 @@ export const useViewportStore = defineStore('viewport', () => {
 	const liveToggle = ref(false)
 	const enableOnionskin = ref(true)
 	const enableHiRes = ref(false)
-	const config = useAppConfigStore().group('viewport')
+	const config = useTweeq().config.group('viewport')
 	const appSelection = useSelectionStore()
 
 	const howl = computed(() => {

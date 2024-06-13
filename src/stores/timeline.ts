@@ -1,5 +1,5 @@
 import {defineStore} from 'pinia'
-import {useActionsStore, useAppConfigStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 import {computed, ref} from 'vue'
 
 import {type Marker, useProjectStore} from './project'
@@ -9,16 +9,15 @@ interface PencilOption {
 }
 
 export const useTimelineStore = defineStore('timeline', () => {
-	const appConfig = useAppConfigStore()
+	const Tq = useTweeq()
 	const project = useProjectStore()
-	const actions = useActionsStore()
 
-	const currentTool = appConfig.ref<'select' | 'marker' | 'pencil' | 'eraser'>(
+	const currentTool = Tq.config.ref<'select' | 'marker' | 'pencil' | 'eraser'>(
 		'timeline.currentTool',
 		'select'
 	)
 
-	const toolOptions = appConfig.ref<Marker & PencilOption>('tool.options', {
+	const toolOptions = Tq.config.ref<Marker & PencilOption>('tool.options', {
 		frame: 0,
 		verticalPosition: 0,
 		label: 'Marker',
@@ -37,7 +36,7 @@ export const useTimelineStore = defineStore('timeline', () => {
 		return Math.round(komaWidthBase.value / komaAspect.value)
 	})
 
-	actions.register([
+	Tq.actions.register([
 		{
 			id: 'timeline',
 			icon: 'material-symbols:view-timeline',

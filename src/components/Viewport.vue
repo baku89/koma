@@ -2,7 +2,7 @@
 import {Icon} from '@iconify/vue'
 import {useElementBounding} from '@vueuse/core'
 import {mat2d, vec2} from 'linearly'
-import {useActionsStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 import {computed, ref} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
@@ -12,7 +12,7 @@ import {useZUI} from '@/use/useZUI'
 
 import ViewportKoma from './ViewportKoma.vue'
 
-const actions = useActionsStore()
+const {actions} = useTweeq()
 const project = useProjectStore()
 const viewport = useViewportStore()
 const shootAlerts = useShootAlertsStore()

@@ -1,17 +1,17 @@
 /* eslint-disable no-constant-condition */
 import {isEqual} from 'lodash'
 import {defineStore} from 'pinia'
-import {useActionsStore, useAppConfigStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
 export const useCncStore = defineStore('cnc', () => {
-	const appConfig = useAppConfigStore()
+	const Tq = useTweeq()
 
 	const port = ref<SerialPort | null>(null)
 
 	const connected = computed(() => port.value !== null)
 
-	const savedInfo = appConfig.ref<SerialPortInfo | null>('cnc.info', null)
+	const savedInfo = Tq.config.ref<SerialPortInfo | null>('cnc.info', null)
 
 	const init = async () => {
 		const ports = await navigator.serial.getPorts()
@@ -101,7 +101,7 @@ export const useCncStore = defineStore('cnc', () => {
 
 	// Actions
 
-	const actions = useActionsStore()
+	const {actions} = useTweeq()
 
 	actions.register([
 		{

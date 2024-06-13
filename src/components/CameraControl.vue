@@ -1,19 +1,18 @@
 <script lang="ts" setup>
 import {Icon} from '@iconify/vue'
 import {ConfigName} from 'tethr'
-import Tq, {useAppConfigStore, useThemeStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 
 import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
 
 import TethrConfig from './TethrConfig.vue'
 
+const Tq = useTweeq()
 const camera = useCameraStore()
 const project = useProjectStore()
-const theme = useThemeStore()
-const appConfig = useAppConfigStore()
 
-const showAll = appConfig.ref('cameraControl.showAll', true)
+const showAll = Tq.config.ref('cameraControl.showAll', true)
 
 const configNames: ConfigName[] = [
 	'exposureMode',
@@ -62,7 +61,9 @@ function toggleConfigVisibility(name: ConfigName) {
 }
 
 function getConfigColor(name: ConfigName) {
-	return project.visibleProperties[name]?.color ?? theme.colorGrayOnBackground
+	return (
+		project.visibleProperties[name]?.color ?? Tq.theme.colorGrayOnBackground
+	)
 }
 
 function setConfigColor(name: ConfigName, value: string) {

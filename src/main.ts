@@ -14,4 +14,5 @@ const app = createApp(App)
 app.use(pinia)
 app.use(FloatingVue)
 app.use(TroisJSVuePlugin)
+
 app.mount('#app')

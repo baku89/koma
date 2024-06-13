@@ -7,7 +7,7 @@ import {
 	Tethr,
 	TethrManager,
 } from 'tethr'
-import {useAppConfigStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 import {
 	onUnmounted,
 	readonly,
@@ -101,9 +101,9 @@ export const useCameraStore = defineStore('camera', () => {
 
 	const tethr = shallowRef<Tethr | null>(null)
 
-	const appConfig = useAppConfigStore()
+	const Tq = useTweeq()
 
-	const configs = appConfig.ref<Partial<ConfigType>>('cameraConfigs', {
+	const configs = Tq.config.ref<Partial<ConfigType>>('cameraConfigs', {
 		exposureMode: 'M',
 		aperture: 4,
 		shutterSpeed: '1/30',

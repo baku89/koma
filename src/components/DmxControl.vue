@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import {Icon} from '@iconify/vue'
-import Tq, {useAppConfigStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 
 import {useDmxStore} from '@/stores/dmx'
 import {useProjectStore} from '@/stores/project'
 
+const Tq = useTweeq()
 const project = useProjectStore()
 const dmx = useDmxStore()
-const appConfig = useAppConfigStore()
-const showAll = appConfig.ref('dmxControl.showAll', true)
+const showAll = Tq.config.ref('dmxControl.showAll', true)
 
 function getVisibility(index: number) {
 	const name = `dmx${index + 1}`

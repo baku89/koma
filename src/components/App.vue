@@ -3,9 +3,8 @@ import {Icon} from '@iconify/vue/dist/iconify.js'
 import {whenever} from '@vueuse/core'
 import * as Bndr from 'bndr-js'
 import {scalar, vec3, vec4} from 'linearly'
-import Tq, {useTweeq} from 'tweeq'
-import {useActionsStore} from 'tweeq'
-import {ref, watch} from 'vue'
+import Tq, {initTweeq, useTweeq} from 'tweeq'
+import {watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 import {useDmxStore} from '@/stores/dmx'
@@ -27,13 +26,12 @@ import Timeline from './Timeline'
 import TitleBar from './TitleBar.vue'
 import Viewport from './Viewport.vue'
 
-useTweeq('com.baku89.koma', {
+initTweeq('com.baku89.koma', {
 	colorMode: 'dark',
 	accentColor: '#C85168',
 })
 
-const actions = useActionsStore()
-
+const {actions} = useTweeq()
 const viewport = useViewportStore()
 const timeline = useTimelineStore()
 const project = useProjectStore()
@@ -43,9 +41,6 @@ const dmx = useDmxStore()
 const timer = useTimerStore()
 const tracker = useTrackerStore()
 const shootAlerts = useShootAlertsStore()
-
-const $modal = ref<typeof Tq.PaneModalComplex | null>(null)
-
 const gamepad = Bndr.gamepad()
 
 watch(() => project.captureShot, timer.reset)
@@ -586,7 +581,7 @@ actions.register([
 <template>
 	<div class="App">
 		<Tq.CommandPalette />
-		<Tq.PaneModalComplex ref="$modal" />
+		<Tq.PaneModalComplex />
 		<TitleBar />
 		<main class="main">
 			<Tq.PaneSplit name="vertical" direction="vertical">

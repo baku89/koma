@@ -1,13 +1,13 @@
 import {range} from 'lodash'
 import {defineStore} from 'pinia'
-import {useAppConfigStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 import {watchEffect} from 'vue'
 
 import {useOscStore} from './osc'
 
 export const useDmxStore = defineStore('dmx', () => {
+	const Tq = useTweeq()
 	const osc = useOscStore()
-	const appConfig = useAppConfigStore()
 
 	const senders = osc.senders(
 		Object.fromEntries(
@@ -21,7 +21,7 @@ export const useDmxStore = defineStore('dmx', () => {
 	const values = Object.values(senders)
 
 	const cachedValues = values.map((_, i) => {
-		return appConfig.ref(`dmx${i + 1}`, 1)
+		return Tq.config.ref(`dmx${i + 1}`, 1)
 	})
 
 	cachedValues.forEach((cache, i) => {

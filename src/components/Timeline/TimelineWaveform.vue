@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import {debouncedWatch, useElementSize} from '@vueuse/core'
-import {useThemeStore} from 'tweeq'
+import {useTweeq} from 'tweeq'
 import {onBeforeUnmount, ref, watch} from 'vue'
 import WaveSurfer from 'wavesurfer.js'
 
 import {useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
 
+const Tq = useTweeq()
 const project = useProjectStore()
-const theme = useThemeStore()
 const timeline = useTimelineStore()
 
 const $container = ref<HTMLDivElement | null>(null)
@@ -33,7 +33,7 @@ debouncedWatch(
 			height,
 			mediaControls: false,
 			fillParent: false,
-			waveColor: theme.colorGrayOnBackground,
+			waveColor: Tq.theme.colorGrayOnBackground,
 			cursorWidth: 0,
 		})
 
