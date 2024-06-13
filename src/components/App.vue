@@ -279,6 +279,27 @@ Tq.actions.register([
 					project.$patch(result)
 				},
 			},
+			{
+				id: 'preferences',
+				icon: 'mdi:settings',
+				async perform() {
+					const result = await Tq.modal.prompt(
+						{
+							accentColor: Tq.theme.accentColor,
+						},
+						{
+							accentColor: {type: 'string', ui: 'color'},
+						},
+						{
+							title: 'Preferences',
+						}
+					)
+
+					if (!result) return
+
+					Tq.theme.accentColor = result.accentColor
+				},
+			},
 		],
 	},
 	{
