@@ -3,7 +3,7 @@ import {Icon} from '@iconify/vue/dist/iconify.js'
 import {whenever} from '@vueuse/core'
 import * as Bndr from 'bndr-js'
 import {scalar, vec3, vec4} from 'linearly'
-import Tq, {initTweeq, useTweeq} from 'tweeq'
+import {initTweeq, useTweeq} from 'tweeq'
 import {watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
@@ -31,7 +31,7 @@ initTweeq('com.baku89.koma', {
 	accentColor: '#C85168',
 })
 
-const {actions} = useTweeq()
+const Tq = useTweeq()
 const viewport = useViewportStore()
 const timeline = useTimelineStore()
 const project = useProjectStore()
@@ -46,7 +46,7 @@ const gamepad = Bndr.gamepad()
 watch(() => project.captureShot, timer.reset)
 
 //------------------------------------------------------------------------------
-actions.onBeforePerform(action => {
+Tq.actions.onBeforePerform(action => {
 	if (action.id !== 'toggle_play') {
 		viewport.isPlaying = false
 	}
@@ -170,7 +170,7 @@ const oscIn = osc.receivers({
 	shoot: {address: '/shoot', type: 'b', default: 0},
 })
 
-whenever(oscIn.shoot, () => actions.perform('shoot'))
+whenever(oscIn.shoot, () => Tq.actions.perform('shoot'))
 
 //------------------------------------------------------------------------------
 
@@ -190,7 +190,7 @@ gamepadAxisNeutral.on(() => {
 	viewport.isPlaying = false
 })
 
-actions.register([
+Tq.actions.register([
 	{
 		id: 'file',
 		icon: 'mdi:folder',
@@ -254,7 +254,7 @@ actions.register([
 				icon: 'mdi:gear',
 				bind: 'command+,',
 				async perform() {
-					const result = await $modal.value!.prompt(
+					const result = await Tq.modal.prompt(
 						{
 							name: project.name,
 							fps: project.fps,
@@ -272,9 +272,10 @@ actions.register([
 						}
 					)
 
+					if (!result) return
+
 					project.duration = result.duration
 
-					delete result.duration
 					project.$patch(result)
 				},
 			},
