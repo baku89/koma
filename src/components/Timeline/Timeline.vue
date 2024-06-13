@@ -165,7 +165,7 @@ const vizStyles = computed(() => {
 					:min="minZoom * 100"
 					:max="maxZoom * 100"
 					suffix="%"
-					:bar="100"
+					:barOrigin="100"
 					:step="1"
 					:precision="0"
 					style="width: 7em"
