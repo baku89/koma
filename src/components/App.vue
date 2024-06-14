@@ -252,7 +252,7 @@ Tq.actions.register([
 			{
 				id: 'project_settings',
 				icon: 'mdi:gear',
-				bind: 'command+,',
+				bind: 'command+option+,',
 				async perform() {
 					const result = await Tq.modal.prompt(
 						{
@@ -282,13 +282,16 @@ Tq.actions.register([
 			{
 				id: 'preferences',
 				icon: 'mdi:settings',
+				bind: 'command+,',
 				async perform() {
 					const result = await Tq.modal.prompt(
 						{
 							accentColor: Tq.theme.accentColor,
+							darkMode: Tq.theme.colorMode === 'dark',
 						},
 						{
 							accentColor: {type: 'string', ui: 'color'},
+							darkMode: {type: 'boolean'},
 						},
 						{
 							title: 'Preferences',
@@ -298,6 +301,7 @@ Tq.actions.register([
 					if (!result) return
 
 					Tq.theme.accentColor = result.accentColor
+					Tq.theme.colorMode = result.darkMode ? 'dark' : 'light'
 				},
 			},
 		],
