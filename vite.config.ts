@@ -30,7 +30,6 @@ export default defineConfig({
 			manifest: {
 				name: 'Koma',
 				short_name: 'Koma',
-				theme_color: '#1a1a1a',
 				display: 'standalone',
 				display_override: ['window-controls-overlay', 'standalone'],
 				icons: [
