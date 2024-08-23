@@ -13,12 +13,12 @@
 		"postversion": "git push && git push --tags"
 	},
 	"workspaces": [
-		"dev_modules/*",
-		"dev_modules/tethr/integrations/*"
+		"dev_modules/*"
 	],
 	"devDependencies": {
 		"@baku89/pave": "^0.2.0",
 		"@iconify/vue": "^4.1.1",
+		"@tethr/vue3": "^0.4.1",
 		"@types/dateformat": "^5.0.2",
 		"@types/howler": "^2.2.11",
 		"@types/three": "^0.157.0",
@@ -48,6 +48,7 @@
 		"pretty-bytes": "^6.1.1",
 		"safer-eval": "^1.3.6",
 		"stylus": "^0.62.0",
+		"tethr": "^0.4.1",
 		"three": "0.134",
 		"troika-three-text": "^0.49.0",
 		"troisjs": "^0.3.4",

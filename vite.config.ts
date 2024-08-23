@@ -58,12 +58,6 @@ export default defineConfig({
 					new URL('./dev_modules/tweeq/src', import.meta.url)
 				),
 			},
-			{
-				find: 'tethr',
-				replacement: fileURLToPath(
-					new URL('./dev_modules/tethr/core/src', import.meta.url)
-				),
-			},
 		],
 	},
 	define: {

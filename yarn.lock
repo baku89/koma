@@ -1885,6 +1885,14 @@
     magic-string "^0.25.0"
     string.prototype.matchall "^4.0.6"
 
+"@tethr/vue3@^0.4.1":
+  version "0.4.1"
+  resolved "https://registry.yarnpkg.com/@tethr/vue3/-/vue3-0.4.1.tgz#9150ecd791120acc1463c2be83a4c9aaa037f81d"
+  integrity sha512-38PreiLh9qxpdqFnRZ5e/ouN+kgxQoyW0RUmyDIEJ/lu+sVi+RlG6Oxt8cWq6/n55L6o1WEmCJtHn4hWr14axw==
+  dependencies:
+    tethr "^0.4.1"
+    vue "^3.0.0"
+
 "@traptitech/markdown-it-katex@^3.6.0":
   version "3.6.0"
   resolved "https://registry.yarnpkg.com/@traptitech/markdown-it-katex/-/markdown-it-katex-3.6.0.tgz#6f2605668ecf56a50aa2fadce1fc76f90dc82529"
@@ -3957,7 +3965,7 @@ eslint-module-utils@^2.8.0:
   dependencies:
     debug "^3.2.7"
 
-eslint-plugin-import@^2.23.3, eslint-plugin-import@^2.29.1:
+eslint-plugin-import@^2.23.3:
   version "2.29.1"
   resolved "https://registry.yarnpkg.com/eslint-plugin-import/-/eslint-plugin-import-2.29.1.tgz#d45b37b5ef5901d639c15270d74d46d161150643"
   integrity sha512-BbPC0cuExzhiMo4Ff1BTVwHpjjv28C5R+btTOGaCRC7UEz801up0JadwkeSk5Ued6TG34uaczuVuH6qyy5YUxw==
@@ -6845,11 +6853,6 @@ typescript@5.4.3:
   version "5.4.3"
   resolved "https://registry.yarnpkg.com/typescript/-/typescript-5.4.3.tgz#5c6fedd4c87bee01cd7a528a30145521f8e0feff"
   integrity sha512-KrPd3PKaCLr78MalgiwJnA25Nm8HAmdwN3mYUYZgG/wizIo9EainNVQI9/yDavtVFRN2h3k8uf3GLHuhDMgEHg==
-
-typescript@^5.4.5:
-  version "5.4.5"
-  resolved "https://registry.yarnpkg.com/typescript/-/typescript-5.4.5.tgz#42ccef2c571fdbd0f6718b1d1f5e6e5ef006f611"
-  integrity sha512-vcI4UpRgg81oIRUFwR0WSIHKt11nJ7SAVlYNIu+QpqeyXP+gpQJy/Z4+F0aGxSE4MqwjyXvW/TzgkLAx2AGHwQ==
 
 uc.micro@^2.0.0:
   version "2.0.0"
