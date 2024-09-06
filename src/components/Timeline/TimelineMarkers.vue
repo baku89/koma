@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {BBox} from '@baku89/pave'
+import {Rect} from '@baku89/pave'
 import * as Bndr from 'bndr-js'
 import {scalar, vec2} from 'linearly'
 import {clamp, range} from 'lodash'
@@ -120,14 +120,14 @@ useBndr($root, $root => {
 
 			const {height} = $root.getBoundingClientRect()
 
-			const rootRect: BBox = [
+			const rootRect: Rect = [
 				[0, 0],
 				[Infinity, height],
 			]
 
-			const dragRect = BBox.fromPoints(d.start, d.current)
+			const dragRect = Rect.fromPoints(d.start, d.current)
 
-			const [[xLower, yLower], [xUpper, yUpper]] = BBox.intersect(
+			const [[xLower, yLower], [xUpper, yUpper]] = Rect.intersect(
 				rootRect,
 				dragRect
 			)
