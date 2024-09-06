@@ -32,6 +32,7 @@ export default defineConfig({
 				short_name: 'Koma',
 				display: 'standalone',
 				display_override: ['window-controls-overlay', 'standalone'],
+				theme_color: '#000000',
 				icons: [
 					{
 						src: 'icon.png',
