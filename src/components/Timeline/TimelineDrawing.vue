@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {pausableWatch, useElementBounding} from '@vueuse/core'
 import paper from 'paper'
-import {onMounted, ref, watch, watchEffect} from 'vue'
+import {onMounted, ref, shallowRef, watch, watchEffect} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
 
-const $canvas = ref<null | HTMLCanvasElement>(null)
+const $canvas = shallowRef<null | HTMLCanvasElement>(null)
 
 interface Props {
 	scroll: number

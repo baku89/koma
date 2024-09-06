@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {debouncedWatch, useElementSize} from '@vueuse/core'
 import {useTweeq} from 'tweeq'
-import {onBeforeUnmount, ref, watch} from 'vue'
+import {onBeforeUnmount, shallowRef, watch} from 'vue'
 import WaveSurfer from 'wavesurfer.js'
 
 import {useProjectStore} from '@/stores/project'
@@ -11,7 +11,7 @@ const Tq = useTweeq()
 const project = useProjectStore()
 const timeline = useTimelineStore()
 
-const $container = ref<HTMLDivElement | null>(null)
+const $container = shallowRef<HTMLDivElement | null>(null)
 
 const {height} = useElementSize($container)
 

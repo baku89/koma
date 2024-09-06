@@ -33,7 +33,7 @@ const cameraControlPosition = Tq.config.ref('cameraControl.position', [
 let renderer: THREE.WebGLRenderer
 let camera: THREE.PerspectiveCamera
 
-const $root = ref<HTMLElement | null>(null)
+const $root = shallowRef<HTMLElement | null>(null)
 const $guide = shallowRef<any>()
 
 const rootSize = useElementSize($root)

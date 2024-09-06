@@ -3,7 +3,7 @@ import {Icon} from '@iconify/vue'
 import {useElementBounding} from '@vueuse/core'
 import {mat2d, vec2} from 'linearly'
 import {useTweeq} from 'tweeq'
-import {computed, ref} from 'vue'
+import {computed, shallowRef} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
@@ -17,7 +17,7 @@ const project = useProjectStore()
 const viewport = useViewportStore()
 const shootAlerts = useShootAlertsStore()
 
-const $wrapper = ref<HTMLElement | null>(null)
+const $wrapper = shallowRef<HTMLElement | null>(null)
 
 const bound = useElementBounding($wrapper)
 
