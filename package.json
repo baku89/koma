@@ -37,6 +37,7 @@
 		"eslint-plugin-simple-import-sort": "^10.0.0",
 		"eslint-plugin-unused-imports": "^3.0.0",
 		"eslint-plugin-vue": "^9.20.1",
+		"file-saver": "^2.0.5",
 		"floating-vue": "^5.2.2",
 		"howler": "^2.2.4",
 		"lodash": "^4.17.21",
@@ -59,7 +60,7 @@
 		"vite-plugin-monaco-editor": "^1.1.0",
 		"vite-plugin-pwa": "^0.17.5",
 		"vue": "^3.5.3",
-		"vue-eslint-parser": "^9.4.2",
+		"vue-eslint-parser": "^9.4.3",
 		"wavesurfer.js": "^7.7.1"
 	},
 	"dependencies": {}
