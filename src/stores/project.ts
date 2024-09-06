@@ -174,9 +174,7 @@ export const useProjectStore = defineStore('project', () => {
 	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
 
 	const isSavedToDisk = asyncComputed(
-		async () =>
-			directoryHandle.value &&
-			directoryHandle.value !== (await opfs.localDirectoryHandle)
+		async () => directoryHandle.value !== (await opfs.localDirectoryHandle)
 	)
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
@@ -260,43 +258,41 @@ export const useProjectStore = defineStore('project', () => {
 	)
 
 	async function saveAs() {
-		const handler = await showReadwriteDirectoryPicker()
+		const handle = await showReadwriteDirectoryPicker()
 
-		directoryHandle.value = handler
-
-		if (project.name === emptyProject.name && handler.name !== '') {
-			project.name = handler.name
+		if (project.name === emptyProject.name && handle.name !== '') {
+			project.name = handle.name
 		}
 
-		await save()
+		await save(handle)
 	}
 
 	async function saveInOpfs() {
-		directoryHandle.value = await opfs.localDirectoryHandle
-		await save()
+		await save(await opfs.localDirectoryHandle)
 	}
 
-	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
-		if (isOpeningAutoSavedProject) return
+	const {fn: save, isExecuting: isSaving} = debounceAsync(
+		async (handle: FileSystemDirectoryHandle) => {
+			if (isOpeningAutoSavedProject) return
 
-		if (directoryHandle.value === null) {
-			directoryHandle.value = await opfs.localDirectoryHandle
+			directoryHandle.value = handle
+
+			await saveBlobJson(handle, toRaw(project), {
+				saveBlob: opfs.save,
+				pathToFilename(path) {
+					const [first, frame, , layer, type] = path
+
+					if (first === 'komas' && typeof frame === 'number') {
+						const lv = type === 'lv' ? '_lv' : ''
+						const seq = frame.toString().padStart(4, '0')
+						const ext = type === 'raw' ? 'dng' : 'jpg'
+
+						return `${project.name}_layer=${layer}${lv}_${seq}.${ext}`
+					}
+				},
+			})
 		}
-		await saveBlobJson(directoryHandle.value, toRaw(project), {
-			saveBlob: opfs.save,
-			pathToFilename(path) {
-				const [first, frame, , layer, type] = path
-
-				if (first === 'komas' && typeof frame === 'number') {
-					const lv = type === 'lv' ? '_lv' : ''
-					const seq = frame.toString().padStart(4, '0')
-					const ext = type === 'raw' ? 'dng' : 'jpg'
-
-					return `${project.name}_layer=${layer}${lv}_${seq}.${ext}`
-				}
-			},
-		})
-	})
+	)
 
 	// Enable autosave
 	const autoSave = pausableWatch(project, save, {deep: true})
