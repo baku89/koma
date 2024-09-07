@@ -95,3 +95,30 @@ export async function writeFileWithStream(
 
 	await writable.close()
 }
+
+export async function hashFile(file: File) {
+	const chunkSize = 1024 * 50
+	const buffer = await file.slice(0, chunkSize).arrayBuffer()
+	const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+
+	// hashBufferをBase64エンコード
+	const hashBase64 = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
+
+	return hashBase64
+}
+
+export async function checkFileExists(
+	directoryHandle: FileSystemDirectoryHandle,
+	fileName: string
+) {
+	try {
+		// 指定されたファイルを取得しようとする
+		return await directoryHandle.getFileHandle(fileName)
+	} catch (e) {
+		if (e instanceof Error && e.name === 'NotFoundError') {
+			return null // ファイルが存在しない場合
+		} else {
+			throw e // 他のエラーの場合は例外を投げる
+		}
+	}
+}
