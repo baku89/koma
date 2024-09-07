@@ -2,7 +2,7 @@ import {debounce} from 'lodash'
 import {defineStore} from 'pinia'
 import {ref} from 'vue'
 
-import {queryPermission} from '@/utils'
+import {queryPermission, writeFileWithStream} from '@/utils'
 
 export const useOpfsStore = defineStore('opfs', () => {
 	let resolveLocalDirectoryHandle: (
@@ -71,6 +71,8 @@ export const useOpfsStore = defineStore('opfs', () => {
 
 		// Read the file
 		try {
+			const now = performance.now()
+
 			const fileHandle = await directoryHandle.getFileHandle(filename)
 			await queryPermission(fileHandle, 'read')
 			const file = await fileHandle.getFile()
@@ -79,15 +81,14 @@ export const useOpfsStore = defineStore('opfs', () => {
 			const cacheName =
 				(directoryHandle.name ?? 'originPrivate') + '__' + filename
 
-			const cache = await tempDirectoryHandle
-			const cacheHandle = await cache.getFileHandle(cacheName, {create: true})
+			const cacheHandle = await tempDirectoryHandle.then(h =>
+				h.getFileHandle(cacheName, {create: true})
+			)
 			await queryPermission(cacheHandle)
+			await writeFileWithStream(file, cacheHandle)
 
-			const cacheWriter = await cacheHandle.createWritable()
-			await cacheWriter.write(file)
-			await cacheWriter.close()
-
-			console.info('Cached the file: ' + filename)
+			const elapsed = performance.now() - now
+			console.info('Cached the file: ' + filename + ' in ' + elapsed + 'ms')
 
 			estimateStorage()
 

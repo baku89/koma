@@ -76,3 +76,22 @@ export async function writeFileToDirectory(
 
 	return await fileHandle.getFile()
 }
+
+export async function writeFileWithStream(
+	blob: Blob,
+	fileHandle: FileSystemFileHandle
+) {
+	const writable = await fileHandle.createWritable()
+
+	const reader = blob.stream().getReader()
+
+	while (true) {
+		const {done, value} = await reader.read()
+
+		if (done) break
+
+		await writable.write(value)
+	}
+
+	await writable.close()
+}
