@@ -69,7 +69,7 @@ type UndoableData = Pick<Project, 'komas' | 'captureShot' | 'markers'> & {
 }
 
 type SVGString = string
-type PaperJSData = string
+type PaperJSData = ReturnType<typeof JSON.parse>
 type JSCode = string
 
 type CameraConfigs = Partial<ConfigType>

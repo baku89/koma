@@ -84,7 +84,7 @@ onMounted(() => {
 
 function saveDrawing() {
 	savedDrawingWatcher.pause()
-	const json = scope.value?.project.exportJSON()
+	const json = scope.value?.project.exportJSON({asString: false})
 	if (json) {
 		project.timeline.drawing = json
 	}
