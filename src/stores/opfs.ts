@@ -2,7 +2,12 @@ import {debounce} from 'lodash'
 import {defineStore} from 'pinia'
 import {ref} from 'vue'
 
-import {queryPermission, writeFileWithStream} from '@/utils'
+import {
+	getFileIfExists,
+	hashFile,
+	queryPermission,
+	writeFileWithStream,
+} from '@/utils'
 
 export const useOpfsStore = defineStore('opfs', () => {
 	let resolveLocalDirectoryHandle: (
@@ -46,10 +51,6 @@ export const useOpfsStore = defineStore('opfs', () => {
 			create: true,
 		})
 
-		for await (const key of tempDirectoryHandle.keys()) {
-			tempDirectoryHandle.removeEntry(key)
-		}
-
 		resolveTempDirectoryHandle(tempDirectoryHandle)
 
 		estimateStorage()
@@ -70,48 +71,36 @@ export const useOpfsStore = defineStore('opfs', () => {
 		if (!directoryHandle) throw new Error('No directory handler')
 
 		// Read the file
-		try {
-			const now = performance.now()
+		const fileHandle = await directoryHandle.getFileHandle(filename)
+		await queryPermission(fileHandle, 'read')
+		const file = await fileHandle.getFile()
 
-			const fileHandle = await directoryHandle.getFileHandle(filename)
-			await queryPermission(fileHandle, 'read')
-			const file = await fileHandle.getFile()
+		// // Check if the file is already saved in the cache directory
+		const hash = await hashFile(file)
+		let cacheHandle = await getFileIfExists(await tempDirectoryHandle, hash)
 
-			// Save it to the blob diretory and return the blob
-			const cacheName =
-				(directoryHandle.name ?? 'originPrivate') + '__' + filename
+		console.log('for filename', filename, 'hash', hash)
 
-			const cacheHandle = await tempDirectoryHandle.then(h =>
-				h.getFileHandle(cacheName, {create: true})
+		if (!cacheHandle) {
+			const newCacheHandle = await tempDirectoryHandle.then(h =>
+				h.getFileHandle(hash, {create: true})
 			)
-			await queryPermission(cacheHandle)
-			await writeFileWithStream(file, cacheHandle)
-
-			const elapsed = performance.now() - now
-			console.info('Cached the file: ' + filename + ' in ' + elapsed + 'ms')
-
-			estimateStorage()
-
-			const cached = await cacheHandle.getFile()
-
-			let map = savedFilenameForBlob.get(directoryHandle)
-
-			if (!map) {
-				map = new WeakMap()
-				savedFilenameForBlob.set(directoryHandle, map)
-			}
-
-			map.set(cached, filename)
-
-			return cached
-		} catch (e) {
-			throw new Error(
-				'Could not open the file: directory=' +
-					directoryHandle.name +
-					' filename=' +
-					filename
-			)
+			await queryPermission(newCacheHandle)
+			await writeFileWithStream(file, newCacheHandle)
+			cacheHandle = newCacheHandle
 		}
+
+		let map = savedFilenameForBlob.get(directoryHandle)
+
+		if (!map) {
+			map = new WeakMap()
+			savedFilenameForBlob.set(directoryHandle, map)
+		}
+
+		const cache = await cacheHandle.getFile()
+		map.set(cache, filename)
+
+		return cache
 	}
 
 	/**
