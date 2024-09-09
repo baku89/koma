@@ -100,12 +100,12 @@ export async function writeFileWithStream(
 export async function hashFile(file: File) {
 	const chunkSize = 1024 * 50
 	const buffer = await file.slice(0, chunkSize).arrayBuffer()
-	const hashBuffer = await crypto.subtle.digest('MD5', buffer)
+	const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
 
-	// hashBufferをBase64エンコード
-	const hashBase64 = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
-
-	return hashBase64
+	// 16進数に変換
+	const hashArray = Array.from(new Uint8Array(hashBuffer))
+	const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+	return hashHex
 }
 
 export async function getFileIfExists(
@@ -113,13 +113,8 @@ export async function getFileIfExists(
 	fileName: string
 ) {
 	try {
-		// 指定されたファイルを取得しようとする
 		return await directoryHandle.getFileHandle(fileName)
 	} catch (e) {
-		if (e instanceof Error && e.name === 'NotFoundError') {
-			return null // ファイルが存在しない場合
-		} else {
-			throw e // 他のエラーの場合は例外を投げる
-		}
+		return null
 	}
 }
