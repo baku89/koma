@@ -52,10 +52,10 @@ export async function saveBlobJson(
 		} else if (data instanceof Blob) {
 			let filename = options.pathToFilename?.(path) ?? path.join('.')
 
-			if (data instanceof File) {
+			if (data instanceof File && data.name.includes('.')) {
 				const ext = data.name.split('.').pop()
 
-				if (ext) {
+				if (ext && !filename.endsWith(`.${ext}`)) {
 					filename += `.${ext}`
 				}
 			}
