@@ -264,35 +264,35 @@ export const useProjectStore = defineStore('project', () => {
 			project.name = handle.name
 		}
 
-		await save(handle)
+		directoryHandle.value = handle
 	}
 
 	async function saveInOpfs() {
-		await save(await opfs.localDirectoryHandle)
+		directoryHandle.value = await opfs.localDirectoryHandle
 	}
 
-	const {fn: save, isExecuting: isSaving} = debounceAsync(
-		async (handle: FileSystemDirectoryHandle) => {
-			if (isOpeningAutoSavedProject) return
+	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
+		if (isOpeningAutoSavedProject) return
 
-			directoryHandle.value = handle
-
-			await saveBlobJson(handle, toRaw(project), {
-				saveBlob: opfs.save,
-				pathToFilename(path) {
-					const [first, frame, , layer, type] = path
-
-					if (first === 'komas' && typeof frame === 'number') {
-						const lv = type === 'lv' ? '_lv' : ''
-						const seq = frame.toString().padStart(4, '0')
-						const ext = type === 'raw' ? 'dng' : 'jpg'
-
-						return `${project.name}_layer=${layer}${lv}_${seq}.${ext}`
-					}
-				},
-			})
+		if (!directoryHandle.value) {
+			throw new Error('No directory is specified')
 		}
-	)
+
+		await saveBlobJson(directoryHandle.value, toRaw(project), {
+			saveBlob: opfs.save,
+			pathToFilename(path) {
+				const [first, frame, , layer, type] = path
+
+				if (first === 'komas' && typeof frame === 'number') {
+					const lv = type === 'lv' ? '_lv' : ''
+					const seq = frame.toString().padStart(4, '0')
+					const ext = type === 'raw' ? 'dng' : 'jpg'
+
+					return `${project.name}_layer=${layer}${lv}_${seq}.${ext}`
+				}
+			},
+		})
+	})
 
 	// Enable autosave
 	const autoSave = pausableWatch(project, save, {deep: true})
