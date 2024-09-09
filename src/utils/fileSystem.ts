@@ -85,6 +85,7 @@ export async function writeFileWithStream(
 
 	const reader = blob.stream().getReader()
 
+	// eslint-disable-next-line no-constant-condition
 	while (true) {
 		const {done, value} = await reader.read()
 
@@ -99,7 +100,7 @@ export async function writeFileWithStream(
 export async function hashFile(file: File) {
 	const chunkSize = 1024 * 50
 	const buffer = await file.slice(0, chunkSize).arrayBuffer()
-	const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+	const hashBuffer = await crypto.subtle.digest('MD5', buffer)
 
 	// hashBufferをBase64エンコード
 	const hashBase64 = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
@@ -107,7 +108,7 @@ export async function hashFile(file: File) {
 	return hashBase64
 }
 
-export async function checkFileExists(
+export async function getFileIfExists(
 	directoryHandle: FileSystemDirectoryHandle,
 	fileName: string
 ) {
