@@ -7,7 +7,7 @@ import {
 } from '@vueuse/core'
 import {useIDBKeyval} from '@vueuse/integrations/useIDBKeyval'
 import {mat2d, quat, vec2, vec3} from 'linearly'
-import {clamp, cloneDeep, debounce} from 'lodash'
+import {clamp, cloneDeep, debounce, isEqual} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
 import {computed, nextTick, reactive, toRaw, toRefs} from 'vue'
@@ -176,9 +176,15 @@ export const useProjectStore = defineStore('project', () => {
 			{shallow: true}
 		)
 
-	const isSavedToDisk = asyncComputed(
-		async () => directoryHandle.value !== (await opfs.localDirectoryHandle)
-	)
+	const isSavedToDisk = asyncComputed(async () => {
+		if (!directoryHandle.value) return false
+
+		const isSavedToOPFS = await directoryHandle.value.isSameEntry(
+			await opfs.localDirectoryHandle
+		)
+
+		return !isSavedToOPFS
+	})
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
 
@@ -224,6 +230,20 @@ export const useProjectStore = defineStore('project', () => {
 
 	// Open and Save Projects
 	async function createNew() {
+		await save()
+
+		if (!isSavedToDisk.value && !isEqual(toRaw(project), emptyProject)) {
+			if (
+				!confirm(
+					'Do you want to create a new project? Your unsaved changes will be lost.'
+				)
+			) {
+				return
+			}
+		}
+
+		directoryHandle.value = await opfs.localDirectoryHandle
+
 		assignReactive(project, cloneDeep(emptyProject))
 
 		nextTick(() => history.clear())
@@ -275,11 +295,6 @@ export const useProjectStore = defineStore('project', () => {
 		save()
 	}
 
-	async function saveInOpfs() {
-		directoryHandle.value = await opfs.localDirectoryHandle
-		save()
-	}
-
 	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
 		if (isOpening.value) return
 
@@ -304,7 +319,7 @@ export const useProjectStore = defineStore('project', () => {
 	})
 
 	// Enable autosave
-	const autoSave = pausableWatch(project, debounce(save, 1000), {deep: true})
+	const autoSave = pausableWatch(project, debounce(save, 500), {deep: true})
 
 	whenever(isDirectoryHandlePersisted, () => {
 		if (directoryHandle.value) {
@@ -388,7 +403,6 @@ export const useProjectStore = defineStore('project', () => {
 		createNew,
 		open,
 		saveAs,
-		saveInOpfs,
 		allKomas,
 		previewKomas,
 		setInPoint,

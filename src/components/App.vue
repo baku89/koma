@@ -217,20 +217,25 @@ Tq.actions.register([
 				},
 			},
 			{
+				id: 'save_project',
+				label: 'Save Project',
+				icon: 'mdi:content-save',
+				bind: 'command+s',
+				async perform() {
+					if (!project.isSavedToDisk) {
+						await project.saveAs()
+					} else {
+						await project.save()
+					}
+				},
+			},
+			{
 				id: 'save_project_as',
 				label: 'Save Project As...',
 				icon: 'mdi:content-save',
 				bind: 'command+shift+s',
 				async perform() {
 					await project.saveAs()
-				},
-			},
-			{
-				id: 'save_project_in_opfs',
-				label: 'Save Project in OPFS',
-				icon: 'octicon:cache-16',
-				async perform() {
-					await project.saveInOpfs()
 				},
 			},
 			{

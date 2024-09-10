@@ -80,12 +80,14 @@ export const useOpfsStore = defineStore('opfs', () => {
 		let cacheHandle = await getFileIfExists(await tempDirectoryHandle, hash)
 
 		if (!cacheHandle) {
+			console.time('caching... ' + filename)
 			const newCacheHandle = await tempDirectoryHandle.then(h =>
 				h.getFileHandle(hash, {create: true})
 			)
 			await queryPermission(newCacheHandle)
 			await writeFileWithStream(file, newCacheHandle)
 			cacheHandle = newCacheHandle
+			console.timeEnd('caching... ' + filename)
 		}
 
 		let map = savedFilenameForBlob.get(directoryHandle)

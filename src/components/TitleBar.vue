@@ -37,15 +37,12 @@ onUnmounted(destroyBndr)
 const destinationInfo = computed(() => {
 	if (project.isSavedToDisk) {
 		return {
-			content: '<em>Saved to Disk</em>',
+			content: 'Saved to Disk',
 			html: true,
 		}
 	} else {
-		const usage = prettyBytes(opfs.usage)
-		const quota = prettyBytes(opfs.quota)
-		const percent = Math.round((opfs.usage / opfs.quota) * 100) + '%'
 		return {
-			content: `<em>Saved to <a href="https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system">OPFS</a></em><br />${usage}/${quota} (${percent})`,
+			content: `Saved to App`,
 			html: true,
 		}
 	}
