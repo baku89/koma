@@ -81,12 +81,14 @@ actions.register([
 		],
 	},
 ])
+
+const tint = computed(() => viewport.coloredOnionskin && !viewport.isPlaying)
 </script>
 
 <template>
 	<div
 		class="Viewport"
-		:class="{liveview: viewport.isLiveview, tint: viewport.coloredOnionskin}"
+		:class="{liveview: viewport.isLiveview, tint}"
 		ref="$wrapper"
 		:style="{'--tint': 'red'}"
 	>
@@ -94,13 +96,13 @@ actions.register([
 			<ViewportKoma
 				class="koma"
 				:frame="viewport.previewFrame"
-				:class="{tint: viewport.coloredOnionskin}"
+				:class="{tint}"
 			/>
 			<ViewportKoma
 				v-for="({frame, opacity, tint}, i) in viewport.onionskin"
 				:key="i"
 				class="koma"
-				:class="{tint: viewport.coloredOnionskin}"
+				:class="{tint}"
 				:frame="frame"
 				:style="{opacity, '--tint': tint}"
 			/>
