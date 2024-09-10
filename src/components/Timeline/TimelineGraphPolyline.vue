@@ -39,6 +39,10 @@ const capturedRange = computed(() => {
 	const min = Math.min(...numericValues)
 	const max = Math.max(...numericValues)
 
+	if (!isFinite(min) || !isFinite(max)) {
+		return [0, 1] as const
+	}
+
 	return [min, max] as const
 })
 
