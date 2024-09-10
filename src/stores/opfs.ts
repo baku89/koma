@@ -127,10 +127,7 @@ export const useOpfsStore = defineStore('opfs', () => {
 			})
 
 			await queryPermission(fileHandle)
-
-			const w = await fileHandle.createWritable()
-			await w.write(blob)
-			await w.close()
+			await writeFileWithStream(blob, fileHandle)
 
 			// Save the blob to cache
 			map.set(blob, filename)

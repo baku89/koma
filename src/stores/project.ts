@@ -7,7 +7,7 @@ import {
 } from '@vueuse/core'
 import {useIDBKeyval} from '@vueuse/integrations/useIDBKeyval'
 import {mat2d, quat, vec2, vec3} from 'linearly'
-import {clamp, cloneDeep} from 'lodash'
+import {clamp, cloneDeep, debounce} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
 import {computed, nextTick, reactive, toRaw, toRefs} from 'vue'
@@ -304,7 +304,7 @@ export const useProjectStore = defineStore('project', () => {
 	})
 
 	// Enable autosave
-	const autoSave = pausableWatch(project, save, {deep: true})
+	const autoSave = pausableWatch(project, debounce(save, 1000), {deep: true})
 
 	whenever(isDirectoryHandlePersisted, () => {
 		if (directoryHandle.value) {
