@@ -24,7 +24,8 @@ const props = withDefaults(defineProps<Props>(), {
 const project = useProjectStore()
 
 const filterFn = computed(
-	() => (v: unknown) => (typeof v === 'number' ? props.filter?.(v) ?? v : null)
+	() => (v: unknown) =>
+		typeof v === 'number' ? (props.filter?.(v) ?? v) : null
 )
 
 // Captured values
@@ -104,7 +105,7 @@ function convertValuesToPoints(values: (number | null)[], startFrame: number) {
 	for (const [i, v] of values.entries()) {
 		if (v === null) continue
 		const x = i + startFrame
-		const y = scalar.invlerp(max, min, v)
+		const y = max !== min ? scalar.invlerp(max, min, v) : 0.5
 
 		points.push([x, y])
 	}
@@ -113,27 +114,30 @@ function convertValuesToPoints(values: (number | null)[], startFrame: number) {
 }
 
 function convertToPolylinePath(points: vec2[]) {
+	if (points.length === 0) {
+		return 'M0,0'
+	}
+
 	const commands: string[] = []
 
-	const firstPoint = points[0] ?? [NaN, NaN]
+	const firstPoint = points[0] ?? vec2.zero
 
-	let prevX = firstPoint[0]
-	let prevY = firstPoint[1]
+	let prev = firstPoint
 	let drawing = false
 
-	for (const [x, y] of points) {
-		if (prevY !== y) {
-			if (!drawing) {
-				commands.push(`M${prevX},${prevY}`)
-			}
-			commands.push(`L${x},${y}`)
-			drawing = true
-		} else {
+	for (const curt of points) {
+		if (prev[1] === curt[1]) {
+			// Skip horizontal lines
 			drawing = false
+		} else {
+			if (!drawing) {
+				commands.push(`M${prev[0]},${prev[1]}`)
+			}
+			commands.push(`L${curt[0]},${curt[1]}`)
+			drawing = true
 		}
 
-		prevX = x
-		prevY = y
+		prev = curt
 	}
 
 	return commands.join(' ')
