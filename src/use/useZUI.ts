@@ -16,7 +16,7 @@ export function useZUI(
 		const position = pointer.position()
 		const scroll = pointer.scroll({preventDefault: true})
 
-		const altPressed = keyboard.pressed('alt')
+		const altPressed = keyboard.pressed('option')
 
 		// Pan
 		const panByDrag = position.while(mmbPressed).delta(vec2.delta)
