@@ -56,7 +56,7 @@ Tq.actions.onBeforePerform(action => {
 // Shoot
 
 const {fn: shoot} = preventConcurrentExecution(
-	async (): Promise<Shot> => {
+	async (force = false): Promise<Shot> => {
 		if (project.captureShot.frame !== viewport.currentFrame) {
 			viewport.setCurrentFrame(project.captureShot.frame)
 			viewport.setCurrentLayer(project.captureShot.layer)
@@ -64,19 +64,21 @@ const {fn: shoot} = preventConcurrentExecution(
 			throw new Error('The capture frame is not current frame')
 		}
 
-		if (!shootAlerts.canShoot) {
-			;(async () => {
-				await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+		if (!force && !shootAlerts.canShoot) {
+			await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
 
-				for await (const msg of shootAlerts.alerts) {
-					await speak(msg)
-				}
-			})()
+			for await (const msg of shootAlerts.alerts) {
+				await speak(msg)
+			}
 
 			throw new Error('Cannot shoot')
 		}
 
 		if (!camera.tethr) {
+			await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+
+			speak('No camera is connected')
+
 			throw new Error('No camera is coonnected')
 		}
 
@@ -340,6 +342,32 @@ Tq.actions.register([
 				bind: ['enter', 'gamepad:a'],
 				async perform() {
 					const newShot = await shoot()
+
+					project.$patch(state => {
+						const {frame, layer} = state.captureShot
+						project.setShot(frame, layer, newShot)
+
+						// Find next empty frame
+						for (let i = frame + 1; i <= state.komas.length; i++) {
+							if (!state.komas[i] || !state.komas[i]?.shots[0]) {
+								state.captureShot = {frame: i, layer: 0}
+								break
+							}
+						}
+
+						state.previewRange[1] = state.captureShot.frame
+					})
+
+					viewport.setCurrentFrame(project.captureShot.frame)
+					viewport.setCurrentLayer(project.captureShot.layer)
+				},
+			},
+			{
+				id: 'force-shoot',
+				icon: 'mdi:circle',
+				bind: ['command+enter'],
+				async perform() {
+					const newShot = await shoot(true)
 
 					project.$patch(state => {
 						const {frame, layer} = state.captureShot

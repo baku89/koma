@@ -60,7 +60,7 @@ export function debounceAsync<T extends unknown[]>(
 }
 
 /**
- * Asyncな関数が重複して実行されないようにする
+ * Prevents an async function from being executed concurrently. If it is executed concurrently, onConcurrentExecution is called.
  */
 export function preventConcurrentExecution<T extends unknown[], R>(
 	fn: (...arg: T) => Promise<R>,
