@@ -45,12 +45,7 @@ interface Project<T = Blob> {
 	visibleProperties: Record<string, {visible: boolean; color: string}>
 	viewport: {
 		transform: mat2d | 'fit'
-		liveviewTransform: mat2d
-		shotTransform: mat2d
 		overlay: SVGString
-		overlayMaskOpacity: number
-		overlayLineOpacity: number
-		onionskinBlend: MixBlendMode
 		zoom: number
 	}
 	layers: {
@@ -146,16 +141,11 @@ const emptyProject: Project = {
 	resolution: [1920, 1280],
 	viewport: {
 		transform: 'fit',
-		liveviewTransform: mat2d.identity,
-		shotTransform: mat2d.identity,
 		overlay: `
-			<!--<path class="letterbox" d="m0,0v1h1V0H0Zm.9.9H.1V.1h.8v.8Z"/>-->
+			<path class="letterbox" d="m0,0v1h1V0H0Zm.9.9H.1V.1h.8v.8Z"/>
 			<line class="line" x1="0" y1=".5" x2="1" y2=".5" />
 			<line class="line" x1=".5" y1="0" x2=".5" y2="1" />
 		`,
-		overlayMaskOpacity: 0.5,
-		overlayLineOpacity: 1,
-		onionskinBlend: 'normal',
 		zoom: 1.3,
 	},
 	layers: [
