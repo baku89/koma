@@ -22,7 +22,7 @@ const visibleProps = computed(() => {
 <template>
 	<Tq.ParameterGroup label="Tool Options" name="toolOptions">
 		<Tq.Parameter v-if="visibleProps.includes('color')" label="Color">
-			<Tq.InputColor v-model="timeline.toolOptions.color" />
+			<Tq.InputColor v-model="timeline.toolOptions.color" :alpha="false" />
 		</Tq.Parameter>
 		<Tq.Parameter v-if="visibleProps.includes('label')" label="Label">
 			<Tq.InputString v-model="timeline.toolOptions.label" />

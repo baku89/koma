@@ -37,6 +37,7 @@ export const useViewportStore = defineStore('viewport', () => {
 
 	const currentFrame = config.ref('currentFrame', 0)
 	const currentLayer = config.ref('currentLayer', 0)
+	const coloredOnionskin = config.ref('coloredOnionskin', false)
 
 	function setCurrentFrame(value: number) {
 		currentFrame.value = clamp(value, 0, project.allKomas.length - 1)
@@ -202,7 +203,7 @@ export const useViewportStore = defineStore('viewport', () => {
 	})
 
 	// Onionskin information
-	const onionskin = computed<{frame: number; opacity: number}[]>(() => {
+	const onionskin = computed(() => {
 		if (
 			isPlaying.value ||
 			liveToggle.value ||
@@ -219,16 +220,31 @@ export const useViewportStore = defineStore('viewport', () => {
 		const dir = Math.sign(onionskin)
 		const fract = o % 1.0 === 0 ? 1 : o % 1.0
 
-		const counts = Math.ceil(o - 0.0001)
-		const layers = Array(counts)
+		const count = Number.isInteger(o) ? o : Math.ceil(o)
+		const layers = Array(count)
 			.fill(0)
 			.map((_, i) => {
 				const frame = currentFrame.value + dir * (i + 1)
-				const opacityFrom = i === counts - 1 ? 0 : 1 / counts
-				const opacityTarget = 1 / (counts + 1)
-				const opacity = scalar.lerp(opacityFrom, opacityTarget, fract)
 
-				return {frame, opacity}
+				if (coloredOnionskin.value) {
+					const hueFrom = scalar.lerp(0, 360, (i + 1) / count)
+					const hueTarget = scalar.lerp(0, 360, (i + 1) / (count + 1))
+					const hue = scalar.lerp(hueFrom, hueTarget, fract)
+
+					const opacityFrom = i === count - 1 ? 0 : 1
+					const opacity = scalar.lerp(opacityFrom, 1, fract)
+
+					return {
+						frame,
+						opacity,
+						tint: `hsl(${hue}, 100%, 50%)`,
+					}
+				} else {
+					const opacityFrom = i === count - 1 ? 0 : 1 / count
+					const opacityTarget = 1 / (count + 1)
+					const opacity = scalar.lerp(opacityFrom, opacityTarget, fract)
+					return {frame, opacity, tint: null}
+				}
 			})
 
 		return layers
@@ -238,6 +254,7 @@ export const useViewportStore = defineStore('viewport', () => {
 		liveToggle,
 		enableHiRes,
 		enableOnionskin,
+		coloredOnionskin,
 		currentFrame: readonly(currentFrame),
 		setCurrentFrame,
 		currentLayer: readonly(currentLayer),

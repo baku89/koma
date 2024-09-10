@@ -143,7 +143,7 @@ const emptyProject: Project = {
 	viewport: {
 		transform: 'fit',
 		overlay: `
-			<path class="letterbox" d="m0,0v1h1V0H0Zm.9.9H.1V.1h.8v.8Z"/>
+			<!--<path class="letterbox" d="m0,0v1h1V0H0Zm.9.9H.1V.1h.8v.8Z"/>-->
 			<line class="line" x1="0" y1=".5" x2="1" y2=".5" />
 			<line class="line" x1=".5" y1="0" x2=".5" y2="1" />
 		`,
@@ -269,7 +269,7 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
-		if (isOpening) return
+		if (isOpening.value) return
 
 		if (!directoryHandle.value) {
 			throw new Error('No directory is specified')

@@ -84,24 +84,32 @@ actions.register([
 </script>
 
 <template>
-	<div class="Viewport" :class="{liveview: viewport.isLiveview}">
-		<div ref="$wrapper" class="wrapper">
-			<div class="frame" :style="frameStyles">
-				<ViewportKoma class="koma" :frame="viewport.previewFrame" />
-				<ViewportKoma
-					v-for="({frame, opacity}, i) in viewport.onionskin"
-					:key="i"
-					class="koma"
-					:frame="frame"
-					:style="{opacity}"
-				/>
-				<svg
-					class="view-overlay"
-					viewBox="0 0 1 1"
-					preserveAspectRatio="none"
-					v-html="project.viewport.overlay"
-				></svg>
-			</div>
+	<div
+		class="Viewport"
+		:class="{liveview: viewport.isLiveview, tint: viewport.coloredOnionskin}"
+		ref="$wrapper"
+		:style="{'--tint': 'red'}"
+	>
+		<div class="frame" :style="frameStyles">
+			<ViewportKoma
+				class="koma"
+				:frame="viewport.previewFrame"
+				:class="{tint: viewport.coloredOnionskin}"
+			/>
+			<ViewportKoma
+				v-for="({frame, opacity, tint}, i) in viewport.onionskin"
+				:key="i"
+				class="koma"
+				:class="{tint: viewport.coloredOnionskin}"
+				:frame="frame"
+				:style="{opacity, '--tint': tint}"
+			/>
+			<svg
+				class="view-overlay"
+				viewBox="0 0 1 1"
+				preserveAspectRatio="none"
+				v-html="project.viewport.overlay"
+			/>
 		</div>
 		<div v-if="viewport.popup?.type === 'progress'" class="popupProgress">
 			<div
@@ -120,7 +128,7 @@ actions.register([
 	</div>
 </template>
 
-<style lang="stylus" scope>
+<style lang="stylus" scoped>
 @import '../../../dev_modules/tweeq/src/common.styl'
 
 .Viewport
@@ -131,17 +139,32 @@ actions.register([
 	&.liveview
 		border-color var(--tq-color-rec)
 
-.wrapper
-	position relative
-	width 100%
-	height 100%
-	overflow hidden
-
 .frame
 	position absolute
 	transform-origin 0 0
 	background black
-	overflow hidden
+
+	&:before
+		content ''
+		display block
+		position absolute
+		inset 0
+		outline 600px solid var(--tq-color-background)
+		pointer-events none
+		z-index 10
+		opacity 0.7
+
+.koma
+	&.tint
+		mix-blend-mode screen
+
+		&:after
+			content ''
+			display block
+			position absolute
+			inset 0
+			background var(--tint)
+			mix-blend-mode multiply
 
 .view-overlay
 	position absolute

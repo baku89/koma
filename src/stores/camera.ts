@@ -19,6 +19,7 @@ import {
 } from 'vue'
 
 import {debounceAsync} from '@/utils'
+import sleep from 'p-sleep'
 
 export interface Config<T> {
 	writable: boolean
@@ -129,6 +130,12 @@ export const useCameraStore = defineStore('camera', () => {
 		}
 
 		await cam.importConfigs(configs.value)
+
+		/** TODO: Fix this */
+		if (configs.value.whiteBalance && configs.value.whiteBalance !== 'manual') {
+			await sleep(500)
+			await cam.setWhiteBalance(configs.value.whiteBalance)
+		}
 
 		cam.on('disconnect', () => {
 			tethr.value = null

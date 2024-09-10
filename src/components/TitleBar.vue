@@ -69,7 +69,7 @@ const destinationInfo = computed(() => {
 		</template>
 		<template #center>
 			<div style="display: flex">
-				<Tq.InputIconToggle
+				<Tq.InputButtonToggle
 					v-model="viewport.isPlaying"
 					:icon="viewport.isPlaying ? 'mdi:pause' : 'mdi:play'"
 					horizontalPosition="left"
@@ -87,21 +87,29 @@ const destinationInfo = computed(() => {
 					@update:modelValue="viewport.setCurrentFrame"
 				/>
 			</div>
-			<Tq.InputIconToggle
+			<Tq.InputButtonToggle
 				v-model="project.isLooping"
 				v-tooltip="'Loop'"
 				icon="material-symbols:laps"
 			/>
-			<Tq.InputIconToggle
+			<Tq.InputButtonToggle
 				v-model="viewport.enableHiRes"
 				v-tooltip="'Hi-Res'"
 				icon="mdi:high-definition"
 			/>
-			<Tq.InputIconToggle
-				v-model="viewport.enableOnionskin"
-				v-tooltip="'Enable Onionskin'"
-				icon="fluent-emoji-high-contrast:onion"
-			/>
+			<div style="display: flex">
+				<Tq.InputButtonToggle
+					v-model="viewport.enableOnionskin"
+					v-tooltip="'Enable Onionskin'"
+					icon="fluent-emoji-high-contrast:onion"
+					horizontalPosition="left"
+				/>
+				<Tq.InputButtonToggle
+					v-model="viewport.coloredOnionskin"
+					label="Color"
+					horizontalPosition="right"
+				/>
+			</div>
 			<div style="display: flex">
 				<Tq.InputButton
 					v-tooltip="'Reset Timer'"
