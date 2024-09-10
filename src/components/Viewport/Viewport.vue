@@ -82,7 +82,12 @@ actions.register([
 	},
 ])
 
-const tint = computed(() => viewport.coloredOnionskin && !viewport.isPlaying)
+const tint = computed(
+	() =>
+		viewport.coloredOnionskin &&
+		!viewport.isPlaying &&
+		viewport.currentLayer === 0
+)
 </script>
 
 <template>
