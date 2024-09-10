@@ -425,7 +425,7 @@ Tq.actions.register([
 			{
 				id: 'go_forward_1_frame',
 				icon: 'lucide:step-forward',
-				bind: ['f', 'right', gamepadAxisRight.down()],
+				bind: ['f', 'right?repeat', gamepadAxisRight.down()],
 				perform() {
 					viewport.setCurrentFrame(viewport.currentFrame + 1)
 					viewport.selectShot()
@@ -434,7 +434,7 @@ Tq.actions.register([
 			{
 				id: 'go_backward_1_frame',
 				icon: 'lucide:step-back',
-				bind: ['d', 'left', gamepadAxisLeft.down()],
+				bind: ['d', 'left?repeat', gamepadAxisLeft.down()],
 				perform() {
 					viewport.setCurrentFrame(viewport.currentFrame - 1)
 					viewport.selectShot()
