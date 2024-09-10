@@ -1,10 +1,16 @@
 import sleep from 'p-sleep'
-import {asyncComputed, pausableWatch, useRefHistory} from '@vueuse/core'
+import {
+	asyncComputed,
+	pausableWatch,
+	useRefHistory,
+	whenever,
+} from '@vueuse/core'
+import {useIDBKeyval} from '@vueuse/integrations/useIDBKeyval'
 import {mat2d, quat, vec2, vec3} from 'linearly'
 import {clamp, cloneDeep} from 'lodash'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
-import {computed, nextTick, reactive, shallowRef, toRaw, toRefs} from 'vue'
+import {computed, nextTick, reactive, toRaw, toRefs} from 'vue'
 
 import {
 	assignReactive,
@@ -162,7 +168,13 @@ const emptyProject: Project = {
 export const useProjectStore = defineStore('project', () => {
 	const opfs = useOpfsStore()
 
-	const directoryHandle = shallowRef<FileSystemDirectoryHandle | null>(null)
+	// Open the auto-saved project on startup
+	const {data: directoryHandle, isFinished: isDirectoryHandlePersisted} =
+		useIDBKeyval(
+			'com.baku89.koma.project.directoryHandle',
+			null as FileSystemDirectoryHandle | null,
+			{shallow: true}
+		)
 
 	const isSavedToDisk = asyncComputed(
 		async () => directoryHandle.value !== (await opfs.localDirectoryHandle)
@@ -294,8 +306,14 @@ export const useProjectStore = defineStore('project', () => {
 	// Enable autosave
 	const autoSave = pausableWatch(project, save, {deep: true})
 
-	// Open the auto-saved project in OPFS
-	opfs.localDirectoryHandle.then(handler => open(handler))
+	whenever(isDirectoryHandlePersisted, () => {
+		if (directoryHandle.value) {
+			console.info('Opening the auto-saved project...', directoryHandle.value)
+			open(directoryHandle.value)
+		} else {
+			opfs.localDirectoryHandle.then(open)
+		}
+	})
 
 	//----------------------------------------------------------------------------
 	// Mutations
