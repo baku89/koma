@@ -24,7 +24,7 @@ import DmxControl from './DmxControl.vue'
 import MarkerSettings from './MarkerSettings.vue'
 import Timeline from './Timeline'
 import TitleBar from './TitleBar.vue'
-import Viewport from './Viewport.vue'
+import Viewport from './Viewport'
 
 initTweeq('com.baku89.koma', {
 	colorMode: 'dark',
