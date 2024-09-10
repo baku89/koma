@@ -7,6 +7,7 @@ export * from './format'
 export * from './blobJson'
 export * from './flob'
 export * from './image'
+export * from './timer'
 
 import {createDefu} from 'defu'
 

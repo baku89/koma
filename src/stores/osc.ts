@@ -1,3 +1,4 @@
+import {setIntervalImmediate} from '@/utils'
 import {mapValues} from 'lodash'
 import OSC from 'osc-js'
 import {defineStore} from 'pinia'
@@ -36,12 +37,10 @@ export const useOscStore = defineStore('osc', () => {
 	watch(
 		oscRef,
 		oscRef => {
+			clearInterval(reconnectTimer)
 			if (oscRef) return
 
-			clearInterval(reconnectTimer)
-			osc.open()
-
-			reconnectTimer = setInterval(() => {
+			reconnectTimer = setIntervalImmediate(() => {
 				osc.open()
 			}, 2000)
 		},
@@ -49,7 +48,6 @@ export const useOscStore = defineStore('osc', () => {
 	)
 
 	osc.on('open', () => {
-		clearInterval(reconnectTimer)
 		oscRef.value = osc
 	})
 
@@ -58,6 +56,7 @@ export const useOscStore = defineStore('osc', () => {
 	})
 
 	osc.on('error', () => {
+		osc.close()
 		oscRef.value = null
 	})
 
@@ -85,23 +84,19 @@ export const useOscStore = defineStore('osc', () => {
 
 	function senders<S extends OscMessageScheme>(scheme: S) {
 		const ret = mapValues(scheme, option => {
-			const r = ref(option.default)
-			watch(
-				() => [oscRef.value, r.value] as const,
-				([osc, r]) => {
-					osc?.send(new OSC.Message(option.address, r as any))
-				}
-			)
-			return r
+			return ref(option.default)
 		}) as OscMessageResult<S>
 
-		const pairs = Object.entries(ret)
-
-		setInterval(() => {
-			pairs.forEach(([address, r]) => {
-				oscRef.value?.send(new OSC.Message(address, r.value as any))
-			})
-		}, 1000)
+		for (const [key, r] of Object.entries(ret)) {
+			const address = scheme[key].address
+			watch(
+				[oscRef, r],
+				([osc, r]) => {
+					osc?.send(new OSC.Message(address, r))
+				},
+				{immediate: true}
+			)
+		}
 
 		return ret
 	}
