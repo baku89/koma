@@ -1,3 +1,4 @@
+import sleep from 'p-sleep'
 import {asyncComputed, pausableWatch, useRefHistory} from '@vueuse/core'
 import {mat2d, quat, vec2, vec3} from 'linearly'
 import {clamp, cloneDeep} from 'lodash'
@@ -224,6 +225,8 @@ export const useProjectStore = defineStore('project', () => {
 
 	const {fn: open, isExecuting: isOpening} = preventConcurrentExecution(
 		async (handler?: FileSystemDirectoryHandle) => {
+			await sleep(0) // Wait for the next tick to show the dialog
+
 			directoryHandle.value = handler ?? (await showReadwriteDirectoryPicker())
 
 			if (!directoryHandle.value) {
@@ -248,6 +251,8 @@ export const useProjectStore = defineStore('project', () => {
 	)
 
 	async function saveAs() {
+		await sleep(0) // Wait for the next tick to show the dialog
+
 		const handle = await showReadwriteDirectoryPicker()
 
 		if (project.name === emptyProject.name && handle.name !== '') {
@@ -255,14 +260,16 @@ export const useProjectStore = defineStore('project', () => {
 		}
 
 		directoryHandle.value = handle
+		save()
 	}
 
 	async function saveInOpfs() {
 		directoryHandle.value = await opfs.localDirectoryHandle
+		save()
 	}
 
 	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
-		if (isOpeningAutoSavedProject) return
+		if (isOpening) return
 
 		if (!directoryHandle.value) {
 			throw new Error('No directory is specified')
@@ -288,14 +295,7 @@ export const useProjectStore = defineStore('project', () => {
 	const autoSave = pausableWatch(project, save, {deep: true})
 
 	// Open the auto-saved project in OPFS
-	let isOpeningAutoSavedProject = true
-	opfs.localDirectoryHandle.then(async handler => {
-		try {
-			await open(handler)
-		} finally {
-			isOpeningAutoSavedProject = false
-		}
-	})
+	opfs.localDirectoryHandle.then(handler => open(handler))
 
 	//----------------------------------------------------------------------------
 	// Mutations
