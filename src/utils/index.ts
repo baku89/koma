@@ -5,7 +5,6 @@ export * from './fileSystem'
 export * from './reactivity'
 export * from './format'
 export * from './blobJson'
-export * from './flob'
 export * from './image'
 export * from './timer'
 
