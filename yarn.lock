@@ -3043,14 +3043,13 @@ bindings@^1.5.0:
   dependencies:
     file-uri-to-path "1.0.0"
 
-bndr-js@^0.15.1:
-  version "0.15.1"
-  resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.15.1.tgz#a0d491242fd3c797daf4514bf12a6b6ecd339a67"
-  integrity sha512-sVDE+jXkFMws6WSciP6pc2RTFK3SdJ0b3gcVnxDmlMCGdX3U5N3nAr/W1fa9SYXd5uzyWIlnTKnBupFMAfY81w==
+bndr-js@^0.16.0:
+  version "0.16.0"
+  resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.16.0.tgz#4a07db03c7d35bc5a496c8a4423c8a2ca458b892"
+  integrity sha512-fQ1Jpn36tGbFl4TiRE46kDdZzT0I9n2c+/XjaorbnDhkZYW4Ig9uz9G9eJwmz6U+FQ1r5RFkr0FOZjSEa0A+jQ==
   dependencies:
     "@types/lodash-es" "^4.17.12"
     case "^1.6.3"
-    hotkeys-js "^3.10.2"
     linearly "^0.20.3"
     lodash-es "^4.17.21"
 
@@ -4597,11 +4596,6 @@ he@^1.2.0:
   version "1.2.0"
   resolved "https://registry.yarnpkg.com/he/-/he-1.2.0.tgz#84ae65fa7eafb165fddb61566ae14baf05664f0f"
   integrity sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw==
-
-hotkeys-js@^3.10.2:
-  version "3.13.7"
-  resolved "https://registry.yarnpkg.com/hotkeys-js/-/hotkeys-js-3.13.7.tgz#0188d8e2fca16a3f1d66541b48de0bb9df613726"
-  integrity sha512-ygFIdTqqwG4fFP7kkiYlvayZppeIQX2aPpirsngkv1xM1lP0piDY5QEh68nQnIKvz64hfocxhBaD/uK3sSK1yQ==
 
 howler@^2.2.4:
   version "2.2.4"
