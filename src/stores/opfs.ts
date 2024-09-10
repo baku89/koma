@@ -79,8 +79,6 @@ export const useOpfsStore = defineStore('opfs', () => {
 		const hash = await hashFile(file)
 		let cacheHandle = await getFileIfExists(await tempDirectoryHandle, hash)
 
-		console.log('for filename', filename, 'hash', hash)
-
 		if (!cacheHandle) {
 			const newCacheHandle = await tempDirectoryHandle.then(h =>
 				h.getFileHandle(hash, {create: true})
