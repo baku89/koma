@@ -121,7 +121,7 @@ actions.register([
 </template>
 
 <style lang="stylus" scope>
-@import '../../dev_modules/tweeq/src/common.styl'
+@import '../../../dev_modules/tweeq/src/common.styl'
 
 .Viewport
 	position relative
