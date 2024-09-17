@@ -26,7 +26,8 @@
 		/* For consistency with Vite */
 		"paths": {
 			"@/*": ["./src/*"],
-			"tweeq": ["./dev_modules/tweeq/src/index.ts"]
+			"tweeq": ["./dev_modules/tweeq/src/index.ts"],
+			"tethr": ["../tethr/core/src/index.ts"]
 		}
 	},
 	"include": ["src"]
