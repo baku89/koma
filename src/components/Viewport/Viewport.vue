@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import {Icon} from '@iconify/vue'
 import {useElementBounding} from '@vueuse/core'
-import {mat2d, vec2} from 'linearly'
+import {mat2d} from 'linearly'
 import {useTweeq} from 'tweeq'
 import {computed, shallowRef} from 'vue'
 
@@ -11,7 +11,7 @@ import {useViewportStore} from '@/stores/viewport'
 import {useZUI} from '@/use/useZUI'
 
 import ViewportKoma from './ViewportKoma.vue'
-import {Rect} from '@/utils/rect'
+import {Rect} from '@/utils/Rect'
 
 const {actions} = useTweeq()
 const project = useProjectStore()
