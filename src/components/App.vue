@@ -609,9 +609,17 @@ Tq.actions.register([
 			{
 				id: 'toggle_onionskin',
 				icon: 'fluent-emoji-high-contrast:onion',
-				bind: ['gamepad:r'],
+				bind: ['gamepad:r', 'o'],
 				perform() {
 					viewport.enableOnionskin = !viewport.enableOnionskin
+				},
+			},
+			{
+				id: 'toggle_colored_onionskin',
+				icon: 'fluent-emoji-high-contrast:onion',
+				bind: ['c'],
+				perform: () => {
+					viewport.coloredOnionskin = !viewport.coloredOnionskin
 				},
 			},
 		],

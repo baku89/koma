@@ -71,6 +71,7 @@ actions.register([
 
 const tint = computed(
 	() =>
+		viewport.enableOnionskin &&
 		viewport.coloredOnionskin &&
 		!viewport.isPlaying &&
 		viewport.currentLayer === 0
