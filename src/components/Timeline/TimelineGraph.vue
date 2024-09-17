@@ -262,10 +262,6 @@ const viewBox = computed(() => {
 	const [inPoint, outPoint] = project.previewRange
 	return `${inPoint} -0.05 ${outPoint - inPoint + 1} 1.1`
 })
-
-watchEffect(() => {
-	console.log('focalLength', focalLength.value, camera.focalLength.value)
-})
 </script>
 
 <template>
