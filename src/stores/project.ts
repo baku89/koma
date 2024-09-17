@@ -126,12 +126,13 @@ const emptyProject: Project = {
 	// Drops the ';' at the beginning inserted by Eslint
 	shootCondition: defaultShootCondition.slice(1),
 	cameraConfigs: {
-		focalLength: 50,
-		focusDistance: 24,
-		aperture: 5.6,
-		shutterSpeed: '1/100',
+		exposureMode: 'M',
+		aperture: 4,
+		shutterSpeed: '1/30',
 		iso: 100,
+		whiteBalance: 'fluorescent',
 		colorTemperature: 5500,
+		imageQuality: 'raw 14bit,fine',
 	},
 	visibleProperties: {
 		shootTime: {visible: true, color: '#ffffff'},

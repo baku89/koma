@@ -7,19 +7,11 @@ import {
 	Tethr,
 	TethrManager,
 } from 'tethr'
-import {useTweeq} from 'tweeq'
-import {
-	onUnmounted,
-	readonly,
-	Ref,
-	shallowReactive,
-	shallowRef,
-	toRaw,
-	watch,
-} from 'vue'
+import {readonly, Ref, shallowReactive, shallowRef, watch} from 'vue'
 
 import {debounceAsync} from '@/utils'
 import sleep from 'p-sleep'
+import {useProjectStore} from './project'
 
 export interface Config<T> {
 	writable: boolean
@@ -83,21 +75,70 @@ function useConfig<N extends ConfigName>(
 }
 
 export const useCameraStore = defineStore('camera', () => {
+	const project = useProjectStore()
+
 	const manager = new TethrManager()
 
 	const tethr = shallowRef<Tethr | null>(null)
 
-	const Tq = useTweeq()
-
-	const configs = Tq.config.ref<Partial<ConfigType>>('cameraConfigs', {
-		exposureMode: 'M',
-		aperture: 4,
-		shutterSpeed: '1/30',
-		iso: 100,
-		whiteBalance: 'fluorescent',
-		colorTemperature: 5500,
-		imageQuality: 'raw 14bit,fine',
+	const pairedCameras = shallowRef<Tethr[]>([])
+	manager.on('pairedCameraChange', cameras => {
+		pairedCameras.value = cameras
 	})
+
+	// Automatically connect
+	watch(
+		() => [project.cameraConfigs.model, pairedCameras.value] as const,
+		async ([model, cameras]) => {
+			if (!model || tethr.value) return
+
+			for await (const cam of cameras) {
+				if ((await cam.getModel()) === model) {
+					openCamera(cam)
+					break
+				}
+			}
+		},
+		{immediate: true}
+	)
+
+	async function openCamera(cam: Tethr) {
+		cam.setLog(false)
+
+		await cam.open()
+
+		const model = await cam.getModel()
+
+		await cam.importConfigs(project.cameraConfigs)
+
+		/** TODO: Fix this */
+		if (
+			project.cameraConfigs.whiteBalance &&
+			project.cameraConfigs.whiteBalance !== 'manual'
+		) {
+			await sleep(500)
+			await cam.setWhiteBalance(project.cameraConfigs.whiteBalance)
+		}
+
+		saveConfigs()
+
+		async function saveConfigs() {
+			project.cameraConfigs = {
+				model: model ?? undefined,
+				...(await cam.exportConfigs()),
+			}
+		}
+
+		cam.on('disconnect', () => {
+			tethr.value = null
+		})
+		cam.on('change', saveConfigs)
+
+		tethr.value = cam
+		;(window as any).cam = cam
+
+		cam.startLiveview()
+	}
 
 	async function toggleConnection() {
 		if (tethr.value) {
@@ -106,10 +147,13 @@ export const useCameraStore = defineStore('camera', () => {
 			return
 		}
 
-		let cam: Tethr | null
+		let cam: Tethr
+
 		try {
-			cam = await manager.requestCamera('ptpusb')
-			if (!cam) {
+			const ptpusb = await manager.requestCamera('ptpusb')
+			if (ptpusb) {
+				cam = ptpusb
+			} else {
 				throw new Error('No camera detected')
 			}
 		} catch (err) {
@@ -119,48 +163,8 @@ export const useCameraStore = defineStore('camera', () => {
 			return
 		}
 
-		cam.setLog(false)
-		await cam.open()
-
-		const initialConfigs = {...toRaw(configs.value)}
-
-		// Remove colorTemperature if whiteBalance is not manual
-		if (configs.value.whiteBalance !== 'manual') {
-			delete initialConfigs['colorTemperature']
-		}
-
-		await cam.importConfigs(configs.value)
-
-		/** TODO: Fix this */
-		if (configs.value.whiteBalance && configs.value.whiteBalance !== 'manual') {
-			await sleep(500)
-			await cam.setWhiteBalance(configs.value.whiteBalance)
-		}
-
-		cam.on('disconnect', () => {
-			tethr.value = null
-		})
-		cam.on('change', async () => {
-			const exportedConfigs = await tethr.value?.exportConfigs()
-
-			configs.value = {
-				...toRaw(configs.value),
-				...exportedConfigs,
-			}
-		})
-
-		tethr.value = cam
-		;(window as any).cam = cam
-
-		cam.startLiveview()
+		openCamera(cam)
 	}
-
-	onUnmounted(() => {
-		if (tethr.value) {
-			tethr.value.close()
-			tethr.value = null
-		}
-	})
 
 	return {
 		tethr,
