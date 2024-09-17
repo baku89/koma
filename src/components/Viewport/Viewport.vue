@@ -11,6 +11,7 @@ import {useViewportStore} from '@/stores/viewport'
 import {useZUI} from '@/use/useZUI'
 
 import ViewportKoma from './ViewportKoma.vue'
+import {Rect} from '@/utils/rect'
 
 const {actions} = useTweeq()
 const project = useProjectStore()
@@ -23,30 +24,16 @@ const bound = useElementBounding($wrapper)
 
 const transform = computed<mat2d>(() => {
 	if (project.viewport.transform === 'fit') {
-		const {
-			resolution: [resx, resy],
-		} = project
+		let frameRect = Rect.fromSize(project.resolution)
+		const viewportRect = Rect.fromSize([bound.width.value, bound.height.value])
 
-		const viewportRatio = bound.height.value / bound.width.value
-		const frameRatio = resy / resx
+		frameRect = Rect.scale(
+			frameRect,
+			project.viewport.zoom,
+			Rect.center(frameRect)
+		)
 
-		if (frameRatio < viewportRatio) {
-			// Fit width
-			const scale = bound.width.value / resx
-			const frameHeight = resy * scale
-
-			const offset: vec2 = [0, (bound.height.value - frameHeight) / 2]
-
-			return mat2d.mul(mat2d.fromTranslation(offset), mat2d.fromScaling(scale))
-		} else {
-			// Fit height
-			const scale = bound.height.value / resy
-			const frameWidth = resx * scale
-
-			const offset: vec2 = [(bound.width.value - frameWidth) / 2, 0]
-
-			return mat2d.mul(mat2d.fromTranslation(offset), mat2d.fromScaling(scale))
-		}
+		return Rect.objectFit(frameRect, viewportRect)
 	} else {
 		return project.viewport.transform
 	}
