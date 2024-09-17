@@ -18,6 +18,7 @@ import {
 	deepMergeExceptArray,
 	openBlobJson,
 	preventConcurrentExecution,
+	queryPermission,
 	saveBlobJson,
 	showReadwriteDirectoryPicker,
 } from '@/utils'
@@ -260,6 +261,8 @@ export const useProjectStore = defineStore('project', () => {
 			await sleep(0) // Wait for the next tick to show the dialog
 
 			directoryHandle.value = handler ?? (await showReadwriteDirectoryPicker())
+
+			await queryPermission(directoryHandle.value)
 
 			if (!directoryHandle.value) {
 				throw new Error('No directory is selected')

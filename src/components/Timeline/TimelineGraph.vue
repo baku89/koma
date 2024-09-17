@@ -2,7 +2,7 @@
 import {mat4, vec3} from 'linearly'
 import {range} from 'lodash'
 import {Euler, Quaternion} from 'three'
-import {computed} from 'vue'
+import {computed, watchEffect} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 import {useDmxStore} from '@/stores/dmx'
@@ -261,6 +261,10 @@ const invLog = (v: number) => -Math.log(v)
 const viewBox = computed(() => {
 	const [inPoint, outPoint] = project.previewRange
 	return `${inPoint} -0.05 ${outPoint - inPoint + 1} 1.1`
+})
+
+watchEffect(() => {
+	console.log('focalLength', focalLength.value, camera.focalLength.value)
 })
 </script>
 

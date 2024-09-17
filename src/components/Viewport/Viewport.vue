@@ -173,7 +173,7 @@ const tint = computed(
 			background var(--tint)
 			mix-blend-mode multiply
 
-.view-overlay
+:deep(.view-overlay)
 	position absolute
 	top 0
 	left 0

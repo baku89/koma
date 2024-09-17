@@ -95,6 +95,10 @@ const {fn: shoot} = preventConcurrentExecution(
 
 			const cameraConfigs = await tethr.exportConfigs()
 
+			if (camera.focalLength.value) {
+				cameraConfigs.focalLength = camera.focalLength.value
+			}
+
 			const trackerData = tracker.enabled
 				? {position: tracker.position, rotation: tracker.rotation}
 				: undefined
