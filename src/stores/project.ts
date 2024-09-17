@@ -406,6 +406,7 @@ export const useProjectStore = defineStore('project', () => {
 		redo: history.redo,
 		createNew,
 		open,
+		save,
 		saveAs,
 		allKomas,
 		previewKomas,
