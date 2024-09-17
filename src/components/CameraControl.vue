@@ -29,6 +29,8 @@ const configNames: ConfigName[] = [
 	'colorMode',
 	'destinationToSave',
 	'imageAspect',
+	'autoFocusFrameSize',
+	'focusMeteringMode',
 ]
 
 const configLabels = {
@@ -46,6 +48,8 @@ const configLabels = {
 	colorMode: {label: 'Color', icon: 'mdi:palette'},
 	destinationToSave: {label: 'Save', icon: 'mdi:content-save'},
 	imageAspect: {label: 'Aspect', icon: 'mdi:aspect-ratio'},
+	autoFocusFrameSize: {label: 'AF Size', icon: 'mdi:camera-metering-matrix'},
+	focusMeteringMode: {label: 'Metering', icon: 'mdi:camera-metering-matrix'},
 } as Record<ConfigName, {label: string; icon: string}>
 
 function getConfigVisibility(name: ConfigName) {

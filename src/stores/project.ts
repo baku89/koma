@@ -327,7 +327,6 @@ export const useProjectStore = defineStore('project', () => {
 
 	whenever(isDirectoryHandlePersisted, () => {
 		if (directoryHandle.value) {
-			console.info('Opening the auto-saved project...', directoryHandle.value)
 			open(directoryHandle.value)
 		} else {
 			opfs.localDirectoryHandle.then(open)

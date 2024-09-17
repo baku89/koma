@@ -398,6 +398,14 @@ Tq.actions.register([
 				},
 			},
 			{
+				id: 'auto_focus',
+				icon: 'mdi:camera-iris',
+				bind: '1',
+				perform() {
+					camera.tethr?.runAutoFocus()
+				},
+			},
+			{
 				id: 'shoot_and_next_layer',
 				icon: 'mdi:circle',
 				bind: ['shift+enter', 'gamepad:+'],

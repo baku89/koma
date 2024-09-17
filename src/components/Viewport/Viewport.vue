@@ -1,13 +1,14 @@
 <script lang="ts" setup>
 import {Icon} from '@iconify/vue'
 import {useElementBounding} from '@vueuse/core'
-import {mat2d} from 'linearly'
+import {mat2d, vec2} from 'linearly'
 import {useTweeq} from 'tweeq'
 import {computed, shallowRef} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
 import {useViewportStore} from '@/stores/viewport'
+import {useCameraStore} from '@/stores/camera'
 import {useZUI} from '@/use/useZUI'
 
 import ViewportKoma from './ViewportKoma.vue'
@@ -15,6 +16,7 @@ import {Rect} from '@/utils/Rect'
 
 const {actions} = useTweeq()
 const project = useProjectStore()
+const camera = useCameraStore()
 const viewport = useViewportStore()
 const shootAlerts = useShootAlertsStore()
 
@@ -76,6 +78,23 @@ const tint = computed(
 		!viewport.isPlaying &&
 		viewport.currentLayer === 0
 )
+
+async function onDblclick(e: MouseEvent) {
+	const {tethr} = camera
+
+	if (!tethr) return
+
+	const {offsetX, offsetY} = e
+	const {resolution} = project
+	let pos: vec2 = [offsetX / resolution[0], offsetY / resolution[1]]
+
+	const xform = mat2d.scaling(1 / project.viewport.zoom, [0.5, 0.5])
+
+	pos = vec2.transformMat2d(pos, xform)
+
+	await tethr.setAutoFocusFrameCenter(pos)
+	await tethr.runAutoFocus()
+}
 </script>
 
 <template>
@@ -85,7 +104,7 @@ const tint = computed(
 		ref="$wrapper"
 		:style="{'--tint': 'red'}"
 	>
-		<div class="frame" :style="frameStyles">
+		<div class="frame" :style="frameStyles" @click="onDblclick">
 			<ViewportKoma
 				class="koma"
 				:frame="viewport.previewFrame"
