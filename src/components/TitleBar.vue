@@ -7,13 +7,11 @@ import {computed, onUnmounted, ref} from 'vue'
 import {useAuxDevicesStore} from '@/stores/auxDevices'
 import {useCameraStore} from '@/stores/camera'
 import {useCncStore} from '@/stores/cnc'
-import {useOpfsStore} from '@/stores/opfs'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
 import {useViewportStore} from '@/stores/viewport'
 import {toTime} from '@/utils'
 
-const opfs = useOpfsStore()
 const viewport = useViewportStore()
 const project = useProjectStore()
 const camera = useCameraStore()

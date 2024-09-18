@@ -26,9 +26,10 @@ const tracker = useTrackerStore()
 
 //------------------------------------------------------------------------------
 // ThreeJS
-const cameraControlPosition = Tq.config.ref('cameraControl.position', [
-	2, 2, 2,
-] as vec3)
+const cameraControlPosition = Tq.config.ref(
+	'cameraControl.position',
+	vec3.of(2, 2, 2)
+)
 
 let renderer: THREE.WebGLRenderer
 let camera: THREE.PerspectiveCamera
@@ -38,16 +39,13 @@ const $guide = shallowRef<any>()
 
 const rootSize = useElementSize($root)
 
-watch(
-	() => [rootSize.width.value, rootSize.height.value],
-	([w, h]) => {
-		if (!renderer || !camera) return
+watch([rootSize.width, rootSize.height], ([w, h]) => {
+	if (!renderer || !camera) return
 
-		renderer.setSize(w, h)
-		camera.aspect = w / h
-		camera.updateProjectionMatrix()
-	}
-)
+	renderer.setSize(w, h)
+	camera.aspect = w / h
+	camera.updateProjectionMatrix()
+})
 
 function onLoadCameraModel(group: THREE.Group) {
 	const mesh = group.children[0] as THREE.Mesh
@@ -214,16 +212,16 @@ function positionToThree(v: vec3) {
 	return new THREE.Vector3(...v)
 }
 
-const _euler = new THREE.Euler()
-const _quat = new THREE.Quaternion()
+const threeJSEuler = new THREE.Euler()
+const threeJSQuaternion = new THREE.Quaternion()
 
 function matrixToThree(m: mat4) {
 	const q = mat4.getRotation(m)
 	const t = mat4.getTranslation(m)
 
-	const [x, y, z] = _euler
-		.setFromQuaternion(_quat.fromArray(q))
-		.toArray() as number[]
+	const [x, y, z] = threeJSEuler
+		.setFromQuaternion(threeJSQuaternion.fromArray([...q]))
+		.toArray()
 
 	return {
 		position: positionToThree(t),

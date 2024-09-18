@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {debouncedWatch, useElementSize} from '@vueuse/core'
 import {useTweeq} from 'tweeq'
-import {onBeforeUnmount, shallowRef, watch} from 'vue'
+import {onBeforeUnmount, shallowRef, watch, watchEffect} from 'vue'
 import WaveSurfer from 'wavesurfer.js'
 
 import {useProjectStore} from '@/stores/project'
@@ -43,20 +43,18 @@ debouncedWatch(
 
 		ws.on('ready', () => updateZoom())
 	},
-	{debounce: 200}
+	{debounce: 100}
 )
 
 // TODO: Update on the accent color has changed
-watch(
-	() => [project.audio.src] as const,
-	([src]) => {
-		if (src) {
-			ws?.loadBlob(src)
-		} else {
-			ws?.empty()
-		}
+watchEffect(() => {
+	const {src} = project.audio
+	if (src) {
+		ws?.loadBlob(src)
+	} else {
+		ws?.empty()
 	}
-)
+})
 
 watch(() => [project.timeline.zoomFactor, project.fps], updateZoom, {
 	immediate: true,
@@ -66,6 +64,7 @@ function updateZoom() {
 	try {
 		const zoom = Math.round(timeline.komaWidth * project.fps)
 		ws?.zoom(zoom)
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	} catch (e) {
 		return null
 	}

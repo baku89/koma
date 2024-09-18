@@ -21,10 +21,10 @@ const dmx = useDmxStore()
 const positionMatrixInverse = computed(() => {
 	const m = mat4.clone(tracker.matrix)
 
-	const y: vec3 = [0, 1, 0]
-	const z = vec3.normalize(vec3.of(m[8], 0, m[10]))
+	const y = vec3.unitY
+	const z = vec3.normalize([m[8], 0, m[10]])
 	const x = vec3.cross(y, z)
-	const t: vec3 = [m[12], m[13], m[14]]
+	const t = mat4.getTranslation(m)
 
 	const matrix = mat4.fromAxesTranslation(x, y, z, t)
 
@@ -48,15 +48,15 @@ const positions = computed(() => {
 })
 
 const positionsX = computed(() => {
-	return positions.value.map(m => (m ? m[0] : null))
+	return positions.value.map(m => m?.[0] ?? null)
 })
 
 const positionsY = computed(() => {
-	return positions.value.map(m => (m ? m[1] : null))
+	return positions.value.map(m => m?.[1] ?? null)
 })
 
 const positionsZ = computed(() => {
-	return positions.value.map(m => (m ? m[2] : null))
+	return positions.value.map(m => m?.[2] ?? null)
 })
 
 const velocities = computed(() => {
@@ -90,8 +90,8 @@ const rotationMatrixInverse = computed(() => {
 	return mat4.invert(tracker.matrix) ?? mat4.identity
 })
 
-const _euler = new Euler()
-const _quat = new Quaternion()
+const threeJSEuler = new Euler()
+const threeJSQuaternion = new Quaternion()
 
 const rotations = computed(() => {
 	return project.previewKomas.map(koma => {
@@ -102,8 +102,8 @@ const rotations = computed(() => {
 				mat4.fromRotationTranslation(tracker.rotation, tracker.position)
 			)
 			const q = mat4.getRotation(m)
-			return _euler
-				.setFromQuaternion(_quat.fromArray(q))
+			return threeJSEuler
+				.setFromQuaternion(threeJSQuaternion.fromArray([...q]))
 				.toArray() as any as vec3
 		} else {
 			return null
@@ -206,8 +206,8 @@ const targetRotations = computed(() => {
 				mat4.fromRotationTranslation(tracker.rotation, tracker.position)
 			)
 			const q = mat4.getRotation(m)
-			return _euler
-				.setFromQuaternion(_quat.fromArray(q))
+			return threeJSEuler
+				.setFromQuaternion(threeJSQuaternion.fromArray([...q]))
 				.toArray() as any as vec3
 		} else {
 			return null
@@ -229,14 +229,14 @@ const targetRolls = computed(() => {
 
 //------------------------------------------------------------------------------
 // DMX
-const dmxValues = computed<(number | null)[][]>(() => {
+const dmxValues = computed(() => {
 	const visibleAddresses = range(16).filter(
 		i => project.visibleProperties[`dmx${i + 1}`]?.visible
 	)
 
-	return visibleAddresses.map(i => {
-		return project.previewKomas.map(koma => koma.shots[0]?.dmx?.at(i) ?? null)
-	})
+	return visibleAddresses.map(i =>
+		project.previewKomas.map(koma => koma.shots[0]?.dmx?.at(i) ?? null)
+	)
 })
 
 //------------------------------------------------------------------------------
