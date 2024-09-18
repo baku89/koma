@@ -24,6 +24,7 @@ export async function speak(text: string) {
 
 	const utterThis = new SpeechSynthesisUtterance(text)
 	utterThis.voice = voice
+	utterThis.rate = 1.5
 
 	return new Promise((resolve, reject) => {
 		utterThis.onend = resolve

@@ -67,8 +67,8 @@ const {fn: shoot} = preventConcurrentExecution(
 		if (!force && !shootAlerts.canShoot) {
 			await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
 
-			for await (const msg of shootAlerts.alerts) {
-				await speak(msg)
+			for (const msg of shootAlerts.alerts) {
+				speak(msg)
 			}
 
 			throw new Error('Cannot shoot')
