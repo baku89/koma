@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {pausableWatch, useElementBounding} from '@vueuse/core'
 import paper from 'paper'
-import {onMounted, ref, shallowRef, watch, watchEffect} from 'vue'
+import {onMounted, shallowReactive, shallowRef, watch, watchEffect} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
@@ -17,9 +17,9 @@ const props = defineProps<Props>()
 const project = useProjectStore()
 const timeline = useTimelineStore()
 
-const scope = ref<paper.PaperScope | null>(null)
+const scope = shallowRef<paper.PaperScope | null>(null)
 
-const tools = ref<Record<string, paper.Tool>>({})
+const tools = shallowReactive<Record<string, paper.Tool>>({})
 
 const {height: canvasHeight, width: canvasWidth} = useElementBounding($canvas)
 
@@ -50,25 +50,31 @@ onMounted(() => {
 			saveDrawing()
 		}
 
-		tools.value['pencil'] = pencil
+		tools['pencil'] = pencil
 	}
 
 	// Eraser
 	{
 		const eraser = new paper.Tool()
 
-		eraser.onMouseDrag = eraser.onMouseDown = (event: any) => {
+		eraser.onMouseDrag = eraser.onMouseDown = (event: paper.ToolEvent) => {
+			if (event.type !== 'mousedrag') return
+
 			const lastPoint: paper.Point = event.lastPoint
-			const delta: paper.Point = event.delta
+			const currentPoint: paper.Point = event.point
 
-			const divs = Math.floor(delta.length / 2) + 2
+			const rect = new paper.Rectangle(lastPoint, currentPoint)
+			const line = new paper.Path.Line(lastPoint, currentPoint)
 
-			for (let i = 0; i < divs; i++) {
-				const t = i / (divs - 1)
-				const p = lastPoint.add(delta.multiply(t))
+			const candidates = scope.value?.project.getItems({
+				class: paper.Path,
+				overlapping: rect,
+			})
 
-				const items = scope.value?.project.hitTestAll(p)
-				items?.forEach(hit => hit.item.remove())
+			for (const item of candidates ?? []) {
+				if (item.intersects(line)) {
+					item.remove()
+				}
 			}
 		}
 
@@ -76,10 +82,10 @@ onMounted(() => {
 			saveDrawing()
 		}
 
-		tools.value['eraser'] = eraser
+		tools['eraser'] = eraser
 	}
 
-	watchEffect(() => tools.value[timeline.currentTool]?.activate())
+	watchEffect(() => tools[timeline.currentTool]?.activate())
 })
 
 function saveDrawing() {
