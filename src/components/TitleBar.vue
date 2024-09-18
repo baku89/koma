@@ -1,7 +1,6 @@
 <script lang="ts" setup>
 import {Icon} from '@iconify/vue'
 import * as Bndr from 'bndr-js'
-import prettyBytes from 'pretty-bytes'
 import Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 

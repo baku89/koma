@@ -2,7 +2,7 @@
 import {mat4, vec3} from 'linearly'
 import {range} from 'lodash'
 import {Euler, Quaternion} from 'three'
-import {computed, watchEffect} from 'vue'
+import {computed} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 import {useDmxStore} from '@/stores/dmx'

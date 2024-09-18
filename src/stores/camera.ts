@@ -1,3 +1,4 @@
+import sleep from 'p-sleep'
 import {defineStore} from 'pinia'
 import {
 	ConfigDesc,
@@ -10,7 +11,7 @@ import {
 import {readonly, Ref, shallowReactive, shallowRef, watch} from 'vue'
 
 import {debounceAsync} from '@/utils'
-import sleep from 'p-sleep'
+
 import {useProjectStore} from './project'
 
 export interface Config<T> {
