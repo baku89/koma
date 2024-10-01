@@ -1,5 +1,4 @@
-/* eslint-disable no-constant-condition */
-import {isEqual} from 'lodash'
+import {isEqual} from 'lodash-es'
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
 import {computed, ref, watch} from 'vue'

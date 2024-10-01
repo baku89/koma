@@ -1,4 +1,4 @@
-import {isArray, isPlainObject} from 'lodash'
+import {isArray, isPlainObject} from 'lodash-es'
 
 import {openJson, readFileFromDirectory, saveJson} from './fileSystem'
 import {mapPromises, mapValuePromises} from './promise'

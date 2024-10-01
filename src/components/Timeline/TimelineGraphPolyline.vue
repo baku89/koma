@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {scalar, vec2} from 'linearly'
-import {isNumber} from 'lodash'
+import {isNumber} from 'lodash-es'
 import {computed} from 'vue'
 
 import {useProjectStore} from '@/stores/project'

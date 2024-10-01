@@ -1,4 +1,4 @@
-import {debounce} from 'lodash'
+import {debounce} from 'lodash-es'
 import {defineStore} from 'pinia'
 import {ref} from 'vue'
 

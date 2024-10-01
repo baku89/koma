@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {clamp, range} from 'lodash'
+import {clamp, range} from 'lodash-es'
 import Tq from 'tweeq'
 import {computed, onMounted, ref, watch} from 'vue'
 
@@ -140,7 +140,6 @@ const vizStyles = computed(() => {
 					width: project.allKomas.length * timeline.komaWidth + 'px',
 				}"
 			>
-				<TimelineHeader />
 				<div class="viz" :style="vizStyles">
 					<TimelineWaveform />
 					<TimelineGraph />
@@ -157,6 +156,7 @@ const vizStyles = computed(() => {
 				</div>
 			</div>
 			<template #fixed>
+				<TimelineHeader />
 				<TimelineDrawing :style="vizStyles" :scroll="scroll" />
 			</template>
 			<template #scrollbarRight>
@@ -166,7 +166,6 @@ const vizStyles = computed(() => {
 					:max="maxZoom * 100"
 					suffix="%"
 					:barOrigin="100"
-					:step="1"
 					:precision="0"
 					style="width: 7em"
 					@update:modelValue="onUpdateZoomFactor($event / 100)"
@@ -197,6 +196,7 @@ const vizStyles = computed(() => {
 	justify-content center
 
 .content
+	margin-top var(--header-height)
 	position relative
 	height 100%
 

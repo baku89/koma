@@ -2007,15 +2007,15 @@
 
 "@types/lodash-es@^4.17.12":
   version "4.17.12"
-  resolved "https://registry.npmjs.org/@types/lodash-es/-/lodash-es-4.17.12.tgz"
+  resolved "https://registry.yarnpkg.com/@types/lodash-es/-/lodash-es-4.17.12.tgz#65f6d1e5f80539aa7cfbfc962de5def0cf4f341b"
   integrity sha512-0NgftHUcV4v34VhXm8QBSftKVXtbkBG3ViCjs6+eJ5a6y6Mi/jiFGPc1sC7QK+9BFhWrURE3EOggmWaSxL9OzQ==
   dependencies:
     "@types/lodash" "*"
 
-"@types/lodash@*", "@types/lodash@^4.14.202":
-  version "4.17.7"
-  resolved "https://registry.npmjs.org/@types/lodash/-/lodash-4.17.7.tgz"
-  integrity sha512-8wTvZawATi/lsmNu10/j2hk1KEP0IvjubqPE3cu1Xz7xfXXt5oCq3SNUz4fMIP4XGF9Ky+Ue2tBA3hcS7LSBlA==
+"@types/lodash@*":
+  version "4.17.9"
+  resolved "https://registry.yarnpkg.com/@types/lodash/-/lodash-4.17.9.tgz#0dc4902c229f6b8e2ac5456522104d7b1a230290"
+  integrity sha512-w9iWudx1XWOHW5lQRS9iKpK/XuRhnN+0T7HvdCCd802FYkT1AMTnxndJHGrNJwRoRHkslGr4S29tjm1cT7x/7w==
 
 "@types/markdown-it-emoji@^2.0.4":
   version "2.0.5"
@@ -3195,10 +3195,10 @@ bindings@^1.5.0:
   dependencies:
     file-uri-to-path "1.0.0"
 
-bndr-js@^0.16.0:
-  version "0.16.0"
-  resolved "https://registry.npmjs.org/bndr-js/-/bndr-js-0.16.0.tgz"
-  integrity sha512-fQ1Jpn36tGbFl4TiRE46kDdZzT0I9n2c+/XjaorbnDhkZYW4Ig9uz9G9eJwmz6U+FQ1r5RFkr0FOZjSEa0A+jQ==
+bndr-js@^0.17.0:
+  version "0.17.0"
+  resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.17.0.tgz#0abb7211d50e4db7c005adafcbffce42ed5ed013"
+  integrity sha512-OFkX7m0Gl4KUWhS16hc5t4w95T2e8pbRvFOxCaomk3fB7TvHTiR8mToVIN0UbNMzFnHp7uF/0dpHumhlsCnukw==
   dependencies:
     "@types/lodash-es" "^4.17.12"
     case "^1.6.3"
@@ -5268,11 +5268,6 @@ line-intersect@^3.0.0:
   resolved "https://registry.npmjs.org/line-intersect/-/line-intersect-3.0.0.tgz"
   integrity sha512-MAkwgBwwpyJhTWZ9EppTTFD6JxzYgh3BZxgI41CA2vSlANu4s5CXyTEJxKU3LRHitcF2vObHvE/s/lHxvKl2Kw==
 
-linearly@0.29.0:
-  version "0.29.0"
-  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.29.0.tgz#f02ce92b05caba61cdf7ce57d7a7924ade460806"
-  integrity sha512-x6GdpACtpVjlepjt/ZhZQReq9KRoXpd+Z1gWy9Rff2KK/gG88AgUFDnDcz50iz+Rw3OTfEEZJvGlTJpp0TT2yA==
-
 linearly@0.32.0, linearly@^0.32.0:
   version "0.32.0"
   resolved "https://registry.npmjs.org/linearly/-/linearly-0.32.0.tgz"
@@ -5280,13 +5275,18 @@ linearly@0.32.0, linearly@^0.32.0:
 
 linearly@^0.20.3:
   version "0.20.3"
-  resolved "https://registry.npmjs.org/linearly/-/linearly-0.20.3.tgz"
+  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.20.3.tgz#b2a938100118422aee7429da88716d7ea826a7b1"
   integrity sha512-i8+X2PfDKaq3VgpMSp3iej2rwc91ngZY4ecFQTeLPt6LNf/QyAsNVAwny7j7hBPUaue5Gt7SBCFshxhvWsOlOQ==
 
 linearly@^0.21.0:
   version "0.21.0"
   resolved "https://registry.npmjs.org/linearly/-/linearly-0.21.0.tgz"
   integrity sha512-+8a9jfbdKqSxSx2qmDtNeXjbhZFgUel1xnHU2LBazKaIwXNH5cmV2eZEmYcSiC1oZBiyr1KFO1eAt86w6QBXuQ==
+
+linearly@^0.32.0:
+  version "0.32.0"
+  resolved "https://registry.npmjs.org/linearly/-/linearly-0.32.0.tgz"
+  integrity sha512-m8pBLZWmcAj3zUcRt9ZBaBa1lcA3sqGJGK248n3wPtdBlAfD2K993ESMcREHDFZofcN/gUW0bAbZu/s7BWVx7g==
 
 linkify-it@^5.0.0:
   version "5.0.0"
@@ -5312,7 +5312,7 @@ locate-path@^6.0.0:
 
 lodash-es@^4.17.21:
   version "4.17.21"
-  resolved "https://registry.npmjs.org/lodash-es/-/lodash-es-4.17.21.tgz"
+  resolved "https://registry.yarnpkg.com/lodash-es/-/lodash-es-4.17.21.tgz#43e626c46e6591b7750beb2b50117390c609e3ee"
   integrity sha512-mKnC+QJ9pWVzv+C4/U3rRsHapFfHvQFoFB92e52xeyGMcX6/OlIl78je1u8vePzYZSkkogMPJ2yjxxsb89cxyw==
 
 lodash.debounce@^4.0.8:

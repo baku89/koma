@@ -1,4 +1,3 @@
-import sleep from 'p-sleep'
 import {
 	asyncComputed,
 	pausableWatch,
@@ -7,7 +6,8 @@ import {
 } from '@vueuse/core'
 import {useIDBKeyval} from '@vueuse/integrations/useIDBKeyval'
 import {mat2d, quat, vec2, vec3} from 'linearly'
-import {clamp, cloneDeep, debounce, isEqual} from 'lodash'
+import {clamp, cloneDeep, debounce, isEqual} from 'lodash-es'
+import sleep from 'p-sleep'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
 import {computed, nextTick, reactive, toRaw, toRefs} from 'vue'

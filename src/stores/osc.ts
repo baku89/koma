@@ -1,8 +1,9 @@
-import {setIntervalImmediate} from '@/utils'
-import {mapValues} from 'lodash'
+import {mapValues} from 'lodash-es'
 import OSC from 'osc-js'
 import {defineStore} from 'pinia'
 import {computed, Ref, ref, watch} from 'vue'
+
+import {setIntervalImmediate} from '@/utils'
 
 type OscArgTypeMap = {
 	f: number

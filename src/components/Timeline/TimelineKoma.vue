@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {range} from 'lodash'
+import {range} from 'lodash-es'
 import {computed} from 'vue'
 
 import {useProjectStore} from '@/stores/project'

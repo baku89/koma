@@ -1,4 +1,4 @@
-import {range} from 'lodash'
+import {range} from 'lodash-es'
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
 import {watchEffect} from 'vue'

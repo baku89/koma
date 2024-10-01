@@ -1,6 +1,6 @@
 import {Howl} from 'howler'
 import {scalar} from 'linearly'
-import {clamp} from 'lodash'
+import {clamp} from 'lodash-es'
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
 import {computed, readonly, ref, shallowRef, watch} from 'vue'

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {mat4, vec3} from 'linearly'
-import {range} from 'lodash'
+import {range} from 'lodash-es'
 import {Euler, Quaternion} from 'three'
 import {computed} from 'vue'
 

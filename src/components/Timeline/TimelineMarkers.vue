@@ -2,7 +2,7 @@
 import {Rect} from '@baku89/pave'
 import * as Bndr from 'bndr-js'
 import {scalar, vec2} from 'linearly'
-import {clamp, range} from 'lodash'
+import {clamp, range} from 'lodash-es'
 import {useBndr} from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
