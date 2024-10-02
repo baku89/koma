@@ -306,6 +306,10 @@ Tq.actions.register([
 						},
 						{
 							title: 'Preferences',
+							onInput(value) {
+								Tq.theme.accentColor = value.accentColor
+								Tq.theme.colorMode = value.darkMode ? 'dark' : 'light'
+							},
 						}
 					)
 
