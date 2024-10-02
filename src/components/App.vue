@@ -643,7 +643,7 @@ Tq.actions.register([
 			{
 				id: 'toggle_play',
 				icon: 'mdi:play',
-				bind: ['space'],
+				bind: ['space', 'gamepad:home'],
 				perform() {
 					viewport.isPlaying = !viewport.isPlaying
 				},
