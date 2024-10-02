@@ -22,7 +22,7 @@ yarn install
 yarn dev
 ```
 
-## Terminology
+## Termiology
 
 The terms used in the code and documentation.
 
