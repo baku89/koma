@@ -337,18 +337,23 @@ export const useProjectStore = defineStore('project', () => {
 	// Mutations
 
 	function setInPoint(value: number) {
-		const inPoint = Math.min(value, project.previewRange[1])
-		project.previewRange = [inPoint, project.previewRange[1]]
+		value = clamp(value, 0, allKomas.value.length - 1)
+
+		if (project.previewRange[1] < value) {
+			project.previewRange = [value, value]
+		} else {
+			project.previewRange = [value, project.previewRange[1]]
+		}
 	}
 
 	function setOutPoint(value: number) {
-		const outPoint = clamp(
-			value,
-			project.previewRange[0],
-			allKomas.value.length - 1
-		)
+		value = clamp(value, 0, allKomas.value.length - 1)
 
-		project.previewRange = [project.previewRange[0], outPoint]
+		if (value < project.previewRange[0]) {
+			project.previewRange = [value, value]
+		} else {
+			project.previewRange = [project.previewRange[0], value]
+		}
 	}
 
 	function shot(frame: number, layer: number): Shot | null {
