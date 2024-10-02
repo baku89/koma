@@ -28,8 +28,13 @@ export const useTimelineStore = defineStore('timeline', () => {
 	const komaWidthBase = ref(60)
 	const komaAspect = ref(3 / 2)
 
-	const komaWidth = computed(() => {
-		return komaWidthBase.value * project.timeline.zoomFactor
+	const komaWidth = computed({
+		get() {
+			return komaWidthBase.value * project.timeline.zoomFactor
+		},
+		set(value) {
+			project.timeline.zoomFactor = value / komaWidthBase.value
+		},
 	})
 
 	const komaHeight = computed(() => {
@@ -85,6 +90,7 @@ export const useTimelineStore = defineStore('timeline', () => {
 		currentTool,
 		toolOptions,
 		komaWidth,
+		komaWidthBase,
 		komaHeight,
 	}
 })
