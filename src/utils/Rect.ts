@@ -1,4 +1,4 @@
-import {vec2, mat2d} from 'linearly'
+import {mat2d, vec2} from 'linearly'
 
 export type Rect = readonly [min: vec2, max: vec2]
 
