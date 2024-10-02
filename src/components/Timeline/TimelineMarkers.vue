@@ -68,7 +68,7 @@ useBndr($root, $root => {
 	const pointer = Bndr.pointer($root)
 
 	pointer.position({coordinate: 'offset'}).on(([x, y]) => {
-		const frame = Math.floor(x / timeline.frameWidth + props.range[0])
+		const frame = Math.round(x / timeline.frameWidth + props.range[0])
 		const verticalPosition = scalar.clamp(y / $root.clientHeight, 0, 1)
 
 		timeline.toolOptions = {...timeline.toolOptions, frame, verticalPosition}
@@ -88,6 +88,7 @@ useBndr($root, $root => {
 
 	let drawingMarkerIndex: number | null = null
 
+	// マーカーの選択、追加
 	pointer
 		.drag({
 			pointerCapture: true,
@@ -96,6 +97,7 @@ useBndr($root, $root => {
 		})
 		.on(d => {
 			if (canAddMarker.value) {
+				// マーカーの追加
 				cursorVisible.value = false
 
 				if (d.type === 'down') {
@@ -110,67 +112,75 @@ useBndr($root, $root => {
 					project.$patch(draft => {
 						draft.markers[drawingMarkerIndex!].duration = duration
 					})
+
+					timeline.toolOptions = {...timeline.toolOptions, duration}
+				}
+			} else {
+				// マーカーの選択
+
+				if (d.type === 'down') {
+					if (d.event.shiftKey) {
+						alreadySelectedIndices = [...markers.selectedIndices]
+					} else {
+						alreadySelectedIndices = []
+					}
 				}
 
-				return
-			}
+				const {width, height} = $root.getBoundingClientRect()
 
-			if (d.type === 'down') {
-				if (d.event.shiftKey) {
-					alreadySelectedIndices = [...markers.selectedIndices]
-				} else {
-					alreadySelectedIndices = []
+				const rootRect: Rect = [
+					[0, 0],
+					[width, height],
+				]
+
+				const dragRect = Rect.fromPoints(d.start, d.current)
+
+				const [[xLower, yLower], [xUpper, yUpper]] = Rect.intersect(
+					rootRect,
+					dragRect
+				)
+
+				selectionRect.value = {
+					left: xLower + 'px',
+					width: xUpper - xLower + 'px',
+					top: yLower + 'px',
+					height: yUpper - yLower + 'px',
 				}
+
+				const frameLower = Math.floor(
+					xLower / timeline.frameWidth + props.range[0]
+				)
+				const frameUpper = Math.floor(
+					xUpper / timeline.frameWidth + props.range[0]
+				)
+
+				const verticalPositionLower = yLower / $root.clientHeight
+				const verticalPositionUpper = yUpper / $root.clientHeight
+
+				const frameSelection: Rect = [
+					[frameLower, verticalPositionLower],
+					[frameUpper, verticalPositionUpper],
+				]
+
+				const indices: number[] = []
+
+				project.markers.forEach((m, i) => {
+					if (
+						Rect.intersects(frameSelection, [
+							[m.frame, m.verticalPosition],
+							[m.frame + m.duration, m.verticalPosition],
+						])
+					) {
+						indices.push(i)
+					}
+				})
+
+				markers.unselect()
+				markers.select(...alreadySelectedIndices, ...indices)
 			}
-
-			const {height} = $root.getBoundingClientRect()
-
-			const rootRect: Rect = [
-				[0, 0],
-				[$root.clientWidth, height],
-			]
-
-			const dragRect = Rect.fromPoints(d.start, d.current)
-
-			const [[xLower, yLower], [xUpper, yUpper]] = Rect.intersect(
-				rootRect,
-				dragRect
-			)
-
-			const frameLower = Math.floor(
-				xLower / timeline.frameWidth + props.range[0]
-			)
-			const frameUpper = Math.ceil(
-				xUpper / timeline.frameWidth + props.range[0]
-			)
-
-			const verticalPositionLower = yLower / $root.clientHeight
-			const verticalPositionUpper = yUpper / $root.clientHeight
-
-			selectionRect.value = {
-				left: xLower + 'px',
-				width: xUpper - xLower + 'px',
-				top: yLower + 'px',
-				height: yUpper - yLower + 'px',
-			}
-
-			const indices: number[] = []
-
-			project.markers.forEach((m, i) => {
-				if (
-					frameLower <= m.frame + m.duration &&
-					m.frame <= frameUpper &&
-					verticalPositionLower <= m.verticalPosition &&
-					m.verticalPosition <= verticalPositionUpper
-				) {
-					indices.push(i)
-				}
-			})
-
-			markers.unselect()
-			markers.select(...alreadySelectedIndices, ...indices)
 		})
 
+	// 個別のマーカーをドラッグ
 	pointer
 		.drag({
 			pointerCapture: true,
@@ -232,8 +242,8 @@ useBndr($root, $root => {
 
 const visibleMarkers = computed(() => {
 	const [start, end] = props.range
-	return project.markers.filter(
-		m => start <= m.frame + m.duration + 1 && m.frame - 1 <= end
+	return [...project.markers.entries()].filter(
+		([, m]) => start <= m.frame + m.duration + 1 && m.frame - 1 <= end
 	)
 })
 </script>
@@ -255,9 +265,8 @@ const visibleMarkers = computed(() => {
 			:selected="false"
 		/>
 		<TimelineMarker
-			v-for="(marker, i) in visibleMarkers"
+			v-for="[i, marker] in visibleMarkers"
 			:key="i"
-			:index="i"
 			:marker="marker"
 			:rangeStyle="rangeStyle"
 			:selected="markers.isSelected(i)"
