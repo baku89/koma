@@ -77,7 +77,7 @@ type JSCode = string
 
 type CameraConfigs = Partial<ConfigType>
 
-interface Koma<T = Blob> {
+export interface Koma<T = Blob> {
 	shots: (Shot<T> | null)[]
 	backupShots?: Shot<T>[]
 	target?: {

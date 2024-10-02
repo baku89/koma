@@ -1,26 +1,25 @@
 <script setup lang="ts">
+import {vec2} from 'linearly'
+import {toPercent} from 'tweeq'
 import {computed} from 'vue'
 
 import {Marker} from '@/stores/project'
-import {useTimelineStore} from '@/stores/timeline'
 
 interface Props {
 	marker: Marker
 	selected: boolean
+	rangeStyle: (range: vec2) => any
 }
 
 const props = defineProps<Props>()
-
-const timeline = useTimelineStore()
 
 const styles = computed(() => {
 	const {frame, verticalPosition, color, duration} = props.marker
 
 	return {
-		'--duration': duration,
-		left: `${frame * timeline.komaWidth}px`,
-		top: `${verticalPosition * 100}%`,
+		top: toPercent(verticalPosition),
 		color,
+		...props.rangeStyle([frame, frame + duration - 1]),
 	}
 })
 </script>
@@ -29,7 +28,6 @@ const styles = computed(() => {
 	<div
 		ref="$marker"
 		class="TimelineMarker"
-		:data-duration="marker.duration"
 		:class="{
 			selected,
 			'zero-duration': marker.duration === 0,
@@ -49,8 +47,6 @@ const styles = computed(() => {
 	height 1em
 	line-height 1em
 	border-radius 0.5em
-	min-width 1em
-	width calc(var(--duration) * var(--koma-width))
 
 	&:before
 		content ''

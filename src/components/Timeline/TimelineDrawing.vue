@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {pausableWatch, useElementBounding} from '@vueuse/core'
+import {vec2} from 'linearly'
 import paper from 'paper'
 import {onMounted, shallowReactive, shallowRef, watch, watchEffect} from 'vue'
 
@@ -8,19 +9,15 @@ import {useTimelineStore} from '@/stores/timeline'
 
 const $canvas = shallowRef<null | HTMLCanvasElement>(null)
 
-interface Props {
-	scroll: number
-}
-
-const props = defineProps<Props>()
+const props = defineProps<{
+	range: vec2
+}>()
 
 const project = useProjectStore()
 const timeline = useTimelineStore()
 
 const scope = shallowRef<paper.PaperScope | null>(null)
-
 const tools = shallowReactive<Record<string, paper.Tool>>({})
-
 const {height: canvasHeight, width: canvasWidth} = useElementBounding($canvas)
 
 onMounted(() => {
@@ -124,15 +121,25 @@ watch(
 	() =>
 		[
 			scope.value,
-			props.scroll,
-			project.timeline.zoomFactor,
+			props.range,
+			canvasWidth.value,
 			canvasHeight.value,
+			timeline.frameWidthBase,
 		] as const,
-	([scope, scroll, zoom, height]) => {
+	([scope, [start, end], width, height]) => {
 		if (!scope) return
 
+		const frameWidth = width / (end - start)
+
 		const vertZoom = height / 400
-		const matrix = new paper.Matrix(zoom, 0, 0, vertZoom, -scroll, 0)
+		const matrix = new paper.Matrix(
+			frameWidth / timeline.frameWidthBase,
+			0,
+			0,
+			vertZoom,
+			-start * frameWidth,
+			0
+		)
 		scope.view.matrix = matrix
 	}
 )
@@ -148,6 +155,11 @@ watch(
 .TimelineDrawing
 	position absolute
 	inset 0
+	pointer-events none
+
+	&.pencil
+	&.eraser
+		pointer-events auto
 
 	&.pencil
 		cursor crosshair
@@ -157,7 +169,6 @@ watch(
 
 .canvas
 	position absolute
-	inset 0
 	width 100%
 	height 100%
 </style>

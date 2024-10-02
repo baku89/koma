@@ -2,7 +2,7 @@
 import {Rect} from '@baku89/pave'
 import * as Bndr from 'bndr-js'
 import {scalar, vec2} from 'linearly'
-import {clamp, range} from 'lodash-es'
+import {clamp, range as _range} from 'lodash-es'
 import {useBndr} from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
@@ -13,6 +13,11 @@ import {useTimelineStore} from '@/stores/timeline'
 import {speak} from '@/utils'
 
 import TimelineMarker from './TimelineMarker.vue'
+
+const props = defineProps<{
+	range: vec2
+	rangeStyle: (range: vec2) => any
+}>()
 
 const project = useProjectStore()
 const markers = useMarkersStore()
@@ -63,7 +68,7 @@ useBndr($root, $root => {
 	const pointer = Bndr.pointer($root)
 
 	pointer.position({coordinate: 'offset'}).on(([x, y]) => {
-		const frame = Math.floor(x / timeline.komaWidth)
+		const frame = Math.floor(x / timeline.frameWidth + props.range[0])
 		const verticalPosition = scalar.clamp(y / $root.clientHeight, 0, 1)
 
 		timeline.toolOptions = {...timeline.toolOptions, frame, verticalPosition}
@@ -122,7 +127,7 @@ useBndr($root, $root => {
 
 			const rootRect: Rect = [
 				[0, 0],
-				[Infinity, height],
+				[$root.clientWidth, height],
 			]
 
 			const dragRect = Rect.fromPoints(d.start, d.current)
@@ -132,8 +137,12 @@ useBndr($root, $root => {
 				dragRect
 			)
 
-			const frameLower = Math.ceil(xLower / timeline.komaWidth)
-			const frameUpper = Math.floor(xUpper / timeline.komaWidth)
+			const frameLower = Math.floor(
+				xLower / timeline.frameWidth + props.range[0]
+			)
+			const frameUpper = Math.ceil(
+				xUpper / timeline.frameWidth + props.range[0]
+			)
 
 			const verticalPositionLower = yLower / $root.clientHeight
 			const verticalPositionUpper = yUpper / $root.clientHeight
@@ -178,7 +187,7 @@ useBndr($root, $root => {
 					const start = project.markers.length
 					const end = project.markers.push(...newMarkers)
 					markers.unselect()
-					markers.select(...range(start, end))
+					markers.select(..._range(start, end))
 				}
 				markers.selectedIndices.forEach(i => {
 					markersToDrag.set(i, {...project.markers[i]})
@@ -186,7 +195,7 @@ useBndr($root, $root => {
 			} else if (d.type === 'drag') {
 				const offset = vec2.sub(d.current, d.start)
 
-				const deltaFrame = Math.round(offset[0] / timeline.komaWidth)
+				const deltaFrame = Math.round(offset[0] / timeline.frameWidth)
 
 				const height = $root.getBoundingClientRect().height
 				const deltaVerticalPosition = offset[1] / height
@@ -220,6 +229,13 @@ useBndr($root, $root => {
 		selectionRect.value = null
 	})
 })
+
+const visibleMarkers = computed(() => {
+	const [start, end] = props.range
+	return project.markers.filter(
+		m => start <= m.frame + m.duration + 1 && m.frame - 1 <= end
+	)
+})
 </script>
 
 <template>
@@ -235,13 +251,15 @@ useBndr($root, $root => {
 			v-if="canAddMarker"
 			class="cursor"
 			:marker="timeline.toolOptions"
+			:rangeStyle="rangeStyle"
 			:selected="false"
 		/>
 		<TimelineMarker
-			v-for="(marker, i) in project.markers ?? []"
+			v-for="(marker, i) in visibleMarkers"
 			:key="i"
 			:index="i"
 			:marker="marker"
+			:rangeStyle="rangeStyle"
 			:selected="markers.isSelected(i)"
 			@pointerdown="onPressMarker($event, i)"
 		/>
@@ -266,4 +284,5 @@ useBndr($root, $root => {
 	position absolute
 	z-index 100
 	border 2px solid var(--tq-color-selection)
+	pointer-events none
 </style>

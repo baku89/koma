@@ -1,19 +1,19 @@
 <script lang="ts" setup>
-import {clamp, range} from 'lodash-es'
+import {vec2} from 'linearly'
+import {range as _range} from 'lodash-es'
 import Tq from 'tweeq'
-import {computed, onMounted, ref, watch} from 'vue'
+import {computed, ref, watch} from 'vue'
 
 import {MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
 
+import Waveform from '../Waveform.vue'
 import TimelineDrawing from './TimelineDrawing.vue'
 import TimelineGraph from './TimelineGraph.vue'
-import TimelineHeader from './TimelineHeader.vue'
 import TimelineKoma from './TimelineKoma.vue'
 import TimelineMarkers from './TimelineMarkers.vue'
-import TimelineWaveform from './TimelineWaveform.vue'
 
 const project = useProjectStore()
 const viewport = useViewportStore()
@@ -22,56 +22,18 @@ const appSelection = useSelectionStore()
 
 const $timeline = ref<null | InstanceType<typeof Tq.Timeline>>(null)
 
-onMounted(() => {
-	watch(
-		() => viewport.previewFrame,
-		previewFrame => {
-			const left = previewFrame * timeline.komaWidth
-			const width = timeline.komaWidth
+watch(
+	() => viewport.previewFrame,
+	previewFrame => {
+		$timeline.value?.showRange(previewFrame)
+	},
+	{immediate: true}
+)
 
-			$timeline.value?.showRegion({left, width})
-		},
-		{immediate: true}
-	)
-})
-
-const scroll = ref(0)
-
-const containerWidth = computed(() => {
-	return $timeline.value?.containerWidth ?? 0
-})
-
-const visibleFrames = computed(() => {
-	const start = Math.floor(scroll.value / timeline.komaWidth)
-	const end = Math.ceil(
-		(scroll.value + containerWidth.value) / timeline.komaWidth
-	)
-
-	return range(start, end + 1)
-})
-
-const minZoom = 0.1
-const maxZoom = 1
-
-function onZoom({origin, zoomDelta}: {origin: number; zoomDelta: number}) {
-	const oldZoomFactor = project.timeline.zoomFactor
-	const newZoomFactor = clamp(
-		project.timeline.zoomFactor * zoomDelta,
-		minZoom,
-		maxZoom
-	)
-	project.timeline.zoomFactor = newZoomFactor
-
-	const zoomFactorDelta = newZoomFactor / oldZoomFactor
-
-	scroll.value = origin * zoomFactorDelta - (origin - scroll.value)
-}
-
-function onUpdateZoomFactor(zoomFactor: number) {
-	const zoomFactorDelta = zoomFactor / project.timeline.zoomFactor
-	project.timeline.zoomFactor = zoomFactor
-
-	scroll.value *= zoomFactorDelta
+function onDragRuler(value: number) {
+	const frame = Math.floor(value)
+	viewport.setCurrentFrame(frame)
+	viewport.isPlaying = false
 }
 
 const layers = computed(() => {
@@ -83,18 +45,32 @@ const layers = computed(() => {
 		.map((_, i) => project.layer(i))
 })
 
+function toScales(range: vec2, unitWidth: number) {
+	const start = Math.ceil(range[0])
+	const end = Math.floor(range[1])
+
+	if (unitWidth > 20) {
+		return _range(start, end + 1).map((value: number) => ({
+			value,
+			label: value.toString(),
+		}))
+	} else {
+		const fps = project.fps
+		return _range(start, end)
+			.filter((f: number) => f % fps === 0)
+			.map((value: number) => ({value, label: value / fps + 's'}))
+	}
+}
+
 //------------------------------------------------------------------------------
 // Styles
 
-const seekbarStyles = computed(() => {
+/**
+ * コマサムネイル分上にマージンを設けたスタイル。各種ビジュアライザーの表示位置調整に利用。
+ */
+const visualizersStyles = computed(() => {
 	return {
-		transform: `translateX(calc(${viewport.previewFrame} * var(--koma-width)))`,
-	}
-})
-
-const vizStyles = computed(() => {
-	return {
-		top: 'calc(var(--header-height) + var(--header-margin-bottom) + var(--koma-height))',
+		top: 'calc(var(--header-height) + var(--header-margin-bottom) + var(--layer-height))',
 	}
 })
 </script>
@@ -103,11 +79,8 @@ const vizStyles = computed(() => {
 	<div
 		class="Timeline"
 		:style="{
-			'--koma-width': timeline.komaWidth + 'px',
-			'--koma-height': timeline.komaHeight + 'px',
-			'--duration': project.allKomas.length,
-			'--in-point': project.previewRange[0],
-			'--out-point': project.previewRange[1],
+			'--frame-width': timeline.frameWidth + 'px',
+			'--layer-height': timeline.layerHeight + 'px',
 			'--onionskin': project.onionskin,
 		}"
 		@pointerdown="appSelection.reserveUnselect"
@@ -129,49 +102,49 @@ const vizStyles = computed(() => {
 				/>
 			</div>
 		</aside>
-		<Tq.Timeline ref="$timeline" v-model:scroll="scroll" @zoom="onZoom">
-			<div class="seekbar header-text-style" :style="seekbarStyles">
+		<Tq.Timeline
+			ref="$timeline"
+			:frameRange="[0, project.duration]"
+			v-model:frameWidth="timeline.frameWidth"
+			:frameWidthRange="[10, timeline.frameWidthBase]"
+			v-slot="{range, visibleFrameRange, rangeStyle, offsetStyle}"
+		>
+			<div
+				class="seekbar header-text-style"
+				:style="offsetStyle(viewport.previewFrame)"
+			>
 				{{ viewport.previewFrame }}
 				<div class="onionskin" :class="{pos: project.onionskin > 0}" />
 			</div>
-			<div
-				class="content"
-				:style="{
-					width: project.allKomas.length * timeline.komaWidth + 'px',
-				}"
+
+			<Tq.Ruler
+				class="ruler"
+				:range="range"
+				:scales="toScales(visibleFrameRange, timeline.frameWidth)"
+				@drag="onDragRuler"
 			>
-				<div class="viz" :style="vizStyles">
-					<TimelineWaveform />
-					<TimelineGraph />
-					<TimelineMarkers />
-				</div>
-				<div class="komas">
-					<TimelineKoma
-						v-for="frame in visibleFrames"
-						:key="frame"
-						class="koma"
-						:frame="frame"
-						:style="{left: frame * timeline.komaWidth + 'px'}"
-					/>
-				</div>
-			</div>
-			<template #fixed>
-				<TimelineHeader />
-				<TimelineDrawing :style="vizStyles" :scroll="scroll" />
-			</template>
-			<template #scrollbarRight>
-				<Tq.InputNumber
-					:modelValue="project.timeline.zoomFactor * 100"
-					:min="minZoom * 100"
-					:max="maxZoom * 100"
-					suffix="%"
-					:barOrigin="100"
-					:precision="0"
-					style="width: 7em"
-					@update:modelValue="onUpdateZoomFactor($event / 100)"
-					@dblclick="project.timeline.zoomFactor = 1"
+				<div class="preview-range" :style="rangeStyle(project.previewRange)" />
+			</Tq.Ruler>
+
+			<div class="komas">
+				<TimelineKoma
+					v-for="frame in _range(...visibleFrameRange)"
+					:key="frame"
+					class="koma"
+					:frame="frame"
+					:style="rangeStyle(frame)"
 				/>
-			</template>
+			</div>
+
+			<div class="visualizers" :style="visualizersStyles">
+				<Waveform
+					:src="project.audio.src"
+					:range="[range[0] / project.fps, range[1] / project.fps]"
+				/>
+				<TimelineGraph :style="rangeStyle(project.previewRange)" />
+				<TimelineDrawing class="drawing" :range="range" />
+				<TimelineMarkers :range="range" :rangeStyle="rangeStyle" />
+			</div>
 		</Tq.Timeline>
 	</div>
 </template>
@@ -188,12 +161,40 @@ const vizStyles = computed(() => {
 
 .layer-control
 	--tq-input-height 20px
-	height var(--koma-height)
+	height var(--layer-height)
 	padding 0 9px
 	display flex
 	flex-direction column
 	gap 4px
 	justify-content center
+
+
+.ruler
+	height var(--header-height)
+	margin-bottom var(--header-margin-bottom)
+
+.preview-range
+	height 100%
+	background 'color-mix(in srgb, var(--tq-color-on-background) 20%, transparent)' % ''
+	position relative
+
+	&:before
+	&:after
+		content ''
+		display block
+		position absolute
+		top 0
+		width 6px
+		height 100%
+		border 1px solid var(--tq-color-on-background)
+
+	&:before
+		left 0
+		border-right none
+
+	&:after
+		right 0
+		border-left none
 
 .content
 	margin-top var(--header-height)
@@ -202,6 +203,7 @@ const vizStyles = computed(() => {
 
 .komas
 	position relative
+	z-index 1
 
 .koma
 	position absolute
@@ -218,6 +220,7 @@ const vizStyles = computed(() => {
 .seekbar
 	pointer-events none
 	position absolute
+	top 0
 	width 2px
 	margin-left -1px
 	z-index 10
@@ -232,27 +235,30 @@ const vizStyles = computed(() => {
 		position absolute
 		left 1px
 		height var(--header-height)
-		width var(--koma-width)
+		width var(--frame-width)
 		background var(--tq-color-accent)
 		z-index -1
 
 .onionskin
 	position absolute
-	top 0
-	left calc(var(--koma-width) * var(--onionskin))
+	top calc(var(--header-height) - 4px)
+	left calc(var(--frame-width) * var(--onionskin))
 	right 100%
-	height var(--header-height)
+	height 4px
 	background var(--tq-color-selection)
 	opacity 0.5
 
 	&.pos
-		left var(--koma-width)
+		left var(--frame-width)
 		right auto
-		width calc(var(--koma-width) * var(--onionskin))
+		width calc(var(--frame-width) * var(--onionskin))
 		border-radius 0 99px 99px 0
 
-.viz
+.visualizers
 	position absolute
 	bottom 0
 	width 100%
+
+.drawing
+	pointer-events none
 </style>

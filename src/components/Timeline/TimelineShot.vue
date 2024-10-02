@@ -98,11 +98,10 @@ function printShotInfo(shot: Shot) {
 			class="captured"
 		>
 			<img :src="getObjectURL(shot.lv)" />
-			<Icon v-if="shot.raw" class="raw" icon="material-symbols:circle" />
 		</div>
 		<div v-else class="empty" />
 		<div
-			v-if="timeline.komaWidth > 40"
+			v-if="timeline.frameWidth > 40"
 			v-tooltip="'Insert'"
 			class="in-between transition"
 			@click="insertEmptyFrame(frame)"
@@ -113,10 +112,10 @@ function printShotInfo(shot: Shot) {
 <style scoped lang="stylus">
 .Shot
 	position relative
-	flex 0 0 var(--koma-width)
+	flex 0 0 var(--frame-width)
 	margin-left 1px
-	width calc(var(--koma-width) - 1px)
-	height var(--koma-height)
+	width calc(var(--frame-width) - 1px)
+	height var(--layer-height)
 	overflow hidden
 
 	&.selected:before
@@ -149,15 +148,6 @@ function printShotInfo(shot: Shot) {
 	img
 		height 100%
 		object-fit contain
-
-.raw
-	position absolute
-	right 2px
-	bottom 2px
-	color var(--tq-color-on-background)
-	width 8px
-	height 8px
-	margin 0
 
 .liveview
 	background var(--tq-color-rec)

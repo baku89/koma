@@ -25,20 +25,20 @@ export const useTimelineStore = defineStore('timeline', () => {
 		color: 'skyblue',
 	})
 
-	const komaWidthBase = ref(60)
+	const frameWidthBase = ref(60)
 	const komaAspect = ref(3 / 2)
 
-	const komaWidth = computed({
+	const frameWidth = computed({
 		get() {
-			return komaWidthBase.value * project.timeline.zoomFactor
+			return frameWidthBase.value * project.timeline.zoomFactor
 		},
 		set(value) {
-			project.timeline.zoomFactor = value / komaWidthBase.value
+			project.timeline.zoomFactor = value / frameWidthBase.value
 		},
 	})
 
-	const komaHeight = computed(() => {
-		return Math.round(komaWidthBase.value / komaAspect.value)
+	const layerHeight = computed(() => {
+		return Math.round(frameWidthBase.value / komaAspect.value)
 	})
 
 	Tq.actions.register([
@@ -89,8 +89,8 @@ export const useTimelineStore = defineStore('timeline', () => {
 	return {
 		currentTool,
 		toolOptions,
-		komaWidth,
-		komaWidthBase,
-		komaHeight,
+		frameWidth,
+		frameWidthBase,
+		layerHeight,
 	}
 })

@@ -16,8 +16,8 @@ const $frameMeasure = ref<null | HTMLElement>(null)
 useBndr($frameMeasure, el => {
 	Bndr.pointer(el)
 		.drag({pointerCapture: true, coordinate: 'offset'})
-		.on(d => {
-			const frame = Math.floor(d.current[0] / timeline.komaWidth)
+		.map(d => Math.floor(d.current[0] / timeline.frameWidth))
+		.on(frame => {
 			viewport.setCurrentFrame(frame)
 			viewport.isPlaying = false
 		})
@@ -26,29 +26,29 @@ useBndr($frameMeasure, el => {
 const previewRangeStyles = computed(() => {
 	const [inPoint, outPoint] = project.previewRange
 
-	const {komaWidth} = timeline
+	const {frameWidth} = timeline
 	const duration = outPoint - inPoint + 1
 
 	return {
-		transform: `translateX(${inPoint * komaWidth}px)`,
-		width: `${duration * komaWidth}px`,
+		transform: `translateX(${inPoint * frameWidth}px)`,
+		width: `${duration * frameWidth}px`,
 	}
 })
 
 const measures = computed(() => {
-	const {komaWidth} = timeline
+	const {frameWidth} = timeline
 
-	if (komaWidth < 15) {
+	if (frameWidth < 15) {
 		const fps = project.fps
 		return project.allKomas
 			.filter((_, i) => i % fps === 0)
 			.map((_, i) => ({
-				left: i * fps * komaWidth + 'px',
+				left: i * fps * frameWidth + 'px',
 				text: i + 's',
 			}))
 	} else {
 		return project.allKomas.map((_, i) => ({
-			left: i * komaWidth + 'px',
+			left: i * frameWidth + 'px',
 			text: i,
 		}))
 	}
@@ -77,7 +77,7 @@ const measures = computed(() => {
 	pointer-events auto
 
 	background-image linear-gradient(to right, var(--tq-color-border) 1px, transparent 1px)
-	background-size var(--koma-width) 100%
+	background-size var(--frame-width) 100%
 
 .header
 	height var(--header-height)
