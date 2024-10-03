@@ -1,6 +1,6 @@
-[submodule "dev_modules/tweeq"]
-	path = dev_modules/tweeq
+[submodule "packages/node-openvr"]
+	path = packages/node-openvr
+	url = https://github.com/baku89/node-openvr
+[submodule "packages/tweeq"]
+	path = packages/tweeq
 	url = https://github.com/baku89/tweeq
-[submodule "dev_modules/node-openvr"]
-	path = dev_modules/node-openvr
-	url = https://github.com/baku89/node-openvr/
