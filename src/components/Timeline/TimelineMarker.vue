@@ -40,7 +40,7 @@ const styles = computed(() => {
 </template>
 
 <style lang="stylus" scoped>
-@import '../../../dev_modules/tweeq/src/common.styl'
+@import '../../../packages/tweeq/src/common.styl'
 
 .TimelineMarker
 	position absolute

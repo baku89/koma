@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {Rect} from '@baku89/pave'
+import {MaybeElementRef} from '@vueuse/core'
 import * as Bndr from 'bndr-js'
 import {scalar, vec2} from 'linearly'
 import {clamp, range as _range} from 'lodash-es'
@@ -23,7 +24,7 @@ const project = useProjectStore()
 const markers = useMarkersStore()
 const timeline = useTimelineStore()
 
-const $root = ref<null | HTMLElement>(null)
+const $root: MaybeElementRef = ref()
 
 const cursorVisible = ref(false)
 

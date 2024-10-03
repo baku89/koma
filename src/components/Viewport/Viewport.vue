@@ -143,7 +143,7 @@ async function onDblclick(e: MouseEvent) {
 </template>
 
 <style lang="stylus" scoped>
-@import '../../../dev_modules/tweeq/src/common.styl'
+@import '../../../packages/tweeq/src/common.styl'
 
 .Viewport
 	position relative

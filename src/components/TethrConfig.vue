@@ -2,7 +2,7 @@
 import {capital} from 'case'
 import {scalar} from 'linearly'
 import {ConfigName, WhiteBalance} from 'tethr'
-import Tq from 'tweeq'
+import * as Tq from 'tweeq'
 import {computed, ref} from 'vue'
 
 import {Config} from '@/stores/camera'

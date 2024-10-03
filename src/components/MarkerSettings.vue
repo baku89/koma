@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import Tq from 'tweeq'
+import * as Tq from 'tweeq'
 import {computed} from 'vue'
 
 import {useTimelineStore} from '@/stores/timeline'
@@ -38,5 +38,5 @@ const visibleProps = computed(() => {
 </template>
 
 <style lang="stylus" scoped>
-@import '../../dev_modules/tweeq/src/common.styl'
+@import '../../packages/tweeq/src/common.styl'
 </style>

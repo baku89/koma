@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import {vec2} from 'linearly'
 import {range as _range} from 'lodash-es'
-import Tq from 'tweeq'
+import * as Tq from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
 import {MixBlendModeValues, useProjectStore} from '@/stores/project'

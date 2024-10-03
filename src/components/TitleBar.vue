@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import {Icon} from '@iconify/vue'
 import * as Bndr from 'bndr-js'
-import Tq from 'tweeq'
+import * as Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 
 import {useAuxDevicesStore} from '@/stores/auxDevices'

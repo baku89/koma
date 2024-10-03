@@ -59,7 +59,7 @@ export default defineConfig({
 			{
 				find: 'tweeq',
 				replacement: fileURLToPath(
-					new URL('./dev_modules/tweeq/src', import.meta.url)
+					new URL('./packages/tweeq/src', import.meta.url)
 				),
 			},
 		],

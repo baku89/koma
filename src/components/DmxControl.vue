@@ -77,7 +77,7 @@ function setColor(index: number, color: string) {
 </template>
 
 <style lang="stylus" scoped>
-@import '../../dev_modules/tweeq/src/common.styl'
+@import '../../packages/tweeq/src/common.styl'
 
 .show-all-button
 	background var(--tq-color-input)
