@@ -22,6 +22,20 @@ yarn install
 yarn dev
 ```
 
+### Running aux-amanger in Apple Silicon
+
+```bash
+git submodule update --init --recursive
+
+arch -x86_64 zsh # Open zsh in Rosetta 2
+nvm use 18  # Use Node.js installed in Rosetta 2
+cd packages/node-openvr
+npm run install
+
+cd ../..
+yarn aux
+```
+
 ## Termiology
 
 The terms used in the code and documentation.
