@@ -1,12 +1,12 @@
 import {isEqual} from 'lodash-es'
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
-import {computed, ref, watch} from 'vue'
+import {computed, ref, watch, watchEffect} from 'vue'
 
 export const useCncStore = defineStore('cnc', () => {
 	const Tq = useTweeq()
 
-	const port = ref<SerialPort | null>(null)
+	const port = ref<SerialPort | undefined>()
 
 	const connected = computed(() => port.value !== null)
 
@@ -14,14 +14,7 @@ export const useCncStore = defineStore('cnc', () => {
 
 	const init = async () => {
 		const ports = await navigator.serial.getPorts()
-
-		for (const p of ports) {
-			const info = p.getInfo()
-			if (isEqual(info, savedInfo.value)) {
-				port.value = p
-				return
-			}
-		}
+		port.value = ports.find(p => isEqual(p.getInfo(), savedInfo.value))
 	}
 
 	init()
@@ -29,10 +22,16 @@ export const useCncStore = defineStore('cnc', () => {
 	const connect = async () => {
 		try {
 			port.value = await navigator.serial.requestPort()
+			// eslint-disable-next-line @typescript-eslint/no-unused-vars
 		} catch (e) {
-			port.value = null
+			port.value = undefined
 		}
 	}
+
+	// Save the port info
+	watchEffect(() => {
+		savedInfo.value = port.value?.getInfo() ?? null
+	})
 
 	watch(
 		port,
@@ -40,12 +39,8 @@ export const useCncStore = defineStore('cnc', () => {
 			if (oldPort) {
 				oldPort.close()
 			}
-
 			if (port) {
-				savedInfo.value = port.getInfo()
 				receive()
-			} else {
-				savedInfo.value = null
 			}
 		},
 		{immediate: true}
@@ -68,7 +63,7 @@ export const useCncStore = defineStore('cnc', () => {
 		const reader = p.readable?.getReader()
 		if (!reader) {
 			console.info('cannot read from CNC', port.value?.getInfo())
-			port.value = null
+			port.value = undefined
 			return
 		}
 
