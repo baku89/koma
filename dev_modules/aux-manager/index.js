@@ -101,4 +101,7 @@ function handleOpenVRTarcker() {
 }
 handleOpenVRTarcker()
 
-setInterval(() => null, 10000)
+process.on('SIGINT', () => {
+	console.log('\nExiting...')
+	process.exit()
+})
