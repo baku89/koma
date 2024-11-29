@@ -37,3 +37,14 @@ The terms used in the code and documentation.
 ## Credits
 
 - Sound Effects by [OtoLogic](https://otologic.jp/free/license.html) ([CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/))
+
+## Run Aux-Manager
+
+```bash
+arch -x86_64 zsh
+nvm use 18 # assumes that 18 is installed in x86
+cd dev_modules/node-openvr
+npm run install
+cd ../aux-manager
+yarn start
+```
