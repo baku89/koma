@@ -62,6 +62,12 @@ export default defineConfig({
 					new URL('./dev_modules/tweeq/src', import.meta.url)
 				),
 			},
+			{
+				find: '@tethr/vue3',
+				replacement: fileURLToPath(
+					new URL('./dev_modules/tethr/integrations/vue3/src', import.meta.url)
+				),
+			},
 		],
 	},
 	define: {
