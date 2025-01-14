@@ -9,6 +9,7 @@ import {VitePWA} from 'vite-plugin-pwa'
 const monacoEditorPluginDefault = (monacoEditorPlugin as any).default as (
 	options: IMonacoEditorOpts
 ) => any
+// import electron from 'vite-plugin-electron/simple'
 
 export default defineConfig({
 	base: './',
@@ -46,6 +47,11 @@ export default defineConfig({
 				maximumFileSizeToCacheInBytes: 100 * 1024 * 1024,
 			},
 		}),
+		// electron({
+		// 	main: {
+		// 		entry: 'src/electron-main.ts',
+		// 	},
+		// }),
 	],
 	build: {
 		sourcemap: true,

@@ -15,6 +15,7 @@
 	"workspaces": [
 		"dev_modules/*"
 	],
+	"main": "dist-electron/electron-main.js",
 	"devDependencies": {
 		"@baku89/pave": "^0.4.1",
 		"@eslint/eslintrc": "^3.1.0",
@@ -35,6 +36,7 @@
 		"case": "^1.6.3",
 		"dateformat": "^5.0.3",
 		"defu": "^6.1.4",
+		"electron": "^34.0.0",
 		"eslint": "^9.10.0",
 		"eslint-config-prettier": "^9.1.0",
 		"eslint-plugin-simple-import-sort": "^12.1.1",
@@ -62,6 +64,7 @@
 		"typescript": "^5.5.4",
 		"typescript-memoize": "^1.1.1",
 		"vite": "^5.4.3",
+		"vite-plugin-electron": "^0.29.0",
 		"vite-plugin-glsl": "^1.3.0",
 		"vite-plugin-monaco-editor": "^1.1.0",
 		"vite-plugin-pwa": "^0.20.5",
