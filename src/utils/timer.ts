@@ -1,7 +1,7 @@
 export function setIntervalImmediate(
 	fn: () => void,
 	interval: number
-): NodeJS.Timeout {
+): ReturnType<typeof setInterval> {
 	fn()
 	return setInterval(fn, interval)
 }

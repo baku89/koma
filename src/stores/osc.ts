@@ -33,7 +33,7 @@ export const useOscStore = defineStore('osc', () => {
 	const osc = new OSC()
 	const oscRef = ref<OSC | null>(null)
 
-	let reconnectTimer: NodeJS.Timeout
+	let reconnectTimer: ReturnType<typeof setInterval>
 
 	watch(
 		oscRef,
