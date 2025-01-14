@@ -205,7 +205,7 @@ function useGraphPoints<T>({
 		return numberValue === null ? null : map(numberValue)
 	}
 
-	return computed<(readonly [frame: number, value: V])[]>(() => {
+	return computed<(readonly [frame: number, value: number])[]>(() => {
 		const [inPoint] = project.previewRange
 
 		return project.previewKomas

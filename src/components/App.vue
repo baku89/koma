@@ -285,7 +285,7 @@ Tq.actions.register([
 
 					if (!result) return
 
-					project.duration = result.duration
+					project.setDuration(result.duration)
 
 					project.$patch(result)
 				},

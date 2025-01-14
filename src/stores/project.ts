@@ -392,16 +392,14 @@ export const useProjectStore = defineStore('project', () => {
 		return allKomas.value[frame]?.shots?.length ?? 0
 	}
 
-	const duration = computed({
-		get() {
-			return project.komas.length
-		},
-		set(value) {
-			while (value >= project.komas.length) {
-				project.komas.push({shots: []})
-			}
-		},
+	const duration = computed(() => {
+		return project.komas.length
 	})
+	function setDuration(value: number) {
+		while (value >= project.komas.length) {
+			project.komas.push({shots: []})
+		}
+	}
 
 	return {
 		...toRefs(project),
@@ -424,5 +422,6 @@ export const useProjectStore = defineStore('project', () => {
 		layer,
 		layerCount,
 		duration,
+		setDuration,
 	}
 })
