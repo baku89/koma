@@ -27,7 +27,8 @@
 		"paths": {
 			"@/*": ["./src/*"],
 			"tweeq": ["./dev_modules/tweeq/src/index.ts"]
-		}
+		},
+		"types": ["w3c-web-serial", "wicg-file-system-access"]
 	},
 	"include": ["src"]
 }

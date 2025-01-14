@@ -6,8 +6,7 @@ import {Euler, Quaternion} from 'three'
 import {computed} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
-import {useDmxStore} from '@/stores/dmx'
-import {Koma, useProjectStore} from '@/stores/project'
+import {type Koma, useProjectStore} from '@/stores/project'
 import {useTrackerStore} from '@/stores/tracker'
 
 import LineGraph from '../LineGraph.vue'
@@ -15,7 +14,7 @@ import LineGraph from '../LineGraph.vue'
 const project = useProjectStore()
 const camera = useCameraStore()
 const tracker = useTrackerStore()
-const dmx = useDmxStore()
+// const dmx = useDmxStore()
 
 const positionMatrixInverse = computed(() => {
 	// 現在のトラッカーからの位置をベースに、Y軸のみ上向きになるような座標系を作る

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {mat4, quat, vec3, vec4} from 'linearly'
-import Tq from 'tweeq'
+import * as Tq from 'tweeq'
 
 import {useAuxDevicesStore} from '@/stores/auxDevices'
 import {useOscStore} from '@/stores/osc'
