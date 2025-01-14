@@ -140,11 +140,21 @@ const destinationInfo = computed(() => {
 					:active="cnc.connected"
 				/>
 				<template #popper>
-					<p>{{ cnc.connected ? 'CNC Connected' : 'No CNC Available' }}</p>
-					<pre>{{ cnc.log }}</pre>
-					<Tq.InputButton label="Status" />
+					<div class="cnc-menu">
+						<p>{{ cnc.connected ? 'CNC Connected' : 'No CNC Available' }}</p>
+						<pre>{{ cnc.log }}</pre>
+						<Tq.InputButton label="Status" />
+					</div>
 				</template>
 			</vMenu>
 		</template>
 	</Tq.TitleBar>
 </template>
+
+<style lang="stylus" scoped>
+@import '../../dev_modules/tweeq/src/common.styl'
+
+
+.cnc-menu
+	padding var(--tq-popup-padding)
+</style>
