@@ -5,16 +5,16 @@ import * as Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 
 import {useAuxDevicesStore} from '@/stores/auxDevices'
-import {useCameraStore} from '@/stores/camera'
 import {useCncStore} from '@/stores/cnc'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
 import {useViewportStore} from '@/stores/viewport'
 import {toTime} from '@/utils'
 
+import TitleBarCameraConnection from './TitleBarCameraConnection.vue'
+
 const viewport = useViewportStore()
 const project = useProjectStore()
-const camera = useCameraStore()
 const timer = useTimerStore()
 const aux = useAuxDevicesStore()
 const cnc = useCncStore()
@@ -62,11 +62,10 @@ const destinationInfo = computed(() => {
 			/>
 		</template>
 		<template #center>
-			<div style="display: flex">
+			<Tq.InputGroup>
 				<Tq.InputButtonToggle
 					v-model="viewport.isPlaying"
 					:icon="viewport.isPlaying ? 'mdi:pause' : 'mdi:play'"
-					horizontalPosition="left"
 				/>
 				<Tq.InputNumber
 					:modelValue="viewport.previewFrame"
@@ -77,10 +76,9 @@ const destinationInfo = computed(() => {
 					:bar="false"
 					suffix=" F"
 					style="width: 5em"
-					horizontalPosition="right"
 					@update:modelValue="viewport.setCurrentFrame"
 				/>
-			</div>
+			</Tq.InputGroup>
 			<Tq.InputButtonToggle
 				v-model="project.isLooping"
 				v-tooltip="'Loop'"
@@ -91,41 +89,33 @@ const destinationInfo = computed(() => {
 				v-tooltip="'Hi-Res'"
 				icon="mdi:high-definition"
 			/>
-			<div style="display: flex">
+			<Tq.InputGroup>
 				<Tq.InputButtonToggle
 					v-model="viewport.enableOnionskin"
 					v-tooltip="'Enable Onionskin'"
 					icon="fluent-emoji-high-contrast:onion"
-					horizontalPosition="left"
 				/>
 				<Tq.InputButtonToggle
 					v-model="viewport.coloredOnionskin"
 					label="Color"
-					horizontalPosition="right"
 				/>
-			</div>
-			<div style="display: flex">
+			</Tq.InputGroup>
+			<Tq.InputGroup>
 				<Tq.InputButton
 					v-tooltip="'Reset Timer'"
 					icon="material-symbols:timer"
-					horizontalPosition="left"
 					@click="timer.reset"
 				/>
 				<Tq.InputString
 					:modelValue="toTime(timer.current)"
 					style="width: 5em"
-					horizontalPosition="right"
 					font="numeric"
 					disabled
 				/>
-			</div>
+			</Tq.InputGroup>
 		</template>
 		<template #right>
-			<Tq.InputButton
-				:icon="camera.tethr ? 'mdi:camera' : 'mdi:connection'"
-				:label="camera.model.value ?? 'Connect'"
-				@click="camera.toggleConnection"
-			/>
+			<TitleBarCameraConnection />
 			<Tq.IconIndicator
 				v-tooltip="{
 					content:
@@ -144,7 +134,7 @@ const destinationInfo = computed(() => {
 				icon="tabler:gizmo"
 				:active="aux.tracker.enabled"
 			/>
-			<vTooltip>
+			<vMenu>
 				<Tq.IconIndicator
 					icon="game-icons:mechanical-arm"
 					:active="cnc.connected"
@@ -154,7 +144,7 @@ const destinationInfo = computed(() => {
 					<pre>{{ cnc.log }}</pre>
 					<Tq.InputButton label="Status" />
 				</template>
-			</vTooltip>
+			</vMenu>
 		</template>
 	</Tq.TitleBar>
 </template>

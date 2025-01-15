@@ -6,6 +6,7 @@ import {
 	ConfigName,
 	ConfigType,
 	Tethr,
+	TethrDeviceType,
 	TethrManager,
 } from 'tethr'
 import {readonly, Ref, shallowReactive, shallowRef, watch} from 'vue'
@@ -90,18 +91,23 @@ export const useCameraStore = defineStore('camera', () => {
 	// Automatically connect
 	watch(
 		() => [project.cameraConfigs.model, pairedCameras.value] as const,
-		async ([model, cameras]) => {
+		async ([model], prev) => {
 			if (!model || tethr.value) return
+			if (prev?.[0] === model) return
 
-			for await (const cam of cameras) {
-				if ((await cam.getModel()) === model) {
-					openCamera(cam)
-					break
-				}
-			}
+			connectPreconfiguredCamera()
 		},
 		{immediate: true}
 	)
+
+	async function connectPreconfiguredCamera() {
+		for await (const cam of pairedCameras.value) {
+			if ((await cam.getModel()) === project.cameraConfigs.model) {
+				openCamera(cam)
+				break
+			}
+		}
+	}
 
 	async function openCamera(cam: Tethr) {
 		cam.setLog(false)
@@ -138,10 +144,10 @@ export const useCameraStore = defineStore('camera', () => {
 		tethr.value = cam
 		;(window as any).cam = cam
 
-		cam.startLiveview()
+		await cam.startLiveview()
 	}
 
-	async function toggleConnection() {
+	async function toggleConnection(type: TethrDeviceType = 'ptpusb') {
 		if (tethr.value) {
 			await tethr.value.close()
 			tethr.value = null
@@ -151,7 +157,7 @@ export const useCameraStore = defineStore('camera', () => {
 		let cam: Tethr
 
 		try {
-			const ptpusb = await manager.requestCamera('ptpusb')
+			const ptpusb = await manager.requestCamera(type)
 			if (ptpusb) {
 				cam = ptpusb
 			} else {
@@ -169,6 +175,7 @@ export const useCameraStore = defineStore('camera', () => {
 
 	return {
 		tethr,
+		pairedCameras,
 		toggleConnection,
 
 		// DPC
