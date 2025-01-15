@@ -148,7 +148,7 @@ const {fn: shoot} = preventConcurrentExecution(
 			}
 
 			// Resize jpg to fit the resolution of the project
-			const lv = await resizeBlobImage(jpg, project.resolution)
+			const lv = await resizeBlobImage(jpg, project.resolution, 'cover')
 
 			return {
 				jpg,

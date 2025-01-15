@@ -41,12 +41,18 @@ async function removeExifOrientation(blob: Blob): Promise<Blob> {
 	return blob
 }
 
-export async function resizeBlobImage(blob: Blob, size: vec2) {
+export async function resizeBlobImage(
+	blob: Blob,
+	size: vec2,
+	mode: 'cover' | 'stretch' = 'cover'
+) {
 	if (!canvas) {
 		canvas = document.createElement('canvas')
 	}
 
-	const [width, height] = size
+	let [width, height] = size
+	let x = 0
+	let y = 0
 
 	canvas.width = width
 	canvas.height = height
@@ -55,7 +61,18 @@ export async function resizeBlobImage(blob: Blob, size: vec2) {
 
 	const blobDeorient = await removeExifOrientation(blob)
 	const bitmap = await createImageBitmap(blobDeorient)
-	ctx.drawImage(bitmap, 0, 0, width, height)
+
+	if (mode === 'cover') {
+		if (width / height > bitmap.width / bitmap.height) {
+			height = (width * bitmap.height) / bitmap.width
+			y = (canvas.height - height) / 2
+		} else {
+			width = (height * bitmap.width) / bitmap.height
+			x = (canvas.width - width) / 2
+		}
+	}
+
+	ctx.drawImage(bitmap, x, y, width, height)
 	bitmap.close()
 
 	return await new Promise<Blob>((resolve, reject) => {
