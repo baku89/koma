@@ -665,6 +665,7 @@ Tq.actions.register([
 	<div class="App">
 		<Tq.CommandPalette />
 		<Tq.PaneModalComplex />
+		<Tq.MultiSelectPopup />
 		<TitleBar />
 		<main class="main">
 			<Tq.PaneSplit name="vertical" direction="vertical">
