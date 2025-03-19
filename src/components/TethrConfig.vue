@@ -3,7 +3,7 @@ import {capital} from 'case'
 import {scalar} from 'linearly'
 import {ConfigName, WhiteBalance} from 'tethr'
 import * as Tq from 'tweeq'
-import {computed, ref} from 'vue'
+import {computed} from 'vue'
 
 import {Config} from '@/stores/camera'
 
@@ -24,8 +24,6 @@ interface InputAttrs {
 }
 
 const props = withDefaults(defineProps<Props>(), {prefix: '', suffix: ''})
-
-const focusing = ref(false)
 
 function update(value: any) {
 	props.config.set(value)
@@ -151,8 +149,6 @@ function increment(dir: 1 | -1) {
 			:disabled="config.writable"
 			align="center"
 			v-bind="inputAttrs"
-			@focus="focusing = true"
-			@blur="focusing = false"
 			@update:modelValue="update"
 		/>
 		<Tq.InputNumber
@@ -167,8 +163,6 @@ function increment(dir: 1 | -1) {
 			:prefix="prefix"
 			:suffix="suffix"
 			v-bind="inputAttrs"
-			@focus="focusing = true"
-			@blur="focusing = false"
 			@update:modelValue="update"
 		/>
 		<Tq.InputButton
