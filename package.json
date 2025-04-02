@@ -13,7 +13,8 @@
 		"postversion": "git push && git push --tags"
 	},
 	"workspaces": [
-		"dev_modules/*"
+		"dev_modules/tweeq",
+		"dev_modules/aux-manager"
 	],
 	"main": "dist-electron/electron-main.js",
 	"devDependencies": {
