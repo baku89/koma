@@ -66,15 +66,12 @@ const destinationInfo = computed(() => {
 					v-model="viewport.isPlaying"
 					:icon="viewport.isPlaying ? 'mdi:pause' : 'mdi:play'"
 				/>
-				<Tq.InputNumber
+				<Tq.InputTime
 					:modelValue="viewport.previewFrame"
-					:precision="0"
 					:min="0"
 					:max="project.allKomas.length - 1"
-					:step="1"
-					:bar="false"
-					suffix=" F"
-					style="width: 5em"
+					:frameRate="24"
+					style="width: 10em"
 					@update:modelValue="viewport.setCurrentFrame"
 				/>
 			</Tq.InputGroup>
