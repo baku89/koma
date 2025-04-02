@@ -35,7 +35,7 @@ watch(
 			interact: false,
 			height: 'auto',
 			mediaControls: false,
-			waveColor: Tq.theme.colorGrayOnBackground,
+			waveColor: Tq.theme.colorTextSubtle,
 		})
 
 		if (props.src) {

@@ -66,7 +66,7 @@ const style = computed(() => {
 </script>
 
 <template>
-	<div class="ViewportKoma" :style="style" v-show="layers.length > 0">
+	<div class="PreviewKoma" :style="style" v-show="layers.length > 0">
 		<div
 			v-for="(layer, index) in layers.slice(0, viewport.currentLayer + 1)"
 			:key="index"
@@ -94,7 +94,7 @@ const style = computed(() => {
 </template>
 
 <style scoped lang="stylus">
-.ViewportKoma
+.PreviewKoma
 	position absolute
 	inset 0
 	pointer-events none

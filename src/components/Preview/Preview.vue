@@ -11,7 +11,7 @@ import {useViewportStore} from '@/stores/viewport'
 import {useZUI} from '@/use/useZUI'
 import {Rect} from '@/utils/Rect'
 
-import ViewportKoma from './ViewportKoma.vue'
+import ViewportKoma from './PreviewKoma.vue'
 
 const Tq = useTweeq()
 const project = useProjectStore()
@@ -98,7 +98,7 @@ async function onDblclick(e: MouseEvent) {
 
 <template>
 	<div
-		class="Viewport"
+		class="Preview"
 		:class="{liveview: viewport.isLiveview, tint}"
 		ref="$wrapper"
 		:style="{'--tint': 'red'}"
@@ -144,7 +144,7 @@ async function onDblclick(e: MouseEvent) {
 <style lang="stylus" scoped>
 @import '../../../dev_modules/tweeq/src/common.styl'
 
-.Viewport
+.Preview
 	position relative
 	border 4px solid transparent
 	overflow hidden

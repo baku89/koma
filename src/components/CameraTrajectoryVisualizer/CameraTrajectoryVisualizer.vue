@@ -251,8 +251,8 @@ const paneExpanded = ref(false)
 		>
 			<Camera />
 			<Scene ref="$scene" :background="Tq.theme.colorBackground">
-				<PointLight :color="Tq.theme.colorOnBackground" :position="{y: 10}" />
-				<AmbientLight :color="Tq.theme.colorOnBackground" :intensity="0.5" />
+				<PointLight :color="Tq.theme.colorText" :position="{y: 10}" />
+				<AmbientLight :color="Tq.theme.colorText" :intensity="0.5" />
 				<Group v-bind="matrixToThree(tracker.matrix)">
 					<FbxModel src="./camera.fbx" @load="onLoadCameraModel" />
 				</Group>

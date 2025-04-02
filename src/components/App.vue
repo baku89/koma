@@ -21,9 +21,9 @@ import CameraControl from './CameraControl.vue'
 import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
 import DmxControl from './DmxControl.vue'
 import MarkerSettings from './MarkerSettings.vue'
+import Preview from './Preview'
 import Timeline from './Timeline'
 import TitleBar from './TitleBar.vue'
-import Viewport from './Viewport'
 
 initTweeq('com.baku89.koma', {
 	colorMode: 'dark',
@@ -674,7 +674,7 @@ Tq.actions.register([
 						:scroll="[false, false]"
 					>
 						<template #first>
-							<Viewport class="preview" />
+							<Preview class="preview" />
 						</template>
 						<template #second>
 							<CameraTrajectoryVisualizer />
