@@ -61,6 +61,7 @@ function setColor(index: number, color: string) {
 						class="color"
 						:modelValue="getColor(i)"
 						@update:modelValue="setColor(i, $event)"
+						tabindex="-1"
 					>
 						<Tq.Icon
 							icon="material-symbols:fluorescent"

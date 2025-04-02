@@ -62,7 +62,7 @@ const destinationInfo = computed(() => {
 		</template>
 		<template #center>
 			<Tq.InputGroup>
-				<Tq.InputButtonToggle
+				<Tq.InputCheckbox
 					v-model="viewport.isPlaying"
 					:icon="viewport.isPlaying ? 'mdi:pause' : 'mdi:play'"
 				/>
@@ -75,25 +75,26 @@ const destinationInfo = computed(() => {
 					@update:modelValue="viewport.setCurrentFrame"
 				/>
 			</Tq.InputGroup>
-			<Tq.InputButtonToggle
+			<Tq.InputCheckbox
 				v-model="project.isLooping"
 				v-tooltip="'Loop'"
 				icon="material-symbols:laps"
 			/>
-			<Tq.InputButtonToggle
+			<Tq.InputCheckbox
 				v-model="viewport.enableHiRes"
 				v-tooltip="'Hi-Res'"
 				icon="mdi:high-definition"
 			/>
 			<Tq.InputGroup>
-				<Tq.InputButtonToggle
+				<Tq.InputCheckbox
 					v-model="viewport.enableOnionskin"
 					v-tooltip="'Enable Onionskin'"
 					icon="fluent-emoji-high-contrast:onion"
 				/>
-				<Tq.InputButtonToggle
+				<Tq.InputCheckbox
 					v-model="viewport.coloredOnionskin"
-					label="Color"
+					icon="icon-park-outline:color-filter"
+					v-tooltip="'Colored Onionskin'"
 				/>
 			</Tq.InputGroup>
 			<Tq.InputGroup>
