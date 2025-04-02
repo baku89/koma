@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Icon} from '@iconify/vue'
+import * as Tq from 'tweeq'
 import {computed} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
@@ -87,7 +87,7 @@ const style = computed(() => {
 				playsinline
 			/>
 			<div v-if="layer.type === 'lv' && !camera.liveview.value" class="no-lv">
-				<Icon icon="mdi:camera-off" />
+				<Tq.Icon icon="mdi:camera-off" />
 			</div>
 		</div>
 	</div>
@@ -114,7 +114,7 @@ video
 
 .no-lv
 	background black
-	color var(--tq-color-gray-on-background)
+	color var(--tq-color-text-mute)
 	display flex
 	justify-content center
 	align-items center

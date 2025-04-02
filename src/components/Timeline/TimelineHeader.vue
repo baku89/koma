@@ -81,13 +81,13 @@ const measures = computed(() => {
 
 .header
 	height var(--header-height)
-	border-left 1px solid var(--tq-color-on-background)
+	border-left 1px solid var(--tq-color-text)
 	margin-bottom var(--header-margin-bottom)
 	position absolute
 
 .preview-range
 	position absolute
 	height var(--header-height)
-	background var(--tq-color-on-background)
+	background var(--tq-color-text)
 	opacity 0.2
 </style>

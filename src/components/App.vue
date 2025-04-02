@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import {Icon} from '@iconify/vue/dist/iconify.js'
 import {whenever} from '@vueuse/core'
 import * as Bndr from 'bndr-js'
 import {scalar, vec3, vec4} from 'linearly'
@@ -662,7 +661,7 @@ Tq.actions.register([
 </script>
 
 <template>
-	<div class="App">
+	<Tq.Viewport class="App">
 		<Tq.CommandPalette />
 		<Tq.PaneModalComplex />
 		<Tq.MultiSelectPopup />
@@ -694,7 +693,7 @@ Tq.actions.register([
 											:options="['select', 'marker', 'pencil', 'eraser']"
 										>
 											<template #option="{value}">
-												<Icon
+												<Tq.Icon
 													:icon="
 														value === 'select'
 															? 'ph:cursor-fill'
@@ -750,10 +749,16 @@ Tq.actions.register([
 				</template>
 			</Tq.PaneSplit>
 		</main>
-	</div>
+	</Tq.Viewport>
 </template>
 
 <style lang="stylus" scoped>
+.App
+	--app-margin-top env(titlebar-area-height, 37px)
+	inset 0
+	position fixed
+	background var(--tq-color-background)
+
 .main
 	position fixed
 	inset var(--app-margin-top) 0 0

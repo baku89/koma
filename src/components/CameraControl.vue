@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import {Icon} from '@iconify/vue'
 import {ConfigName} from 'tethr'
 import {useTweeq} from 'tweeq'
 
@@ -65,9 +64,7 @@ function toggleConfigVisibility(name: ConfigName) {
 }
 
 function getConfigColor(name: ConfigName) {
-	return (
-		project.visibleProperties[name]?.color ?? Tq.theme.colorGrayOnBackground
-	)
+	return project.visibleProperties[name]?.color ?? Tq.theme.colorTextMute
 }
 
 function setConfigColor(name: ConfigName, value: string) {
@@ -94,22 +91,22 @@ function setConfigColor(name: ConfigName, value: string) {
 				:label="configLabels[name].label"
 			>
 				<template #label>
-					<Icon
+					<Tq.Icon
 						v-if="showAll"
 						class="visibility"
 						:icon="getConfigVisibility(name) ? 'mdi:eye' : 'mdi:eye-closed'"
 						@click="toggleConfigVisibility(name)"
 					/>
-					<Tq.InputColor
+					<Tq.InputColorPad
 						class="color"
 						:modelValue="getConfigColor(name)"
 						@update:modelValue="setConfigColor(name, $event)"
 					>
-						<Icon
+						<Tq.Icon
 							:icon="configLabels[name].icon"
 							:style="{color: getConfigColor(name)}"
 						/>
-					</Tq.InputColor>
+					</Tq.InputColorPad>
 					{{ configLabels[name].label }}
 				</template>
 				<TethrConfig :config="(camera as any)[name]" :name="name" />
@@ -138,12 +135,12 @@ function setConfigColor(name: ConfigName, value: string) {
 	hover-transition(color)
 
 	&:hover
-		color var(--tq-color-on-background)
+		color var(--tq-color-text)
 
 .color .iconify
 	hover-transition(background)
 	background transparent
-	border-radius var(--tq-input-border-radius)
+	border-radius var(--tq-radius-input)
 
 	&:hover
 		background var(--tq-color-input-hover)

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import {Icon} from '@iconify/vue'
 import {capital} from 'case'
 import dateformat from 'dateformat'
 import {ConfigNameList} from 'tethr'
+import * as Tq from 'tweeq'
 import {computed} from 'vue'
 
 import {Shot, useProjectStore} from '@/stores/project'
@@ -87,7 +87,7 @@ function printShotInfo(shot: Shot) {
 			"
 			class="liveview"
 		>
-			<Icon icon="material-symbols:photo-camera-outline" />
+			<Tq.Icon icon="material-symbols:photo-camera-outline" />
 		</div>
 		<div
 			v-else-if="shot"
@@ -124,7 +124,7 @@ function printShotInfo(shot: Shot) {
 		position absolute
 		inset 0
 		border 2px solid var(--tq-color-selection)
-		border-radius var(--tq-input-border-radius)
+		border-radius var(--tq-radius-input)
 		z-index 10
 		pointer-events none
 
@@ -139,7 +139,7 @@ function printShotInfo(shot: Shot) {
 	flex-direction column
 	justify-content center
 	align-items center
-	border-radius var(--tq-input-border-radius)
+	border-radius var(--tq-radius-input)
 
 .captured
 	overflow hidden

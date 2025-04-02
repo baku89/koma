@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import {Icon} from '@iconify/vue'
 import {useElementBounding} from '@vueuse/core'
 import {mat2d, vec2} from 'linearly'
 import {useTweeq} from 'tweeq'
@@ -14,7 +13,7 @@ import {Rect} from '@/utils/Rect'
 
 import ViewportKoma from './ViewportKoma.vue'
 
-const {actions} = useTweeq()
+const Tq = useTweeq()
 const project = useProjectStore()
 const camera = useCameraStore()
 const viewport = useViewportStore()
@@ -55,7 +54,7 @@ useZUI($wrapper, delta => {
 	project.viewport.transform = mat2d.mul(delta, transform.value)
 })
 
-actions.register([
+Tq.actions.register([
 	{
 		id: 'viewport',
 		children: [
@@ -135,7 +134,7 @@ async function onDblclick(e: MouseEvent) {
 		</div>
 		<ul class="shootAlerts">
 			<li v-for="(alert, i) in shootAlerts.alerts" :key="i">
-				<Icon icon="material-symbols:error" />
+				<Tq.Icon icon="material-symbols:error" />
 				<span>{{ alert }}</span>
 			</li>
 		</ul>
@@ -189,7 +188,7 @@ async function onDblclick(e: MouseEvent) {
 	pointer-events none
 
 	.line
-		stroke var(--tq-color-on-background)
+		stroke var(--tq-color-text)
 		stroke-width 2px
 		fill none
 		vector-effect non-scaling-stroke
@@ -209,7 +208,7 @@ async function onDblclick(e: MouseEvent) {
 	height var(--tq-input-height)
 	border-radius 9999px
 	overflow hidden
-	border 1px solid var(--tq-color-on-background)
+	border 1px solid var(--tq-color-text)
 	opacity 1
 	background var(--tq-color-background)
 
@@ -218,7 +217,7 @@ async function onDblclick(e: MouseEvent) {
 		top 2px
 		bottom 2px
 		left 2px
-		background var(--tq-color-on-background)
+		background var(--tq-color-text)
 		border-radius 9999px
 		transition width 0.5s ease
 
@@ -235,7 +234,7 @@ async function onDblclick(e: MouseEvent) {
 		display grid
 		grid-template-columns min-content 1fr
 		background var(--tq-color-surface)
-		border-radius var(--tq-input-border-radius)
+		border-radius var(--tq-radius-input)
 		backdrop-filter blur(4px)
 		padding 1rem
 		gap 9px

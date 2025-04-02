@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import {Icon} from '@iconify/vue'
 import {useTweeq} from 'tweeq'
 
 import {useDmxStore} from '@/stores/dmx'
@@ -52,22 +51,22 @@ function setColor(index: number, color: string) {
 				:label="'#' + (i + 1)"
 			>
 				<template #label>
-					<Icon
+					<Tq.Icon
 						v-if="showAll"
 						class="visibility"
 						:icon="getVisibility(i) ? 'mdi:eye' : 'mdi:eye-closed'"
 						@click="toggleVisibility(i)"
 					/>
-					<Tq.InputColor
+					<Tq.InputColorPad
 						class="color"
 						:modelValue="getColor(i)"
 						@update:modelValue="setColor(i, $event)"
 					>
-						<Icon
+						<Tq.Icon
 							icon="material-symbols:fluorescent"
 							:style="{color: getColor(i)}"
 						/>
-					</Tq.InputColor>
+					</Tq.InputColorPad>
 					{{ '#' + (i + 1) }}
 				</template>
 				<Tq.InputNumber v-model="v.value" :min="0" :max="1" />
@@ -96,12 +95,12 @@ function setColor(index: number, color: string) {
 	hover-transition(color)
 
 	&:hover
-		color var(--tq-color-on-background)
+		color var(--tq-color-text)
 
 .color .iconify
 	hover-transition(background)
 	background transparent
-	border-radius var(--tq-input-border-radius)
+	border-radius var(--tq-radius-input)
 
 	&:hover
 		background var(--tq-color-input-hover)

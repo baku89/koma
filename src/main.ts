@@ -1,4 +1,3 @@
-import 'tweeq/global.styl'
 import 'floating-vue/dist/style.css'
 
 import FloatingVue from 'floating-vue'

@@ -150,6 +150,8 @@ const visualizersStyles = computed(() => {
 </template>
 
 <style lang="stylus" scoped>
+@import '../../../dev_modules/tweeq/src/common.styl'
+
 .Timeline
 	display grid
 	grid-template-columns 100px 1fr
@@ -175,7 +177,7 @@ const visualizersStyles = computed(() => {
 
 .preview-range
 	height 100%
-	background 'color-mix(in srgb, var(--tq-color-on-background) 20%, transparent)' % ''
+	background set-alpha(--tq-color-text, 0.2)
 	position relative
 
 	&:before
@@ -186,7 +188,7 @@ const visualizersStyles = computed(() => {
 		top 0
 		width 6px
 		height 100%
-		border 1px solid var(--tq-color-on-background)
+		border 1px solid var(--tq-color-text)
 
 	&:before
 		left 0

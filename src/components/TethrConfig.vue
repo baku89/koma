@@ -129,7 +129,7 @@ function increment(dir: 1 | -1) {
 </script>
 
 <template>
-	<InputGroup class="TethrConfig">
+	<Tq.InputGroup class="TethrConfig">
 		<Tq.InputButton
 			v-if="canIncrement"
 			icon="ic:round-minus"
@@ -171,7 +171,7 @@ function increment(dir: 1 | -1) {
 			icon="ic:round-plus"
 			@click="increment(1)"
 		/>
-	</InputGroup>
+	</Tq.InputGroup>
 </template>
 
 <style lang="stylus" scoped>

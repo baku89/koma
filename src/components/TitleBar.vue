@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import {Icon} from '@iconify/vue'
 import * as Bndr from 'bndr-js'
 import * as Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
@@ -49,14 +48,14 @@ const destinationInfo = computed(() => {
 <template>
 	<Tq.TitleBar name="Koma" icon="favicon.svg">
 		<template #left>
-			<Tq.InputString v-model="project.name" style="width: 8em" />
+			<Tq.InputString v-model="project.name" style="width: 10em" />
 			<Tq.IconIndicator
 				v-tooltip="destinationInfo"
 				:icon="
 					project.isSavedToDisk ? 'clarity:hard-disk-solid' : 'octicon:cache-16'
 				"
 			/>
-			<Icon
+			<Tq.Icon
 				v-show="project.isSaving || project.isOpening"
 				icon="eos-icons:bubble-loading"
 			/>
@@ -110,6 +109,7 @@ const destinationInfo = computed(() => {
 					:modelValue="toTime(timer.current)"
 					style="width: 5em"
 					font="numeric"
+					align="center"
 					disabled
 				/>
 			</Tq.InputGroup>
