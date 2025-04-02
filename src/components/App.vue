@@ -661,12 +661,11 @@ Tq.actions.register([
 </script>
 
 <template>
-	<Tq.Viewport class="App">
-		<Tq.CommandPalette />
-		<Tq.PaneModalComplex />
-		<Tq.MultiSelectPopup />
-		<TitleBar />
-		<main class="main">
+	<Tq.App>
+		<template #title>
+			<TitleBar />
+		</template>
+		<template #default>
 			<Tq.PaneSplit name="vertical" direction="vertical">
 				<template #first>
 					<Tq.PaneSplit
@@ -675,7 +674,7 @@ Tq.actions.register([
 						:scroll="[false, false]"
 					>
 						<template #first>
-							<Viewport class="viewport" />
+							<Viewport class="preview" />
 						</template>
 						<template #second>
 							<CameraTrajectoryVisualizer />
@@ -748,22 +747,12 @@ Tq.actions.register([
 					</Tq.PaneSplit>
 				</template>
 			</Tq.PaneSplit>
-		</main>
-	</Tq.Viewport>
+		</template>
+	</Tq.App>
 </template>
 
 <style lang="stylus" scoped>
-.App
-	--app-margin-top env(titlebar-area-height, 37px)
-	inset 0
-	position fixed
-	background var(--tq-color-background)
-
-.main
-	position fixed
-	inset var(--app-margin-top) 0 0
-
-.viewport
+.preview
 	width 100%
 	height 100%
 
