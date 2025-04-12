@@ -46,7 +46,7 @@ const destinationInfo = computed(() => {
 </script>
 
 <template>
-	<Tq.TitleBar name="Koma" icon="favicon.svg">
+	<Tq.TitleBar name="SM3D" icon="favicon.svg">
 		<template #left>
 			<Tq.InputString v-model="project.name" style="width: 10em" />
 			<Tq.IconIndicator

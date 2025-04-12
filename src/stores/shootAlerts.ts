@@ -39,7 +39,7 @@ export const useShootAlertsStore = defineStore('shootAlerts', () => {
 	const canShoot = computed(() => alerts.value.length === 0)
 
 	return {
-		alerts,
+		alerts: [],
 		canShoot,
 	}
 })
