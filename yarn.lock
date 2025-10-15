@@ -3164,10 +3164,10 @@ birpc@^0.2.19:
   resolved "https://registry.yarnpkg.com/birpc/-/birpc-0.2.19.tgz#cdd183a4a70ba103127d49765b4a71349da5a0ca"
   integrity sha512-5WeXXAvTmitV1RqJFppT5QtUiz2p1mRSYU000Jkft5ZUCLJIk4uQriYNO50HknxKwM6jd8utNc66K1qGIwwWBQ==
 
-bndr-js@^0.18.5:
-  version "0.18.5"
-  resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.18.5.tgz#1a9f5f88fb02f58190afed37a283d77a2c5839db"
-  integrity sha512-84IppJKbW4/ls3EUzGdwv4T4wwbbmPWr2PYzlmBymj90uZw9cCkLxq2m1NYSjL/SlBlOJUTLkkMDEjc8QzLLvA==
+bndr-js@^0.18.6:
+  version "0.18.6"
+  resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.18.6.tgz#113eac8eb65339590dca870861f65bebddfe472c"
+  integrity sha512-G3d/YAIXs28S+zuvNRd3Y6OTAzYuAR+1AIz6MlVo0uE9j6BOz1JbPdItcVzVOgNG1s1eBjw/HwcTkdhKLgBMRQ==
   dependencies:
     case "^1.6.3"
     linearly "^0.20.3"
@@ -3778,6 +3778,11 @@ domhandler@^5.0.2, domhandler@^5.0.3:
   integrity sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==
   dependencies:
     domelementtype "^2.3.0"
+
+dompurify@3.1.7:
+  version "3.1.7"
+  resolved "https://registry.yarnpkg.com/dompurify/-/dompurify-3.1.7.tgz#711a8c96479fb6ced93453732c160c3c72418a6a"
+  integrity sha512-VaTstWtsneJY8xzy7DekmYWEOZcmzIe3Qb3zPd4STve1OBTa+e+WmS1ITQec1fZYXI3HCsOZZiSMpG6oxoWMWQ==
 
 domutils@^3.0.1, domutils@^3.1.0:
   version "3.2.2"
@@ -5531,6 +5536,11 @@ markdown-it@^14.0.0, markdown-it@^14.1.0:
     punycode.js "^2.3.1"
     uc.micro "^2.1.0"
 
+marked@14.0.0:
+  version "14.0.0"
+  resolved "https://registry.yarnpkg.com/marked/-/marked-14.0.0.tgz#79a1477358a59e0660276f8fec76de2c33f35d83"
+  integrity sha512-uIj4+faQ+MgHgwUW1l2PsPglZLOLOT1uErt06dAPtx2kjteLAkbsd/0FiYg/MGS+i7ZKLb7w2WClxHkzOOuryQ==
+
 matcher@^3.0.0:
   version "3.0.0"
   resolved "https://registry.yarnpkg.com/matcher/-/matcher-3.0.0.tgz#bd9060f4c5b70aa8041ccc6f80368760994f30ca"
@@ -5687,6 +5697,19 @@ mlly@^1.7.4:
     pathe "^2.0.1"
     pkg-types "^1.3.0"
     ufo "^1.5.4"
+
+monaco-editor-vue3@^1.0.4:
+  version "1.0.4"
+  resolved "https://registry.yarnpkg.com/monaco-editor-vue3/-/monaco-editor-vue3-1.0.4.tgz#96d1339f0a4b6b93d51bfb825345622970da0da2"
+  integrity sha512-gaIMBdhUGorOAX0kBvWul9QCQ+6J+MjZgqkieDECv3rjXsRbI07XNNrnD3IBC1jnGRF9+aTZ9CNhJ8Uv06z1uw==
+
+monaco-editor@^0.54.0:
+  version "0.54.0"
+  resolved "https://registry.yarnpkg.com/monaco-editor/-/monaco-editor-0.54.0.tgz#c0d6ebb46b83f1bef6f67f6aa471e38ba7ef8231"
+  integrity sha512-hx45SEUoLatgWxHKCmlLJH81xBo0uXP4sRkESUpmDQevfi+e7K1VuiSprK6UpQ8u4zOcKNiH0pMvHvlMWA/4cw==
+  dependencies:
+    dompurify "3.1.7"
+    marked "14.0.0"
 
 monaco-themes@^0.4.4:
   version "0.4.4"
