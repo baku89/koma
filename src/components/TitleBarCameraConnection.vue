@@ -34,7 +34,7 @@ const pairedCameraModels = asyncComputed(async () => {
 			<Tq.InputButton
 				icon="mdi:chevron-down"
 				narrow
-				@click="camera.toggleConnection('webcam')"
+				@click="camera.toggleConnection('ptpusb')"
 			/>
 			<template #popper>
 				<ul>
