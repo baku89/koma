@@ -28,7 +28,7 @@
 			"@/*": ["./src/*"],
 			"tweeq": ["./dev_modules/tweeq/src/index.ts"]
 		},
-		"types": ["w3c-web-serial", "wicg-file-system-access"]
+		"types": ["w3c-web-serial", "wicg-file-system-access", "w3c-web-usb"]
 	},
 	"include": ["src"]
 }

@@ -1982,11 +1982,6 @@
   dependencies:
     defer-to-connect "^2.0.0"
 
-"@tethr/vue3@^0.6.2":
-  version "0.6.2"
-  resolved "https://registry.yarnpkg.com/@tethr/vue3/-/vue3-0.6.2.tgz#12619c354b836fec1031e48b5573e34573c95043"
-  integrity sha512-ka6o3AaSgSPf9HxdV+C153fyk7KHjy/LqJwfAb5Irh4PxomKZiOTe6rOQ4Ej0+hOSBpapvUUWUH1E+rbWi+ZcQ==
-
 "@tweenjs/tween.js@~23.1.3":
   version "23.1.3"
   resolved "https://registry.yarnpkg.com/@tweenjs/tween.js/-/tween.js-23.1.3.tgz#eff0245735c04a928bb19c026b58c2a56460539d"
@@ -2223,6 +2218,11 @@
   version "1.0.8"
   resolved "https://registry.yarnpkg.com/@types/w3c-web-serial/-/w3c-web-serial-1.0.8.tgz#38338a26b45ffbcc85596c3940bcafeb90200529"
   integrity sha512-QQOT+bxQJhRGXoZDZGLs3ksLud1dMNnMiSQtBA0w8KXvLpXX4oM4TZb6J0GgJ8UbCaHo5s9/4VQT8uXy9JER2A==
+
+"@types/w3c-web-usb@^1.0.13":
+  version "1.0.13"
+  resolved "https://registry.yarnpkg.com/@types/w3c-web-usb/-/w3c-web-usb-1.0.13.tgz#4792e2ef7f611d0ee260b7adbf4ed121326c04e1"
+  integrity sha512-N2nSl3Xsx8mRHZBvMSdNGtzMyeleTvtlEw+ujujgXalPqOjIA6UtrqcB6OzyUjkTbDm3J7P1RNK1lgoO7jxtsw==
 
 "@types/web-bluetooth@^0.0.20":
   version "0.0.20"
@@ -3154,11 +3154,6 @@ bidi-js@^1.0.2:
   dependencies:
     require-from-string "^2.0.2"
 
-bim@^1.3.3:
-  version "1.3.3"
-  resolved "https://registry.yarnpkg.com/bim/-/bim-1.3.3.tgz#a9e1bc480cc526a1ebc66ad0c33602914ff71abe"
-  integrity sha512-8JE0PzT5BOcktaH56jIMfTEv11NbdFcHC3jaegESaXq/If69OxOpk/B/lt/MlyTenHAhjPJmQQ8zY4iPzj3oEQ==
-
 binary-extensions@^2.0.0:
   version "2.3.0"
   resolved "https://registry.yarnpkg.com/binary-extensions/-/binary-extensions-2.3.0.tgz#f6e14a97858d327252200242d4ccfe522c445522"
@@ -3630,11 +3625,6 @@ data-view-byte-offset@^1.0.1:
     call-bound "^1.0.2"
     es-errors "^1.3.0"
     is-data-view "^1.0.1"
-
-date-format-parse@^0.2.7:
-  version "0.2.7"
-  resolved "https://registry.yarnpkg.com/date-format-parse/-/date-format-parse-0.2.7.tgz#a2f78bca857a821785b48abedd4426c65aa7b918"
-  integrity sha512-/+lyMUKoRogMuTeOVii6lUwjbVlesN9YRYLzZT/g3TEZ3uD9QnpjResujeEqUW+OSNbT7T1+SYdyEkTcRv+KDQ==
 
 dateformat@^5.0.3:
   version "5.0.3"
@@ -5388,11 +5378,6 @@ linearly@^0.20.3:
   resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.20.3.tgz#b2a938100118422aee7429da88716d7ea826a7b1"
   integrity sha512-i8+X2PfDKaq3VgpMSp3iej2rwc91ngZY4ecFQTeLPt6LNf/QyAsNVAwny7j7hBPUaue5Gt7SBCFshxhvWsOlOQ==
 
-linearly@^0.21.0:
-  version "0.21.0"
-  resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.21.0.tgz#e70be6aac52e2e6d43197ed91f9c544d54a4dc0d"
-  integrity sha512-+8a9jfbdKqSxSx2qmDtNeXjbhZFgUel1xnHU2LBazKaIwXNH5cmV2eZEmYcSiC1oZBiyr1KFO1eAt86w6QBXuQ==
-
 linearly@^0.33.0:
   version "0.33.0"
   resolved "https://registry.yarnpkg.com/linearly/-/linearly-0.33.0.tgz#6b4abce512b4d3193dafa8626827cf6efb82a772"
@@ -6868,11 +6853,6 @@ slash@^5.1.0:
   resolved "https://registry.yarnpkg.com/slash/-/slash-5.1.0.tgz#be3adddcdf09ac38eebe8dcdc7b1a57a75b095ce"
   integrity sha512-ZA6oR3T/pEyuqwMgAKT0/hAv8oAXckzbkmR0UkUosQ+Mc4RxGoJkRmwHgHufaenlyAgE1Mxgpdcrf75y6XcnDg==
 
-sleep-promise@^9.1.0:
-  version "9.1.0"
-  resolved "https://registry.yarnpkg.com/sleep-promise/-/sleep-promise-9.1.0.tgz#101ebe65700bcd184709da95d960967b02b79d03"
-  integrity sha512-UHYzVpz9Xn8b+jikYSD6bqvf754xL2uBUzDFwiU6NcdZeifPr6UfgU43xpkPu67VMS88+TI2PSI7Eohgqf2fKA==
-
 smob@^1.0.0:
   version "1.5.0"
   resolved "https://registry.yarnpkg.com/smob/-/smob-1.5.0.tgz#85d79a1403abf128d24d3ebc1cdc5e1a9548d3ab"
@@ -7227,20 +7207,6 @@ terser@^5.17.4:
     acorn "^8.8.2"
     commander "^2.20.0"
     source-map-support "~0.5.20"
-
-tethr@^0.6.3:
-  version "0.6.3"
-  resolved "https://registry.yarnpkg.com/tethr/-/tethr-0.6.3.tgz#38d5531c53f427207c56947ca9969d126856c1a2"
-  integrity sha512-kLW3lHh3lEMDk2Ws01v7N8uavi+umaRxj14Ib9+iCBtbu0wz0mkpB6g8dOjTJDU4muyxO4cEmJQCqkc1fZeevw==
-  dependencies:
-    bim "^1.3.3"
-    date-format-parse "^0.2.7"
-    eventemitter3 "^5.0.1"
-    linearly "^0.21.0"
-    lodash "^4.17.21"
-    p-queue "^8.0.1"
-    sleep-promise "^9.1.0"
-    typescript-memoize "^1.1.1"
 
 text-hex@1.0.x:
   version "1.0.0"
