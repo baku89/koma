@@ -1,92 +1,24 @@
+import {useTethr} from '@tethr/vue3'
 import sleep from 'p-sleep'
 import {defineStore} from 'pinia'
-import {
-	ConfigDesc,
-	ConfigDescOption,
-	ConfigName,
-	ConfigType,
-	Tethr,
-	TethrDeviceType,
-	TethrManager,
-} from 'tethr'
-import {readonly, Ref, shallowReactive, shallowRef, watch} from 'vue'
-
-import {debounceAsync} from '@/utils'
+import {Tethr, TethrDeviceType} from 'tethr'
+import {watch} from 'vue'
 
 import {useProjectStore} from './project'
-
-export interface Config<T> {
-	writable: boolean
-	value: T | null
-	set: (value: T) => void
-	option?: ConfigDescOption<T>
-}
-
-function useConfig<N extends ConfigName>(
-	camera: Ref<Tethr | null>,
-	name: N
-): Config<ConfigType[N]> {
-	const config = shallowReactive<Config<ConfigType[N]>>({
-		writable: false,
-		value: null,
-		set: () => null,
-		option: undefined,
-	})
-
-	watch(
-		camera,
-		async camera => {
-			if (!camera) {
-				config.writable = false
-				config.value = null
-				config.option = undefined
-				return
-			}
-
-			const desc = await camera.getDesc(name)
-
-			config.writable = desc.writable
-			config.value = desc.value
-			config.option = desc.option
-
-			const {fn: set, isExecuting: isSetting} = debounceAsync(
-				(value: ConfigType[N]) => {
-					return camera.set(name, value)
-				},
-				{
-					onQueue(value) {
-						config.value = value
-					},
-				}
-			)
-
-			config.set = set
-
-			camera.on(`${name}Change` as any, (desc: ConfigDesc<ConfigType[N]>) => {
-				if (isSetting.value) return
-
-				config.value = desc.value
-				config.writable = desc.writable
-				config.option = desc.option
-			})
-		},
-		{immediate: true}
-	)
-
-	return readonly(config) as Config<ConfigType[N]>
-}
 
 export const useCameraStore = defineStore('camera', () => {
 	const project = useProjectStore()
 
-	const manager = new TethrManager()
-
-	const tethr = shallowRef<Tethr | null>(null)
-
-	const pairedCameras = shallowRef<Tethr[]>([])
-	manager.on('pairedCameraChange', cameras => {
-		pairedCameras.value = cameras
-	})
+	// Use @tethr/vue3 hook for camera management
+	const {
+		pairedCameras,
+		requestCamera,
+		open,
+		close,
+		camera: tethr,
+		toggleLiveview,
+		configs,
+	} = useTethr()
 
 	// Automatically connect
 	watch(
@@ -112,7 +44,7 @@ export const useCameraStore = defineStore('camera', () => {
 	async function openCamera(cam: Tethr) {
 		cam.setLog(false)
 
-		await cam.open()
+		await open(cam)
 
 		const model = await cam.getModel()
 
@@ -136,12 +68,7 @@ export const useCameraStore = defineStore('camera', () => {
 			}
 		}
 
-		cam.on('disconnect', () => {
-			tethr.value = null
-		})
 		cam.on('change', saveConfigs)
-
-		tethr.value = cam
 		;(window as any).cam = cam
 
 		await cam.startLiveview()
@@ -149,19 +76,15 @@ export const useCameraStore = defineStore('camera', () => {
 
 	async function toggleConnection(type: TethrDeviceType = 'ptpusb') {
 		if (tethr.value) {
-			await tethr.value.close()
-			tethr.value = null
+			await close()
 			return
 		}
 
-		let cam: Tethr
-
 		try {
-			const ptpusb = await manager.requestCamera(type)
-			if (ptpusb) {
-				cam = ptpusb
-			} else {
-				throw new Error('No camera detected')
+			await requestCamera(type)
+			// The camera will be automatically set in tethr.value by useTethr
+			if (tethr.value) {
+				await openCamera(tethr.value)
 			}
 		} catch (err) {
 			if (err instanceof Error) {
@@ -169,49 +92,15 @@ export const useCameraStore = defineStore('camera', () => {
 			}
 			return
 		}
-
-		openCamera(cam)
 	}
 
 	return {
 		tethr,
 		pairedCameras,
 		toggleConnection,
+		toggleLiveview,
 
-		// DPC
-		manufacturer: useConfig(tethr, 'manufacturer'),
-		model: useConfig(tethr, 'model'),
-		serialNumber: useConfig(tethr, 'serialNumber'),
-		exposureMode: useConfig(tethr, 'exposureMode'),
-		driveMode: useConfig(tethr, 'driveMode'),
-		aperture: useConfig(tethr, 'aperture'),
-		shutterSpeed: useConfig(tethr, 'shutterSpeed'),
-		iso: useConfig(tethr, 'iso'),
-		exposureComp: useConfig(tethr, 'exposureComp'),
-		whiteBalance: useConfig(tethr, 'whiteBalance'),
-		colorTemperature: useConfig(tethr, 'colorTemperature'),
-		colorMode: useConfig(tethr, 'colorMode'),
-		imageSize: useConfig(tethr, 'imageSize'),
-		imageAspect: useConfig(tethr, 'imageAspect'),
-		imageQuality: useConfig(tethr, 'imageQuality'),
-		captureDelay: useConfig(tethr, 'captureDelay'),
-		facingMode: useConfig(tethr, 'facingMode'),
-		focalLength: useConfig(tethr, 'focalLength'),
-		focusDistance: useConfig(tethr, 'focusDistance'),
-		focusPeaking: useConfig(tethr, 'focusPeaking'),
-		liveviewMagnifyRatio: useConfig(tethr, 'liveviewMagnifyRatio'),
-		liveview: useConfig(tethr, 'liveview'),
-		liveviewSize: useConfig(tethr, 'liveviewSize'),
-		destinationToSave: useConfig(tethr, 'destinationToSave'),
-		batteryLevel: useConfig(tethr, 'batteryLevel'),
-		canTakePhoto: useConfig(tethr, 'canTakePhoto'),
-		canRunAutoFocus: useConfig(tethr, 'canRunAutoFocus'),
-		autoFocusFrameCenter: useConfig(tethr, 'autoFocusFrameCenter'),
-		autoFocusFrameSize: useConfig(tethr, 'autoFocusFrameSize'),
-		focusMeteringMode: useConfig(tethr, 'focusMeteringMode'),
-		canRunManualFocus: useConfig(tethr, 'canRunManualFocus'),
-		canStartLiveview: useConfig(tethr, 'canStartLiveview'),
-		manualFocusOptions: useConfig(tethr, 'manualFocusOptions'),
-		shutterSound: useConfig(tethr, 'shutterSound'),
+		// All camera configs from @tethr/vue3
+		...configs,
 	}
 })
