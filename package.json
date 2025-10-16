@@ -14,7 +14,10 @@
 	},
 	"workspaces": [
 		"dev_modules/tweeq",
-		"dev_modules/aux-manager"
+		"dev_modules/node-openvr",
+		"dev_modules/aux-manager",
+		"dev_modules/tethr/core",
+		"dev_modules/tethr/integrations/vue3"
 	],
 	"main": "dist-electron/electron-main.js",
 	"devDependencies": {
