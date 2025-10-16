@@ -4,3 +4,6 @@
 [submodule "dev_modules/node-openvr"]
 	path = dev_modules/node-openvr
 	url = https://github.com/baku89/node-openvr/
+[submodule "dev_modules/tethr"]
+	path = dev_modules/tethr
+	url = https://github.com/baku89/tethr.git
