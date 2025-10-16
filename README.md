@@ -44,6 +44,8 @@ The terms used in the code and documentation.
 arch -x86_64 zsh
 nvm use 18 # assumes that 18 is installed in x86
 cd dev_modules/node-openvr
+git submodule update --init --recursive
+npm install
 npm run install
 cd ../aux-manager
 yarn start
