@@ -21,6 +21,7 @@
 		"@baku89/pave": "^0.4.1",
 		"@eslint/eslintrc": "^3.1.0",
 		"@eslint/js": "^9.10.0",
+		"@tethr/vue3": "^0.6.2",
 		"@types/dateformat": "^5.0.2",
 		"@types/howler": "^2.2.11",
 		"@types/lodash-es": "^4.17.12",
