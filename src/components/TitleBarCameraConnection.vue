@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import {asyncComputed} from '@vueuse/core'
 import * as Tq from 'tweeq'
-import {computed} from 'vue'
+import {computed, ref, watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 
@@ -15,11 +14,12 @@ const icon = computed(() => {
 	}
 })
 
-const pairedCameraModels = asyncComputed(async () => {
-	const names = await Promise.all(
-		camera.pairedCameras.map(cam => cam.getModel())
-	)
-	return names.filter(name => name !== null)
+const pairedCameraModels = ref<string[]>([])
+
+watch(camera.pairedCameras, async cameras => {
+	const names = await Promise.all(cameras.map(cam => cam.getModel()))
+
+	pairedCameraModels.value = ['Webcam', ...names.filter(name => name !== null)]
 })
 </script>
 
@@ -30,17 +30,22 @@ const pairedCameraModels = asyncComputed(async () => {
 			:label="camera.model.value ?? 'Connect'"
 			@click="camera.toggleConnection('ptpusb')"
 		/>
-		<vMenu>
+		<Tq.InputButton
+			icon="mdi:webcam"
+			narrow
+			@click="camera.toggleConnection('webcam')"
+		/>
+		<!-- <vMenu>
 			<Tq.InputButton
 				icon="mdi:chevron-down"
 				narrow
-				@click="camera.toggleConnection('ptpusb')"
+				@click="camera.toggleConnection('webcam')"
 			/>
 			<template #popper>
 				<ul>
 					<li v-for="cam in pairedCameraModels" :key="cam">{{ cam }}</li>
 				</ul>
 			</template>
-		</vMenu>
+		</vMenu> -->
 	</Tq.InputGroup>
 </template>

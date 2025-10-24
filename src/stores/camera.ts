@@ -82,6 +82,7 @@ export const useCameraStore = defineStore('camera', () => {
 
 		try {
 			await requestCamera(type)
+			console.log('tethr.value', tethr.value)
 			// The camera will be automatically set in tethr.value by useTethr
 			if (tethr.value) {
 				await openCamera(tethr.value)
