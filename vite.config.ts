@@ -26,7 +26,10 @@ export default defineConfig({
 			registerType: 'autoUpdate',
 			injectRegister: 'auto',
 			devOptions: {
-				enabled: true,
+				// Disabled in dev: the service worker caches modules (incl. tweeq
+				// source) ahead of the HTTP/Vite cache, serving stale code that
+				// survives hard reloads and `node_modules/.vite` clears.
+				enabled: false,
 			},
 			manifest: {
 				name: 'Koma',

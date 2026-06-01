@@ -11,7 +11,10 @@ const pinia = createPinia()
 const app = createApp(App)
 
 app.use(pinia)
-app.use(FloatingVue)
+// Teleport tooltips into Tweeq's viewport so they inherit its CSS reset
+// (font-family, colors). The default 'body' target sits outside .TqViewport,
+// leaving tooltips with the UA default serif font.
+app.use(FloatingVue, {container: '.TqViewport'})
 app.use(TroisJSVuePlugin)
 
 app.mount('#app')

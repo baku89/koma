@@ -1,14 +1,18 @@
+import {CNCDeviceWebSerialGrbl, type CNCStatus} from 'gcnc'
 import {isEqual} from 'lodash-es'
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
-import {computed, ref, watch, watchEffect} from 'vue'
+import {computed, ref, shallowRef, watch, watchEffect} from 'vue'
 
 export const useCncStore = defineStore('cnc', () => {
 	const Tq = useTweeq()
 
-	const port = ref<SerialPort | undefined>()
+	const port = shallowRef<SerialPort | undefined>()
+	const device = shallowRef<CNCDeviceWebSerialGrbl | undefined>()
 
-	const connected = computed(() => port.value !== null)
+	const connected = ref(false)
+	const status = ref<CNCStatus | undefined>()
+	const log = ref('')
 
 	const savedInfo = Tq.config.ref<SerialPortInfo | null>('cnc.info', null)
 
@@ -33,64 +37,57 @@ export const useCncStore = defineStore('cnc', () => {
 		savedInfo.value = port.value?.getInfo() ?? null
 	})
 
+	// (Re)create the Grbl device whenever the port changes
 	watch(
 		port,
 		async (port, oldPort) => {
-			if (oldPort) {
-				oldPort.close()
+			if (oldPort && device.value) {
+				await device.value.close().catch(() => null)
 			}
-			if (port) {
-				receive()
+
+			device.value = undefined
+			connected.value = false
+			status.value = undefined
+
+			if (!port) return
+
+			const dev = new CNCDeviceWebSerialGrbl(port)
+
+			dev.on('message', message => {
+				log.value += message + '\n'
+			})
+			dev.on('status', s => {
+				status.value = s
+			})
+			dev.on('connect', () => {
+				connected.value = true
+			})
+			dev.on('disconnect', () => {
+				connected.value = false
+				device.value = undefined
+			})
+
+			try {
+				await dev.open()
+				device.value = dev
+			} catch (e) {
+				console.error('Failed to open CNC device', e)
+				device.value = undefined
+				connected.value = false
 			}
 		},
 		{immediate: true}
 	)
 
-	const decoder = new TextDecoder()
-	const encoder = new TextEncoder()
-
-	const log = ref('')
-
-	async function receive() {
-		const p = port.value
-
-		if (!p) return
-
-		console.log('connected to CNC', p.getInfo())
-
-		await p.open({baudRate: 115200})
-
-		const reader = p.readable?.getReader()
-		if (!reader) {
-			console.info('cannot read from CNC', port.value?.getInfo())
-			port.value = undefined
-			return
-		}
-
-		try {
-			while (p.readable) {
-				const {value, done} = await reader.read()
-				if (done) break
-
-				log.value += decoder.decode(value)
-			}
-		} finally {
-			reader.releaseLock()
-		}
-	}
-
-	async function send(gcode: string) {
-		const writer = port.value?.writable?.getWriter()
-		if (!writer) {
-			return
-		}
-
-		try {
-			await writer.write(encoder.encode(gcode))
-			log.value += `> ${gcode}\n`
-		} finally {
-			writer.releaseLock()
-		}
+	/**
+	 * Sends a single line of G-code and resolves with Grbl's response once it
+	 * acknowledges the command with `ok` (i.e. when it is accepted into the
+	 * planner buffer — NOT when the motion finishes). A trailing newline is
+	 * added by the device layer, so callers should omit it.
+	 */
+	async function send(line: string): Promise<string | undefined> {
+		if (!device.value) return undefined
+		return device.value.send(line.replace(/\n+$/, ''))
 	}
 
 	// Actions
@@ -111,14 +108,14 @@ export const useCncStore = defineStore('cnc', () => {
 				{
 					id: 'get-status',
 					label: 'Get CNC status',
-					perform: () => send('$$\n'),
+					perform: () => send('$$'),
 				},
 				{
 					id: 'send-gcode',
 					label: 'Send G-Code',
 					perform: () => {
 						const gcode = prompt('G-code', '')
-						if (gcode) send(gcode + '\n')
+						if (gcode) send(gcode)
 					},
 				},
 			],
@@ -127,7 +124,8 @@ export const useCncStore = defineStore('cnc', () => {
 
 	return {
 		connect,
-		connected,
+		connected: computed(() => connected.value),
+		status: computed(() => status.value),
 		send,
 		log,
 	}

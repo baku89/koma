@@ -2,10 +2,15 @@
 import {whenever} from '@vueuse/core'
 import * as Bndr from 'bndr-js'
 import {scalar, vec3, vec4} from 'linearly'
+import sleep from 'p-sleep'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import saferEval from 'safer-eval'
 import {initTweeq, useTweeq} from 'tweeq'
 import {watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
+import {useCncStore} from '@/stores/cnc'
 import {useDmxStore} from '@/stores/dmx'
 import {useOscStore} from '@/stores/osc'
 import {Shot, useProjectStore} from '@/stores/project'
@@ -35,6 +40,7 @@ const viewport = useViewportStore()
 const timeline = useTimelineStore()
 const project = useProjectStore()
 const camera = useCameraStore()
+const cnc = useCncStore()
 const osc = useOscStore()
 const dmx = useDmxStore()
 const timer = useTimerStore()
@@ -53,6 +59,85 @@ Tq.actions.onBeforePerform(action => {
 
 //------------------------------------------------------------------------------
 // Shoot
+
+type PreShootFn = (context: {
+	cnc: ReturnType<typeof useCncStore>
+	project: ReturnType<typeof useProjectStore>
+	viewport: ReturnType<typeof useViewportStore>
+	camera: ReturnType<typeof useCameraStore>
+	tracker: ReturnType<typeof useTrackerStore>
+	sleep: (ms: number) => Promise<void>
+	readProjectFile: (filename: string) => Promise<string>
+	queueMicrotask: typeof queueMicrotask
+}) => unknown | Promise<unknown>
+
+/**
+ * Runs the user-defined pre-shoot script and awaits whatever Promise it
+ * returns. Capture proceeds as soon as that resolves, regardless of whether any
+ * CNC motion the script started has finished — so a long exposure can begin
+ * while the rod is still travelling (e.g. drawing an LED light streak).
+ *
+ * If the script throws or the returned Promise rejects (e.g. the CNC is not
+ * connected, or the per-frame G-code file is missing), the rejection
+ * propagates and the shot is treated as a failure.
+ */
+function makeScriptContext() {
+	return {
+		cnc,
+		project,
+		viewport,
+		camera,
+		tracker,
+		sleep,
+		readProjectFile: project.readProjectFile,
+		queueMicrotask,
+	}
+}
+
+/**
+ * Compiles a script field into its (async) function. safer-eval evaluates the
+ * code as `return <code>`, so a leading `;` (the IIFE-guard idiom kept in the
+ * default templates) would turn into `return;` and yield `undefined` — strip it
+ * and fail loudly if the result isn't a function.
+ */
+function compileScript(code: string): PreShootFn {
+	const src = code.trim().replace(/^;+\s*/, '')
+	const fn = saferEval(src, {vec3}) as unknown
+	if (typeof fn !== 'function') {
+		throw new Error('Script must evaluate to a function')
+	}
+	return fn as PreShootFn
+}
+
+async function runPreShoot() {
+	if (!project.preShootScript?.trim()) return
+
+	const fn = compileScript(project.preShootScript)
+
+	await fn(makeScriptContext())
+}
+
+/**
+ * Runs the user-defined custom script (Project Settings → Custom Script) on
+ * demand from the Command Palette. Same context as the pre-shoot script, but a
+ * failure here just notifies — it doesn't affect any shot.
+ */
+async function runCustomScript() {
+	if (!project.customScript?.trim()) {
+		speak('No custom script is set')
+		return
+	}
+
+	try {
+		const fn = compileScript(project.customScript)
+		await fn(makeScriptContext())
+	} catch (e) {
+		await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+		speak('Custom script failed')
+		// eslint-disable-next-line no-console
+		console.error('[customScript] failed', e)
+	}
+}
 
 const {fn: shoot} = preventConcurrentExecution(
 	async (force = false): Promise<Shot> => {
@@ -116,6 +201,19 @@ const {fn: shoot} = preventConcurrentExecution(
 				}
 			}
 			tethr.on('progress', onProgress)
+
+			// Run the pre-shoot script and wait for the Promise it returns, then
+			// open the shutter immediately. Any CNC motion it left running keeps
+			// drawing into the exposure. A rejection here fails the shot.
+			try {
+				await runPreShoot()
+			} catch (e) {
+				await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+				speak('Pre shoot script failed')
+				throw e instanceof Error
+					? e
+					: new Error('Pre shoot script failed: ' + String(e))
+			}
 
 			const result = await tethr.takePhoto()
 
@@ -270,12 +368,16 @@ Tq.actions.register([
 							fps: project.fps,
 							duration: project.duration,
 							shootCondition: project.shootCondition,
+							preShootScript: project.preShootScript ?? '',
+							customScript: project.customScript ?? '',
 						},
 						{
 							name: {type: 'string'},
 							fps: {type: 'number', min: 1, max: 60, step: 1},
 							duration: {type: 'number', min: 0, step: 1},
 							shootCondition: {type: 'string', ui: 'code', lang: 'javascript'},
+							preShootScript: {type: 'string', ui: 'code', lang: 'javascript'},
+							customScript: {type: 'string', ui: 'code', lang: 'javascript'},
 						},
 						{
 							title: 'Project Settings',
@@ -437,6 +539,20 @@ Tq.actions.register([
 							layer: viewport.currentLayer,
 						},
 					})
+				},
+			},
+		],
+	},
+	{
+		id: 'script',
+		icon: 'mdi:script-text-play',
+		children: [
+			{
+				id: 'run_custom_script',
+				label: 'Run Custom Script',
+				icon: 'mdi:script-text-play',
+				async perform() {
+					await runCustomScript()
 				},
 			},
 		],

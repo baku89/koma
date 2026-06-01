@@ -19,10 +19,13 @@ import {
 	openBlobJson,
 	preventConcurrentExecution,
 	queryPermission,
+	readFileFromDirectory,
 	saveBlobJson,
 	showReadwriteDirectoryPicker,
 } from '@/utils'
 
+import defaultCustomScript from './defaultCustomScript.js?raw'
+import defaultPreShootScript from './defaultPreShootScript.js?raw'
 import defaultShootCondition from './defaultShootCondition.js?raw'
 import {useOpfsStore} from './opfs'
 
@@ -49,6 +52,19 @@ interface Project<T = Blob> {
 	}
 	isLooping: boolean
 	shootCondition: JSCode
+	/**
+	 * A script executed right before the shutter opens on every shot. The
+	 * Promise it returns is awaited and then capture begins immediately, so it
+	 * can kick off frame-dependent CNC motion (e.g. an LED light streak) and
+	 * resolve as soon as the (long) exposure should start.
+	 */
+	preShootScript: JSCode
+	/**
+	 * A user-defined script runnable on demand from the Command Palette
+	 * ("Run Custom Script"). Receives the same context as the pre-shoot script,
+	 * so it can e.g. send the current frame's G-code to the CNC at any time.
+	 */
+	customScript: JSCode
 	cameraConfigs: CameraConfigs
 	visibleProperties: Record<string, {visible: boolean; color: string}>
 	viewport: {
@@ -125,6 +141,8 @@ const emptyProject: Project = {
 	isLooping: false,
 	// Drops the ';' at the beginning inserted by Eslint
 	shootCondition: defaultShootCondition.slice(1),
+	preShootScript: defaultPreShootScript.slice(1),
+	customScript: defaultCustomScript.slice(1),
 	cameraConfigs: {
 		exposureMode: 'M',
 		aperture: 4,
@@ -401,8 +419,22 @@ export const useProjectStore = defineStore('project', () => {
 		}
 	}
 
+	/**
+	 * Reads a text file (e.g. per-frame G-code) from the current project folder.
+	 * Rejects if the project has not been saved to a folder yet, or the file is
+	 * missing. Exposed to the pre-shoot script.
+	 */
+	async function readProjectFile(filename: string): Promise<string> {
+		if (!directoryHandle.value) {
+			throw new Error('The project has not been saved to a folder yet')
+		}
+		const file = await readFileFromDirectory(directoryHandle.value, filename)
+		return await file.text()
+	}
+
 	return {
 		...toRefs(project),
+		readProjectFile,
 		history,
 		undo: history.undo,
 		redo: history.redo,
