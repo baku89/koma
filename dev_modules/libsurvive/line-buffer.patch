@@ -1,0 +1,17 @@
+diff --git a/survive-cli.c b/survive-cli.c
+index 8c65873..bc986a2 100644
+--- a/survive-cli.c
++++ b/survive-cli.c
+@@ -30,6 +30,12 @@ int main(int argc, char **argv) {
+ 	signal(SIGKILL, intHandler);
+ #endif
+ 
++	// Line-buffer stdout so each record is flushed on its newline. When
++	// stdout is a pipe (e.g. spawned by aux-manager) libc otherwise fully
++	// buffers it (~64KB) and records arrive in ~0.5s bursts instead of in
++	// real time.
++	setvbuf(stdout, NULL, _IOLBF, 0);
++
+   SurviveContext *ctx = survive_init(argc, argv);
+ 	if (ctx == 0) // implies -help or similiar
+ 		return 0;

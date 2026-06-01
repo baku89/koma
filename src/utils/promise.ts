@@ -33,7 +33,7 @@ export function debounceAsync<T extends unknown[]>(
 	let reservedArgs: T | null = null
 
 	const debouncedFn = async (...args: T) => {
-		options?.onQueue && options.onQueue(...args)
+		options?.onQueue?.(...args)
 
 		if (isExecuting.value) {
 			reservedArgs = args
@@ -52,7 +52,7 @@ export function debounceAsync<T extends unknown[]>(
 			reservedArgs = null
 			await debouncedFn(...args)
 		} else {
-			options?.onFinish && options.onFinish()
+			options?.onFinish?.()
 		}
 	}
 

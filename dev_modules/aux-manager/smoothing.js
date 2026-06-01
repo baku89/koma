@@ -1,0 +1,107 @@
+// One Euro Filter — adaptive low-pass for noisy interactive signals.
+// https://gery.casiez.net/1euro/
+//
+// It smooths heavily when the signal is (nearly) still and backs off as the
+// signal moves, so the tracker stops trembling at rest without smearing real
+// camera moves. Tuning:
+//   - minCutoff  : lower  = more smoothing at rest (more "プルプル" removed)
+//   - beta       : higher = less lag while moving (more responsive)
+
+class LowPass {
+	constructor() {
+		this.hasLast = false
+		this.last = 0
+	}
+
+	filter(value, alpha) {
+		if (!this.hasLast) {
+			this.hasLast = true
+			this.last = value
+			return value
+		}
+		this.last = alpha * value + (1 - alpha) * this.last
+		return this.last
+	}
+}
+
+class OneEuro {
+	constructor(minCutoff, beta, dCutoff = 1.0) {
+		this.minCutoff = minCutoff
+		this.beta = beta
+		this.dCutoff = dCutoff
+		this.xPrev = null
+		this.tPrev = null
+		this.xLp = new LowPass()
+		this.dxLp = new LowPass()
+	}
+
+	static alpha(cutoff, dt) {
+		const tau = 1 / (2 * Math.PI * cutoff)
+		return 1 / (1 + tau / dt)
+	}
+
+	filter(x, t) {
+		if (this.tPrev === null) {
+			this.tPrev = t
+			this.xPrev = x
+			return this.xLp.filter(x, 1)
+		}
+
+		let dt = t - this.tPrev
+		if (!(dt > 0)) dt = 1e-3
+		this.tPrev = t
+
+		const dx = (x - this.xPrev) / dt
+		this.xPrev = x
+
+		const edx = this.dxLp.filter(dx, OneEuro.alpha(this.dCutoff, dt))
+		const cutoff = this.minCutoff + this.beta * Math.abs(edx)
+		return this.xLp.filter(x, OneEuro.alpha(cutoff, dt))
+	}
+}
+
+// Component-wise One Euro for a fixed-length vector.
+class VectorOneEuro {
+	constructor(size, minCutoff, beta, dCutoff) {
+		this.filters = Array.from(
+			{length: size},
+			() => new OneEuro(minCutoff, beta, dCutoff)
+		)
+	}
+
+	filter(vec, t) {
+		return this.filters.map((f, i) => f.filter(vec[i], t))
+	}
+}
+
+// One Euro for a quaternion [x, y, z, w]. Aligns hemispheres (q and -q are the
+// same rotation) before filtering and renormalizes the result.
+class QuaternionOneEuro {
+	constructor(minCutoff, beta, dCutoff) {
+		this.vec = new VectorOneEuro(4, minCutoff, beta, dCutoff)
+		this.prev = null
+	}
+
+	filter(q, t) {
+		// Flip sign so consecutive quaternions stay on the same hemisphere,
+		// otherwise the component-wise filter would interpolate the long way.
+		if (this.prev) {
+			const dot =
+				q[0] * this.prev[0] +
+				q[1] * this.prev[1] +
+				q[2] * this.prev[2] +
+				q[3] * this.prev[3]
+			if (dot < 0) q = [-q[0], -q[1], -q[2], -q[3]]
+		}
+
+		const f = this.vec.filter(q, t)
+
+		const len = Math.hypot(f[0], f[1], f[2], f[3]) || 1
+		const out = [f[0] / len, f[1] / len, f[2] / len, f[3] / len]
+
+		this.prev = out
+		return out
+	}
+}
+
+module.exports = {OneEuro, VectorOneEuro, QuaternionOneEuro}

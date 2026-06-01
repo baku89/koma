@@ -85,7 +85,7 @@ export async function writeFileWithStream(
 
 	const reader = blob.stream().getReader()
 
-	// eslint-disable-next-line no-constant-condition
+	 
 	while (true) {
 		const {done, value} = await reader.read()
 
@@ -114,7 +114,7 @@ export async function getFileIfExists(
 ) {
 	try {
 		return await directoryHandle.getFileHandle(fileName)
-	} catch (e) {
+	} catch {
 		return null
 	}
 }

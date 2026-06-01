@@ -40,13 +40,19 @@ The terms used in the code and documentation.
 
 ## Run Aux-Manager
 
+Aux-Manager forwards OSC/DMX and streams Vive Tracker poses. Tracking is done
+by [libsurvive](https://github.com/cntools/libsurvive) (HIDAPI backend), so
+**SteamVR is not required and it runs natively on Apple Silicon** — no Rosetta.
+
+Build libsurvive once (see [dev_modules/libsurvive/README.md](dev_modules/libsurvive/README.md)),
+then install its runtime dependency:
+
 ```bash
-arch -x86_64 zsh
-nvm use 18 # assumes that 18 is installed in x86
-cd dev_modules/node-openvr
-git submodule update --init --recursive
-npm install
-npm run install
-cd ../aux-manager
-yarn start
+brew install hidapi
+```
+
+Run:
+
+```bash
+yarn aux
 ```
