@@ -77,6 +77,13 @@ const styles = computed(() => {
 	&.zero-duration
 		margin-left calc(-0.5 * 1em)
 
+		// The body collapses to 0px width, so the default duration handle would
+		// land right on top of the dot (z-index 1000) and swallow every press —
+		// leaving the marker resizable but impossible to move. Shift the handle to
+		// sit just right of the dot so the dot itself stays grabbable for moving.
+		.duration-handle
+			right calc(-2 * 1em)
+
 		&:before
 			width 1em
 			height 1em
