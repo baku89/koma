@@ -12,6 +12,7 @@ import {useZUI} from '@/use/useZUI'
 import {Rect} from '@/utils/Rect'
 
 import ViewportKoma from './PreviewKoma.vue'
+import PreviewPlayback from './PreviewPlayback.vue'
 
 const Tq = useTweeq()
 const project = useProjectStore()
@@ -104,19 +105,28 @@ async function onDblclick(e: MouseEvent) {
 		:style="{'--tint': 'red'}"
 	>
 		<div class="frame" :style="frameStyles" @click="onDblclick">
-			<ViewportKoma
-				class="koma"
-				:frame="viewport.previewFrame"
-				:class="{tint}"
-			/>
-			<ViewportKoma
-				v-for="({frame, opacity, tint}, i) in viewport.onionskin"
-				:key="i"
-				class="koma"
-				:class="{tint}"
-				:frame="frame"
-				:style="{opacity, '--tint': tint}"
-			/>
+			<!--
+				Static render (paused / scrubbing): full DOM path with onionskin,
+				live view, layers and tint. Hidden while playing, and its frame is
+				frozen so the off-screen <img>s don't churn through decodes.
+			-->
+			<div class="komas" v-show="!viewport.isPlaying">
+				<ViewportKoma
+					class="koma"
+					:frame="viewport.isPlaying ? viewport.currentFrame : viewport.previewFrame"
+					:class="{tint}"
+				/>
+				<ViewportKoma
+					v-for="({frame, opacity, tint}, i) in viewport.onionskin"
+					:key="i"
+					class="koma"
+					:class="{tint}"
+					:frame="frame"
+					:style="{opacity, '--tint': tint}"
+				/>
+			</div>
+			<!-- Smooth playback: pre-decoded ImageBitmaps blitted to a canvas. -->
+			<PreviewPlayback v-show="viewport.isPlaying" />
 			<svg
 				class="view-overlay"
 				viewBox="0 0 1 1"
@@ -166,6 +176,10 @@ async function onDblclick(e: MouseEvent) {
 		pointer-events none
 		z-index 10
 		opacity 0.7
+
+.komas
+	position absolute
+	inset 0
 
 .koma
 	&.tint
