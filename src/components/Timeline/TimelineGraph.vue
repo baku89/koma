@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {mat4, vec2, vec3} from 'linearly'
+import {mat4, quat, vec2, vec3} from 'linearly'
 import {identity} from 'lodash-es'
 import {ShutterSpeed} from 'tethr'
 import {Euler, Quaternion} from 'three'
@@ -106,6 +106,12 @@ const rotationMatrixInverse = computed(() => {
 const threeJSEuler = new Euler()
 const threeJSQuaternion = new Quaternion()
 
+function quatToEuler(q: quat): vec3 {
+	return threeJSEuler
+		.setFromQuaternion(threeJSQuaternion.fromArray([...q]))
+		.toArray() as any as vec3
+}
+
 const rotations = computed(() => {
 	const [inPoint] = project.previewRange
 
@@ -113,21 +119,35 @@ const rotations = computed(() => {
 		.map((koma, i) => {
 			const frame = inPoint + i
 
-			const tracker = koma.shots[0]?.tracker
-			if (!tracker) {
+			// On the capture frame, show the live tracker rotation so the graph
+			// updates in real time (mirrors how `positions` always plots a point
+			// for the capture frame). The recorded rotation isn't there yet.
+			if (frame === project.captureShot.frame) {
+				if (!tracker.enabled) return null
+				const q = mat4.getRotation(
+					mat4.mul(
+						rotationMatrixInverse.value,
+						mat4.fromRotationTranslation(tracker.rotation, tracker.position)
+					)
+				)
+				return [frame, quatToEuler(q)] as const
+			}
+
+			const shotTracker = koma.shots[0]?.tracker
+			if (!shotTracker) {
 				return null
 			}
 
 			const m = mat4.mul(
 				rotationMatrixInverse.value,
-				mat4.fromRotationTranslation(tracker.rotation, tracker.position)
+				mat4.fromRotationTranslation(
+					shotTracker.rotation,
+					shotTracker.position
+				)
 			)
 			const q = mat4.getRotation(m)
-			const euler = threeJSEuler
-				.setFromQuaternion(threeJSQuaternion.fromArray([...q]))
-				.toArray() as any as vec3
 
-			return [frame, euler] as const
+			return [frame, quatToEuler(q)] as const
 		})
 		.filter(k => k !== null)
 })
