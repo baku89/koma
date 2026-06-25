@@ -55,6 +55,19 @@ function onPressMarker(event: PointerEvent, index: number) {
 	markers.select(index)
 }
 
+// Double-click a marker to rename it.
+function onEditLabel(index: number) {
+	const marker = project.markers[index]
+	if (!marker) return
+
+	const label = window.prompt('Marker label', marker.label)
+	if (label === null) return
+
+	project.$patch(draft => {
+		draft.markers[index].label = label
+	})
+}
+
 const markersToDrag: Map<number, Marker> = new Map()
 
 const selectionRect = ref<null | {
@@ -271,6 +284,7 @@ const visibleMarkers = computed(() => {
 			:rangeStyle="rangeStyle"
 			:selected="markers.isSelected(i)"
 			@pointerdown="onPressMarker($event, i)"
+			@dblclick="onEditLabel(i)"
 		/>
 		<div v-if="selectionRect" class="selection-rect" :style="selectionRect" />
 	</div>
