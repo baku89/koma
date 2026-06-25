@@ -22,8 +22,6 @@ const dmx = useDmxStore()
 
 const gamepads = ref<string[]>([])
 
-const gamepad = Bndr.gamepad()
-
 const gcode = ref('')
 
 const logEl = ref<HTMLPreElement | null>(null)
@@ -47,26 +45,14 @@ async function sendGcode() {
 }
 
 const destroyBndr = Bndr.createScope(() => {
-	gamepad.devices().on(gs => {
-		gamepads.value = gs.map(
-			g => (g as any).id ?? (g as any).device?.productName ?? 'Gamepad'
-		)
-	})
+	Bndr.gamepad()
+		.devices()
+		.on(gs => {
+			gamepads.value = gs.map(g => g.id)
+		})
 })
 
 onUnmounted(destroyBndr)
-
-// WebHID controllers (Joy-Con) require an explicit, user-gesture permission
-// prompt — unlike standard gamepads (Xbox, DualSense) which the Gamepad API
-// exposes automatically. Clicking the gamepad indicator triggers that prompt;
-// once granted the device auto-reconnects on later launches.
-async function connectGamepad() {
-	try {
-		await gamepad.requestDevice()
-	} catch {
-		// WebHID unsupported (non-Chromium) or the user dismissed the picker.
-	}
-}
 
 const destinationInfo = computed(() => {
 	if (project.isSavedToDisk) {
@@ -162,13 +148,11 @@ const destinationInfo = computed(() => {
 					content:
 						gamepads.length > 0
 							? gamepads.join('<br />')
-							: 'Click to connect a Joy-Con (WebHID)',
+							: 'No Gamepad Connected',
 					html: true,
 				}"
 				:active="gamepads.length > 0"
 				icon="solar:gamepad-bold"
-				style="cursor: pointer"
-				@click="connectGamepad"
 			/>
 			<Tq.IconIndicator
 				v-tooltip="

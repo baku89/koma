@@ -277,21 +277,23 @@ whenever(oscIn.shoot, () => Tq.actions.perform('shoot'))
 
 //------------------------------------------------------------------------------
 
-// Joy-Con (R) used on its own is held rotated 90° CW. With the stick
-// auto-centered (handled in bndr-js), the grip directions land on cardinal axes
-// that need a 180° relabel to match the desired mapping: up → right, right →
-// down, down → left, left → up. The lowered threshold accounts for the Joy-Con's
-// short, asymmetric stick throw.
+// A single Joy-Con (R) paired on its own is held rotated 90° CW, and its raw
+// stick axes come in turned a quarter-turn from how the operator perceives
+// them. Rotate the raw direction a quarter-turn so the arrow-key-aligned
+// bindings below land on the operator's directions:
+//   physical up → next frame, right → next layer, down → prev frame,
+//   left → prev layer.
 const gamepadAxis = gamepad
-	.axisDirection(null, {threshold: 0.35})
+	.axisDirection()
 	.map((v): vec2 | null => (v ? [-v[1], v[0]] : null))
 
 const gamepadAxisNeutral = gamepadAxis.filter(v => v === null)
 const gamepadAxisLeft = gamepadAxis.map(v => v && v[0] === -1)
 const gamepadAxisRight = gamepadAxis.map(v => v && v[0] === 1)
-// const gamepadAxisTop = gamepadAxis.map(v => v && v[1] === -1)
-// const gamepadAxisBottom = gamepadAxis.map(v => v && v[1] === 1)
+const gamepadAxisUp = gamepadAxis.map(v => v && v[1] === -1)
+const gamepadAxisDown = gamepadAxis.map(v => v && v[1] === 1)
 
+// Hold the advance direction (next frame, physical up) to play forward.
 gamepadAxisRight.longPress(500).pressed.on(() => {
 	viewport.isPlaying = true
 })
@@ -700,7 +702,7 @@ Tq.actions.register([
 			{
 				id: 'increment_current_layer',
 				icon: 'mdi:arrow-down',
-				bind: ['down' /*, gamepadAxisBottom.down()*/],
+				bind: ['down', gamepadAxisDown.down()],
 				perform() {
 					viewport.setCurrentLayer(viewport.currentLayer + 1)
 					viewport.selectShot()
@@ -709,7 +711,7 @@ Tq.actions.register([
 			{
 				id: 'decrement_current_layer',
 				icon: 'mdi:arrow-up',
-				bind: ['up' /*, gamepadAxisTop.down()*/],
+				bind: ['up', gamepadAxisUp.down()],
 				perform() {
 					viewport.setCurrentLayer(viewport.currentLayer - 1)
 					viewport.selectShot()

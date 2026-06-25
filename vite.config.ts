@@ -15,10 +15,6 @@ export default defineConfig({
 	base: './',
 	server: {
 		port: 5555,
-		// Allow Vite to serve the sibling bndr-js checkout (aliased below).
-		fs: {
-			allow: ['..'],
-		},
 	},
 	plugins: [
 		glsl(),
@@ -65,15 +61,6 @@ export default defineConfig({
 	},
 	resolve: {
 		alias: [
-			// TEMP (local dev): use the sibling bndr-js checkout (with WebHID Joy-Con
-			// support) without publishing to npm. Remove this entry — and the
-			// server.fs.allow above — to fall back to the npm-installed bndr-js.
-			{
-				find: 'bndr-js',
-				replacement: fileURLToPath(
-					new URL('../bndr-js/lib/index.js', import.meta.url)
-				),
-			},
 			{
 				find: '@',
 				replacement: fileURLToPath(new URL('./src', import.meta.url)),
