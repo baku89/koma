@@ -1,7 +1,7 @@
 import {range} from 'lodash-es'
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
-import {watchEffect} from 'vue'
+import {ref, watch, watchEffect} from 'vue'
 
 import {useOscStore} from './osc'
 
@@ -24,12 +24,30 @@ export const useDmxStore = defineStore('dmx', () => {
 		return Tq.config.ref(`dmx${i + 1}`, 1)
 	})
 
+	// Temporary "blackout" — send 0 to every channel without touching the stored
+	// levels, so the lights restore to exactly what they were when released. Not
+	// persisted: a reload clears the blackout and the cached levels come back.
+	const blackout = ref(false)
+	let levelsBeforeBlackout: number[] | null = null
+
+	watch(blackout, on => {
+		if (on) {
+			levelsBeforeBlackout = values.map(v => v.value)
+			values.forEach(v => (v.value = 0))
+		} else if (levelsBeforeBlackout) {
+			levelsBeforeBlackout.forEach((level, i) => (values[i].value = level))
+			levelsBeforeBlackout = null
+		}
+	})
+
 	cachedValues.forEach((cache, i) => {
 		values[i].value = cache.value
 		watchEffect(() => {
+			// Don't let the temporary blackout 0 overwrite the persisted level.
+			if (blackout.value) return
 			cache.value = values[i].value
 		})
 	})
 
-	return {values}
+	return {values, blackout}
 })

@@ -1,10 +1,11 @@
 <script lang="ts" setup>
 import * as Bndr from 'bndr-js'
 import * as Tq from 'tweeq'
-import {computed, onUnmounted, ref} from 'vue'
+import {computed, nextTick, onUnmounted, ref, watch} from 'vue'
 
 import {useAuxDevicesStore} from '@/stores/auxDevices'
 import {useCncStore} from '@/stores/cnc'
+import {useDmxStore} from '@/stores/dmx'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
 import {useViewportStore} from '@/stores/viewport'
@@ -17,18 +18,55 @@ const project = useProjectStore()
 const timer = useTimerStore()
 const aux = useAuxDevicesStore()
 const cnc = useCncStore()
+const dmx = useDmxStore()
 
 const gamepads = ref<string[]>([])
 
+const gamepad = Bndr.gamepad()
+
+const gcode = ref('')
+
+const logEl = ref<HTMLPreElement | null>(null)
+
+// Scroll the log to the bottom whenever a new response arrives.
+watch(
+	() => cnc.log,
+	async () => {
+		await nextTick()
+		if (logEl.value) {
+			logEl.value.scrollTop = logEl.value.scrollHeight
+		}
+	}
+)
+
+async function sendGcode() {
+	const line = gcode.value.trim()
+	if (!line) return
+	await cnc.send(line)
+	gcode.value = ''
+}
+
 const destroyBndr = Bndr.createScope(() => {
-	Bndr.gamepad()
-		.devices()
-		.on(gs => {
-			gamepads.value = gs.map(g => g.id)
-		})
+	gamepad.devices().on(gs => {
+		gamepads.value = gs.map(
+			g => (g as any).id ?? (g as any).device?.productName ?? 'Gamepad'
+		)
+	})
 })
 
 onUnmounted(destroyBndr)
+
+// WebHID controllers (Joy-Con) require an explicit, user-gesture permission
+// prompt — unlike standard gamepads (Xbox, DualSense) which the Gamepad API
+// exposes automatically. Clicking the gamepad indicator triggers that prompt;
+// once granted the device auto-reconnects on later launches.
+async function connectGamepad() {
+	try {
+		await gamepad.requestDevice()
+	} catch {
+		// WebHID unsupported (non-Chromium) or the user dismissed the picker.
+	}
+}
 
 const destinationInfo = computed(() => {
 	if (project.isSavedToDisk) {
@@ -97,6 +135,11 @@ const destinationInfo = computed(() => {
 					v-tooltip="'Colored Onionskin'"
 				/>
 			</Tq.InputGroup>
+			<Tq.InputCheckbox
+				v-model="dmx.blackout"
+				v-tooltip="'Blackout — temporarily turn off all DMX lights'"
+				icon="mdi:lightbulb-off-outline"
+			/>
 			<Tq.InputGroup>
 				<Tq.InputButton
 					v-tooltip="'Reset Timer'"
@@ -119,11 +162,13 @@ const destinationInfo = computed(() => {
 					content:
 						gamepads.length > 0
 							? gamepads.join('<br />')
-							: 'No Gamepad Connected',
+							: 'Click to connect a Joy-Con (WebHID)',
 					html: true,
 				}"
 				:active="gamepads.length > 0"
 				icon="solar:gamepad-bold"
+				style="cursor: pointer"
+				@click="connectGamepad"
 			/>
 			<Tq.IconIndicator
 				v-tooltip="
@@ -132,19 +177,44 @@ const destinationInfo = computed(() => {
 				icon="tabler:gizmo"
 				:active="aux.tracker.enabled"
 			/>
-			<vMenu>
+			<vDropdown :triggers="['click']">
 				<Tq.IconIndicator
 					icon="game-icons:mechanical-arm"
 					:active="cnc.connected"
+					style="cursor: pointer"
 				/>
 				<template #popper>
 					<div class="cnc-menu">
-						<p>{{ cnc.connected ? 'CNC Connected' : 'No CNC Available' }}</p>
-						<pre>{{ cnc.log }}</pre>
-						<Tq.InputButton label="Status" />
+						<Tq.InputGroup>
+							<Tq.InputButton
+								label="Status"
+								icon="mdi:information-outline"
+								:disabled="!cnc.connected"
+								@click="cnc.send('$$')"
+							/>
+							<Tq.InputButton
+								:label="cnc.connected ? 'Disconnect' : 'Connect'"
+								:icon="cnc.connected ? 'mdi:link-off' : 'mdi:link'"
+								@click="cnc.connected ? cnc.disconnect() : cnc.connect()"
+							/>
+						</Tq.InputGroup>
+						<Tq.InputGroup>
+							<Tq.InputString
+								v-model="gcode"
+								font="numeric"
+								:disabled="!cnc.connected"
+								@confirm="sendGcode"
+							/>
+							<Tq.InputButton
+								label="Send"
+								:disabled="!cnc.connected"
+								@click="sendGcode"
+							/>
+						</Tq.InputGroup>
+						<pre ref="logEl">{{ cnc.log }}</pre>
 					</div>
 				</template>
-			</vMenu>
+			</vDropdown>
 		</template>
 	</Tq.TitleBar>
 </template>
@@ -155,4 +225,15 @@ const destinationInfo = computed(() => {
 
 .cnc-menu
 	padding var(--tq-popup-padding)
+	width 15rem
+	display flex
+	flex-direction column
+	gap .5em
+
+	pre
+		white-space pre-wrap
+		overflow-wrap anywhere
+		margin 0
+		max-height 20lh
+		overflow-y auto
 </style>

@@ -32,6 +32,12 @@ export const useCncStore = defineStore('cnc', () => {
 		}
 	}
 
+	// Clearing the port triggers the watcher below, which closes the device and
+	// resets `connected` / `status`.
+	const disconnect = async () => {
+		port.value = undefined
+	}
+
 	// Save the port info
 	watchEffect(() => {
 		savedInfo.value = port.value?.getInfo() ?? null
@@ -106,6 +112,11 @@ export const useCncStore = defineStore('cnc', () => {
 					perform: connect,
 				},
 				{
+					id: 'disconnect-cnc',
+					label: 'Disconnect CNC',
+					perform: disconnect,
+				},
+				{
 					id: 'get-status',
 					label: 'Get CNC status',
 					perform: () => send('$$'),
@@ -124,6 +135,7 @@ export const useCncStore = defineStore('cnc', () => {
 
 	return {
 		connect,
+		disconnect,
 		connected: computed(() => connected.value),
 		status: computed(() => status.value),
 		send,
