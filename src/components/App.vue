@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import {whenever} from '@vueuse/core'
 import * as Bndr from 'bndr-js'
-import {scalar, vec3, vec4} from 'linearly'
+import {scalar, vec2, vec3, vec4} from 'linearly'
 import sleep from 'p-sleep'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
@@ -277,7 +277,14 @@ whenever(oscIn.shoot, () => Tq.actions.perform('shoot'))
 
 //------------------------------------------------------------------------------
 
-const gamepadAxis = gamepad.axisDirection()
+// Joy-Con (R) used on its own is held rotated 90° CW. With the stick
+// auto-centered (handled in bndr-js), the grip directions land on cardinal axes
+// that need a 180° relabel to match the desired mapping: up → right, right →
+// down, down → left, left → up. The lowered threshold accounts for the Joy-Con's
+// short, asymmetric stick throw.
+const gamepadAxis = gamepad
+	.axisDirection(null, {threshold: 0.35})
+	.map((v): vec2 | null => (v ? [-v[1], v[0]] : null))
 
 const gamepadAxisNeutral = gamepadAxis.filter(v => v === null)
 const gamepadAxisLeft = gamepadAxis.map(v => v && v[0] === -1)

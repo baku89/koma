@@ -3925,19 +3925,10 @@ birpc@^0.2.19:
   resolved "https://registry.yarnpkg.com/birpc/-/birpc-0.2.19.tgz#cdd183a4a70ba103127d49765b4a71349da5a0ca"
   integrity sha512-5WeXXAvTmitV1RqJFppT5QtUiz2p1mRSYU000Jkft5ZUCLJIk4uQriYNO50HknxKwM6jd8utNc66K1qGIwwWBQ==
 
-bndr-js@^0.18.6:
-  version "0.18.6"
-  resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.18.6.tgz#113eac8eb65339590dca870861f65bebddfe472c"
-  integrity sha512-G3d/YAIXs28S+zuvNRd3Y6OTAzYuAR+1AIz6MlVo0uE9j6BOz1JbPdItcVzVOgNG1s1eBjw/HwcTkdhKLgBMRQ==
-  dependencies:
-    case "^1.6.3"
-    linearly "^0.20.3"
-    lodash-es "^4.17.21"
-
-bndr-js@^0.18.7:
-  version "0.18.7"
-  resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.18.7.tgz#f91412aaa0d5b7ed09a2652ca6c0ebed0ac1bd20"
-  integrity sha512-B9gwFyrDt4SYDR/NqCxgqOb3A/2JgLATcW+OYAbYFqN32Dp94MdPXqpw1nGvwPzzC8HIb7hwEbEWaL/v5jHtag==
+bndr-js@^0.18.6, bndr-js@^0.18.7:
+  version "0.18.8"
+  resolved "https://registry.yarnpkg.com/bndr-js/-/bndr-js-0.18.8.tgz#72330d61bee3786c7129d37e2247c6a46da573a1"
+  integrity sha512-YH+Dzfjee8QceNkfChzsrKqssEDuYwziDXpyQiuthQ+uvW+dHS0eOmq7Bp7pRZ3uCc5KCTyva+/yabm+xB8A7A==
   dependencies:
     case "^1.6.3"
     linearly "^0.20.3"
