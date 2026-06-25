@@ -370,4 +370,14 @@ const paneExpanded = ref(false)
 .info
 	position absolute
 	top 0
+
+// Widen the calibration pane. TqPaneExpandable defaults to a 260px content
+// width, but each Parameter input has min-width 15rem (240px); together with
+// the label column that overflows 260px and clips the vec3 inputs / record
+// buttons. Override from here (the shared tweeq component is left untouched).
+.CameraTrajectoryVisualizer :deep(.TqPaneExpandable .wrapper)
+	width 24rem
+
+.CameraTrajectoryVisualizer :deep(.TqPaneExpandable.open .content)
+	width 24rem
 </style>
