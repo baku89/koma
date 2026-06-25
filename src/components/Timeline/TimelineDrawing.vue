@@ -4,9 +4,7 @@ import {vec2} from 'linearly'
 import paper from 'paper'
 import {
 	markRaw,
-	nextTick,
 	onMounted,
-	onUnmounted,
 	shallowReactive,
 	shallowRef,
 	watch,
@@ -32,24 +30,6 @@ const {height: canvasHeight, width: canvasWidth} = useElementBounding($canvas)
 onMounted(() => {
 	const canvas = $canvas.value!
 	scope.value = paper.setup(canvas) as unknown as paper.PaperScope
-
-	// TEMP: measure Paper's full-scene repaint. Paper repaints the entire
-	// project (every path) on each frame a change occurs, so this is the cost
-	// paid per frame while dragging a new stroke over an existing drawing.
-	{
-		const view = scope.value.view
-		const orig = view.update.bind(view)
-		;(view as unknown as {update: () => boolean}).update = () => {
-			const t = performance.now()
-			const r = orig()
-			const d = performance.now() - t
-			if (d > 20) {
-				// eslint-disable-next-line no-console
-				console.log(`[view.update] ${d.toFixed(0)}ms`)
-			}
-			return r
-		}
-	}
 
 	// Pencil
 	{
@@ -81,17 +61,9 @@ onMounted(() => {
 			path.lineTo(event.point)
 		}
 
-		pencil.onMouseUp = async () => {
+		pencil.onMouseUp = () => {
 			path = null
-			// TEMP: measure the full mouseUp cost incl. flushed watchers.
-			// useRefHistory deep-clones {komas, markers, drawing} on this change.
-			const t = performance.now()
 			saveDrawing()
-			await nextTick()
-			// eslint-disable-next-line no-console
-			console.log(
-				`[mouseUp] saveDrawing+flush ${(performance.now() - t).toFixed(0)}ms`
-			)
 			project.endInteraction()
 		}
 
@@ -138,38 +110,6 @@ onMounted(() => {
 	}
 
 	watchEffect(() => tools[timeline.currentTool]?.activate())
-})
-
-// --- TEMP: long-task profiler (remove once the drawing jank is diagnosed) ---
-// Logs every main-thread task >50ms with the gap since the previous one, so a
-// periodic stall shows up in the console as e.g.
-//   [longtask] 180ms (Δ 1002ms)   ← ~1s cadence → timer.ts
-//   [longtask] 140ms (Δ 2003ms)   ← ~2s cadence → osc.ts reconnect
-//   [longtask]  90ms (Δ 110ms)    ← irregular & dense → GC / Paper redraw
-// Draw a few continuous strokes and read the cadence + attribution.
-onMounted(() => {
-	if (typeof PerformanceObserver === 'undefined') return
-
-	let last = performance.now()
-	const obs = new PerformanceObserver(list => {
-		for (const entry of list.getEntries()) {
-			const gap = entry.startTime - last
-			last = entry.startTime
-			// eslint-disable-next-line no-console
-			console.log(
-				`[longtask] ${entry.duration.toFixed(0)}ms (Δ ${gap.toFixed(0)}ms)`,
-				(entry as PerformanceEntry & {attribution?: unknown}).attribution
-			)
-		}
-	})
-
-	try {
-		obs.observe({entryTypes: ['longtask']})
-	} catch {
-		// 'longtask' unsupported in this engine — nothing to profile.
-	}
-
-	onUnmounted(() => obs.disconnect())
 })
 
 function saveDrawing() {
