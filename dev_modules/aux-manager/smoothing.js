@@ -104,4 +104,79 @@ class QuaternionOneEuro {
 	}
 }
 
-module.exports = {OneEuro, VectorOneEuro, QuaternionOneEuro}
+// Outlier / spike gate for tracker poses.
+//
+// One Euro alone CANNOT reject spikes: a big jump raises its derivative term,
+// which RAISES the cutoff and makes it follow the jump almost unfiltered. So a
+// single bad solve from libsurvive (occlusion, IR reflection, single-base-
+// station ambiguity) shows up as a visible "ガクッ". This gate runs *before* the
+// filter and drops any sample whose implied linear/angular speed from the last
+// accepted pose is physically impossible.
+//
+// To avoid getting stuck if the tracker legitimately teleports (recalibration,
+// a genuinely fast move), it only rejects up to `maxReject` samples in a row,
+// then force-resyncs to the new pose. Because the last-accepted timestamp is
+// not advanced while rejecting, dt keeps growing and the speed estimate decays,
+// so a real new position is re-accepted on its own well before the hard cap.
+class PoseGate {
+	constructor({maxLinearSpeed, maxAngularSpeed, maxReject}) {
+		this.maxLinearSpeed = maxLinearSpeed // m/s
+		this.maxAngularSpeed = maxAngularSpeed // rad/s
+		this.maxReject = maxReject
+		this.lastPos = null
+		this.lastRot = null // [x, y, z, w]
+		this.lastT = null
+		this.rejectCount = 0
+		this.rejectedTotal = 0
+	}
+
+	// position: [x,y,z] (m), rotation: [x,y,z,w], t: seconds.
+	// Returns true to accept the sample, false to drop it.
+	accept(position, rotation, t) {
+		if (this.lastPos === null) {
+			this.#commit(position, rotation, t)
+			return true
+		}
+
+		let dt = t - this.lastT
+		if (!(dt > 0)) dt = 1e-3
+
+		const dp = Math.hypot(
+			position[0] - this.lastPos[0],
+			position[1] - this.lastPos[1],
+			position[2] - this.lastPos[2]
+		)
+		const linSpeed = dp / dt
+
+		// Angle between quaternions (hemisphere-agnostic).
+		let dot =
+			rotation[0] * this.lastRot[0] +
+			rotation[1] * this.lastRot[1] +
+			rotation[2] * this.lastRot[2] +
+			rotation[3] * this.lastRot[3]
+		dot = Math.min(1, Math.abs(dot))
+		const angle = 2 * Math.acos(dot) // rad
+		const angSpeed = angle / dt
+
+		const outlier =
+			linSpeed > this.maxLinearSpeed || angSpeed > this.maxAngularSpeed
+
+		if (outlier && this.rejectCount < this.maxReject) {
+			this.rejectCount++
+			this.rejectedTotal++
+			return false
+		}
+
+		this.rejectCount = 0
+		this.#commit(position, rotation, t)
+		return true
+	}
+
+	#commit(position, rotation, t) {
+		this.lastPos = position
+		this.lastRot = rotation
+		this.lastT = t
+	}
+}
+
+module.exports = {OneEuro, VectorOneEuro, QuaternionOneEuro, PoseGate}

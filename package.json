@@ -6,6 +6,8 @@
 	"scripts": {
 		"dev": "vite",
 		"aux": "yarn workspace aux-manager run start",
+		"recal": "RECAL=1 yarn aux",
+		"raw": "RAW=1 yarn aux",
 		"lint": "eslint \"src/**/*.{ts,vue}\"",
 		"test": "echo 'No test'",
 		"build": "vite build",
