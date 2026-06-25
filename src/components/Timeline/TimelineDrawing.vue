@@ -2,7 +2,16 @@
 import {pausableWatch, useElementBounding} from '@vueuse/core'
 import {vec2} from 'linearly'
 import paper from 'paper'
-import {onMounted, shallowReactive, shallowRef, watch, watchEffect} from 'vue'
+import {
+	markRaw,
+	nextTick,
+	onMounted,
+	onUnmounted,
+	shallowReactive,
+	shallowRef,
+	watch,
+	watchEffect,
+} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
@@ -24,11 +33,41 @@ onMounted(() => {
 	const canvas = $canvas.value!
 	scope.value = paper.setup(canvas) as unknown as paper.PaperScope
 
+	// TEMP: measure Paper's full-scene repaint. Paper repaints the entire
+	// project (every path) on each frame a change occurs, so this is the cost
+	// paid per frame while dragging a new stroke over an existing drawing.
+	{
+		const view = scope.value.view
+		const orig = view.update.bind(view)
+		;(view as unknown as {update: () => boolean}).update = () => {
+			const t = performance.now()
+			const r = orig()
+			const d = performance.now() - t
+			if (d > 20) {
+				// eslint-disable-next-line no-console
+				console.log(`[view.update] ${d.toFixed(0)}ms`)
+			}
+			return r
+		}
+	}
+
 	// Pencil
 	{
 		let path: paper.Path | null = null
 
 		const pencil = new paper.Tool()
+
+		// Only fire onMouseDrag once the pointer has moved this far (project
+		// units). Without it Paper appends a segment on every pointermove, so a
+		// fast stroke allocates hundreds of segments — the allocation churn
+		// triggers GC pauses that drop input and leave long straight gaps. Tune
+		// up for lighter strokes, down for finer detail.
+		pencil.minDistance = 4
+
+		pencil.onMouseDown = () => {
+			project.beginInteraction()
+		}
+
 		pencil.onMouseDrag = function (event: any) {
 			if (!path) {
 				path = new paper.Path({
@@ -42,9 +81,18 @@ onMounted(() => {
 			path.lineTo(event.point)
 		}
 
-		pencil.onMouseUp = () => {
+		pencil.onMouseUp = async () => {
 			path = null
+			// TEMP: measure the full mouseUp cost incl. flushed watchers.
+			// useRefHistory deep-clones {komas, markers, drawing} on this change.
+			const t = performance.now()
 			saveDrawing()
+			await nextTick()
+			// eslint-disable-next-line no-console
+			console.log(
+				`[mouseUp] saveDrawing+flush ${(performance.now() - t).toFixed(0)}ms`
+			)
+			project.endInteraction()
 		}
 
 		tools['pencil'] = pencil
@@ -54,9 +102,15 @@ onMounted(() => {
 	{
 		const eraser = new paper.Tool()
 
-		eraser.onMouseDrag = eraser.onMouseDown = (event: paper.ToolEvent) => {
-			if (event.type !== 'mousedrag') return
+		// Throttle the (expensive) per-event hit test below to once per this much
+		// pointer movement.
+		eraser.minDistance = 4
 
+		eraser.onMouseDown = () => {
+			project.beginInteraction()
+		}
+
+		eraser.onMouseDrag = (event: paper.ToolEvent) => {
 			const lastPoint: paper.Point = event.lastPoint
 			const currentPoint: paper.Point = event.point
 
@@ -77,6 +131,7 @@ onMounted(() => {
 
 		eraser.onMouseUp = () => {
 			saveDrawing()
+			project.endInteraction()
 		}
 
 		tools['eraser'] = eraser
@@ -85,11 +140,49 @@ onMounted(() => {
 	watchEffect(() => tools[timeline.currentTool]?.activate())
 })
 
+// --- TEMP: long-task profiler (remove once the drawing jank is diagnosed) ---
+// Logs every main-thread task >50ms with the gap since the previous one, so a
+// periodic stall shows up in the console as e.g.
+//   [longtask] 180ms (Δ 1002ms)   ← ~1s cadence → timer.ts
+//   [longtask] 140ms (Δ 2003ms)   ← ~2s cadence → osc.ts reconnect
+//   [longtask]  90ms (Δ 110ms)    ← irregular & dense → GC / Paper redraw
+// Draw a few continuous strokes and read the cadence + attribution.
+onMounted(() => {
+	if (typeof PerformanceObserver === 'undefined') return
+
+	let last = performance.now()
+	const obs = new PerformanceObserver(list => {
+		for (const entry of list.getEntries()) {
+			const gap = entry.startTime - last
+			last = entry.startTime
+			// eslint-disable-next-line no-console
+			console.log(
+				`[longtask] ${entry.duration.toFixed(0)}ms (Δ ${gap.toFixed(0)}ms)`,
+				(entry as PerformanceEntry & {attribution?: unknown}).attribution
+			)
+		}
+	})
+
+	try {
+		obs.observe({entryTypes: ['longtask']})
+	} catch {
+		// 'longtask' unsupported in this engine — nothing to profile.
+	}
+
+	onUnmounted(() => obs.disconnect())
+})
+
 function saveDrawing() {
 	savedDrawingWatcher.pause()
 	const json = scope.value?.project.exportJSON({asString: false})
 	if (json) {
-		project.timeline.drawing = json
+		// markRaw so Vue doesn't deep-proxy the (large, growing) exported path
+		// array. Without this, every stroke re-proxies the whole drawing tree
+		// and forces the deep autosave/history watchers to walk it — cost grows
+		// with how much has already been drawn.
+		// exportJSON({asString: false}) returns an array at runtime, but paper's
+		// types declare `string`, so cast for markRaw (which requires an object).
+		project.timeline.drawing = markRaw(json as unknown as object)
 	}
 	savedDrawingWatcher.resume()
 }
@@ -122,14 +215,21 @@ watch(
 		[
 			scope.value,
 			props.range,
-			canvasWidth.value,
 			canvasHeight.value,
+			timeline.frameWidth,
 			timeline.frameWidthBase,
 		] as const,
-	([scope, [start, end], width, height]) => {
+	([scope, [start], height]) => {
 		if (!scope) return
 
-		const frameWidth = width / (end - start)
+		// Use the DOM timeline's pixels-per-frame as the single source of
+		// truth so the drawing scrolls and scales exactly like the
+		// DOM-positioned elements (komas, graph, markers). Deriving it from
+		// the measured canvas width instead caused a horizontal mismatch:
+		// paper.js overrides the canvas CSS width with an inline pixel value
+		// on HiDPI displays, so canvasWidth could drift from the DOM frame
+		// area and make the drawing scroll faster than the DOM.
+		const frameWidth = timeline.frameWidth
 
 		const vertZoom = height / 400
 		const matrix = new paper.Matrix(
