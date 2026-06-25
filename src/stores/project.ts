@@ -208,6 +208,16 @@ export const useProjectStore = defineStore('project', () => {
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
 
+	// True only once a project has been successfully loaded into `project`, or an
+	// explicit createNew()/saveAs() has set up a fresh one. Autosave is gated on
+	// this so a failed or partial open() can never persist the empty default over
+	// a real project.json. This is the fix for the data-loss bug where a
+	// cold-start permission prompt (restored FS handle starts in the "prompt"
+	// state, with no user gesture to grant it) or a single missing referenced
+	// file made openBlobJson throw, left `project` as the empty default, and the
+	// next autosave then wiped the real file on disk.
+	let projectLoaded = false
+
 	const undoableData = computed<UndoableData>({
 		get() {
 			return {
@@ -265,6 +275,7 @@ export const useProjectStore = defineStore('project', () => {
 		directoryHandle.value = await opfs.localDirectoryHandle
 
 		assignReactive(project, cloneDeep(emptyProject))
+		projectLoaded = true
 
 		nextTick(() => history.clear())
 
@@ -278,6 +289,10 @@ export const useProjectStore = defineStore('project', () => {
 	const {fn: open, isExecuting: isOpening} = preventConcurrentExecution(
 		async (handler?: FileSystemDirectoryHandle) => {
 			await sleep(0) // Wait for the next tick to show the dialog
+
+			// Block autosave until this load fully succeeds, so a failure midway
+			// (permission prompt, missing file) can't trigger an empty overwrite.
+			projectLoaded = false
 
 			directoryHandle.value = handler ?? (await showReadwriteDirectoryPicker())
 
@@ -299,6 +314,9 @@ export const useProjectStore = defineStore('project', () => {
 			assignReactive(project, mergedProject)
 			autoSave.resume()
 
+			// Load succeeded — autosave may now persist changes to this directory.
+			projectLoaded = true
+
 			nextTick(() => history.clear())
 		},
 		() => undefined
@@ -314,6 +332,7 @@ export const useProjectStore = defineStore('project', () => {
 		}
 
 		directoryHandle.value = handle
+		projectLoaded = true
 		save()
 	}
 
@@ -341,7 +360,39 @@ export const useProjectStore = defineStore('project', () => {
 	})
 
 	// Enable autosave
-	const autoSave = pausableWatch(project, debounce(save, 500), {deep: true})
+	//
+	// Gated on `projectLoaded`: until open()/createNew()/saveAs() has
+	// successfully established a project, autosave does nothing. This prevents
+	// the empty default from being written over a real project.json when a
+	// cold-start open() fails (permission prompt, missing referenced file, etc.).
+	//
+	// Also gated on `isInteracting`: saveBlobJson() walks the whole project and
+	// JSON.stringify()s it synchronously. If that lands in the middle of a
+	// continuous pointer interaction (e.g. drawing a stroke on the timeline) it
+	// stalls the main thread, drops pointermove events, and leaves a long
+	// straight line across the stroke. While an interaction is in progress we
+	// suppress autosave and persist once it ends instead.
+	let isInteracting = false
+
+	const requestAutoSave = debounce(() => {
+		if (!projectLoaded) return
+		if (isInteracting) return // re-armed by endInteraction()
+		save()
+	}, 500)
+
+	const autoSave = pausableWatch(project, requestAutoSave, {deep: true})
+
+	/** Call when a continuous pointer interaction starts (suppresses autosave). */
+	function beginInteraction() {
+		isInteracting = true
+		requestAutoSave.cancel() // drop a save queued by the previous interaction
+	}
+
+	/** Call when the interaction ends; persists once, off the hot path. */
+	function endInteraction() {
+		isInteracting = false
+		requestAutoSave()
+	}
 
 	whenever(isDirectoryHandlePersisted, () => {
 		if (directoryHandle.value) {
@@ -449,6 +500,8 @@ export const useProjectStore = defineStore('project', () => {
 		isOpening,
 		isSaving,
 		isSavedToDisk,
+		beginInteraction,
+		endInteraction,
 		shot,
 		setShot,
 		layer,
