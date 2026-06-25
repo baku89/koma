@@ -50,7 +50,7 @@
 			alerts.push('Tracker must be stable')
 		}
 
-		const prevPos = prevShot?.tracker.position
+		const prevPos = prevShot?.tracker?.position
 		if (prevPos && vec3.dist(tracker.position, prevPos) >= 0.1) {
 			alerts.push(
 				'The camera movement must be less than 10cm, got ' +

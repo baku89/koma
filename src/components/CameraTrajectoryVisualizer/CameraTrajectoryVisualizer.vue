@@ -13,9 +13,11 @@ import {
 	Scene,
 } from 'troisjs'
 import {useTweeq} from 'tweeq'
-import {ref, shallowRef, watch} from 'vue'
+import {computed, ref, shallowRef, watch} from 'vue'
 
+import {useProjectStore} from '@/stores/project'
 import {useTrackerStore} from '@/stores/tracker'
+import {useViewportStore} from '@/stores/viewport'
 
 import Axis from './Axis.vue'
 import CameraTrajectory from './CameraTrajectory.vue'
@@ -23,6 +25,17 @@ import TrackerRecButton from './TrackerRecButton.vue'
 
 const Tq = useTweeq()
 const tracker = useTrackerStore()
+const project = useProjectStore()
+const viewport = useViewportStore()
+
+// Distance (in cm) from the previous koma's tracker position, matching the
+// `viewport.currentFrame - 1` reference used by the shoot condition. Null when
+// the previous koma has no tracker info.
+const distanceFromPrevKoma = computed(() => {
+	const prevPos = project.shot(viewport.currentFrame - 1, 0)?.tracker?.position
+	if (!prevPos) return null
+	return vec3.dist(tracker.position, prevPos) * 100
+})
 
 //------------------------------------------------------------------------------
 // ThreeJS
@@ -240,6 +253,9 @@ const paneExpanded = ref(false)
 			X = {{ tracker.position[0].toFixed(3) }} <br />
 			Y = {{ tracker.position[1].toFixed(3) }} <br />
 			Z = {{ tracker.position[2].toFixed(3) }} <br />
+			<template v-if="distanceFromPrevKoma !== null">
+				Δ = {{ distanceFromPrevKoma.toFixed(1) }} cm <br />
+			</template>
 		</div>
 		<Renderer
 			ref="$trois"

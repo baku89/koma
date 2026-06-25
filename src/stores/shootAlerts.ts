@@ -32,9 +32,19 @@ export const useShootAlertsStore = defineStore('shootAlerts', () => {
 		() => saferEval(project.shootCondition, {vec3}) as CanShootFn
 	)
 
-	const alerts = computed(() =>
-		canCheckShoot.value({project, viewport, camera, timer, tracker})
-	)
+	const alerts = computed(() => {
+		try {
+			return canCheckShoot.value({project, viewport, camera, timer, tracker})
+		} catch (e) {
+			// The shoot condition is user-editable JS and may throw (e.g. when a
+			// koma has no tracker info). Surface the error as an alert instead of
+			// letting it crash the preview render and block seeking.
+			return [
+				'Shoot condition error: ' +
+					(e instanceof Error ? e.message : String(e)),
+			]
+		}
+	})
 
 	const canShoot = computed(() => alerts.value.length === 0)
 
