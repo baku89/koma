@@ -300,6 +300,67 @@ gamepadAxisNeutral.on(() => {
 	viewport.isPlaying = false
 })
 
+//------------------------------------------------------------------------------
+// Peek the previous koma while held: temporarily force onionskin off and display
+// the frame one before the current one, without moving currentFrame. Releasing
+// restores both. Bound to the '0' key and the gamepad B button.
+
+const keyboard = Bndr.keyboard()
+let peeking = false
+let peekRestoreOnionskin = true
+
+function setPeek(active: boolean) {
+	if (active === peeking) return
+	peeking = active
+	if (active) {
+		peekRestoreOnionskin = viewport.enableOnionskin
+		viewport.enableOnionskin = false
+		viewport.temporalFrame = Math.max(0, viewport.currentFrame - 1)
+	} else {
+		viewport.enableOnionskin = peekRestoreOnionskin
+		viewport.temporalFrame = null
+	}
+}
+
+keyboard.pressed('0', {capture: true, preventDefault: true}).on(setPeek)
+gamepad.button('b').on(setPeek)
+
+// Apply only the exposure-related configs of a shot to the connected camera —
+// not model / imageQuality / focus etc. importConfigs applies them in
+// dependency order (exposureMode before aperture/iso/shutterSpeed, whiteBalance
+// before colorTemperature), so passing a plain subset is safe.
+const exposureConfigNames = [
+	'exposureMode',
+	'aperture',
+	'shutterSpeed',
+	'iso',
+	'exposureComp',
+	'whiteBalance',
+	'colorTemperature',
+] as const
+
+async function applyExposureFromShot(shot: Shot | null) {
+	const {tethr} = camera
+	if (!tethr) {
+		alert('No camera is connected.')
+		return
+	}
+
+	const configs = shot?.cameraConfigs
+	if (!configs) {
+		alert('No exposure settings to copy.')
+		return
+	}
+
+	const exposureConfigs = Object.fromEntries(
+		exposureConfigNames
+			.filter(name => configs[name] !== undefined)
+			.map(name => [name, configs[name]])
+	)
+
+	await tethr.importConfigs(exposureConfigs)
+}
+
 Tq.actions.register([
 	{
 		id: 'file',
@@ -449,6 +510,31 @@ Tq.actions.register([
 				perform() {
 					if (camera.focusDistance.value === null) return
 					camera.focusDistance.set(camera.focusDistance.value - 0.005)
+				},
+			},
+			{
+				id: 'apply_exposure_from_koma',
+				label: 'Apply Exposure from Selected Koma',
+				icon: 'mdi:exposure',
+				perform() {
+					return applyExposureFromShot(
+						project.shot(viewport.currentFrame, viewport.currentLayer)
+					)
+				},
+			},
+			{
+				id: 'apply_exposure_from_prev_frame',
+				label: 'Apply Exposure from Previous Frame',
+				icon: 'mdi:content-copy',
+				bind: 'p',
+				perform() {
+					// Same layer as the capture frame, one frame to the left.
+					return applyExposureFromShot(
+						project.shot(
+							project.captureShot.frame - 1,
+							project.captureShot.layer
+						)
+					)
 				},
 			},
 		],

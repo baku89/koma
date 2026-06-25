@@ -260,6 +260,7 @@ export const useViewportStore = defineStore('viewport', () => {
 		currentLayer: readonly(currentLayer),
 		setCurrentLayer,
 		previewFrame,
+		temporalFrame,
 		isPlaying,
 		isLiveview,
 		isShotSelected: readonly(isShotSelected),
