@@ -2,7 +2,7 @@
 import {vec2} from 'linearly'
 import {range as _range} from 'lodash-es'
 import * as Tq from 'tweeq'
-import {computed, ref, watch} from 'vue'
+import {computed, nextTick, onMounted, ref, watch} from 'vue'
 
 import {MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useSelectionStore} from '@/stores/selection'
@@ -29,6 +29,25 @@ watch(
 	},
 	{immediate: true}
 )
+
+// When a project finishes loading, scroll so its capture frame is centered.
+async function centerOnCaptureShot() {
+	await nextTick()
+	$timeline.value?.centerFrame(project.captureShot.frame)
+}
+
+watch(
+	() => project.isOpening,
+	(opening, wasOpening) => {
+		if (wasOpening && !opening) centerOnCaptureShot()
+	}
+)
+
+// Also handle the initial auto-loaded project, whose open() may have already
+// finished before this component mounted (so the watch above never fires).
+onMounted(() => {
+	if (!project.isOpening) centerOnCaptureShot()
+})
 
 function onDragRuler(value: number) {
 	const frame = Math.floor(value)
@@ -58,7 +77,7 @@ function toScales(range: vec2, unitWidth: number) {
 		const fps = project.fps
 		return _range(start, end)
 			.filter((f: number) => f % fps === 0)
-			.map((value: number) => ({value, label: value / fps + 's'}))
+			.map((value: number) => ({value, label: value.toString()}))
 	}
 }
 
