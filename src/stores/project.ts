@@ -10,7 +10,7 @@ import {clamp, cloneDeep, debounce, isEqual} from 'lodash-es'
 import sleep from 'p-sleep'
 import {defineStore} from 'pinia'
 import {ConfigType} from 'tethr'
-import {computed, nextTick, reactive, toRaw, toRefs} from 'vue'
+import {computed, nextTick, reactive, ref, toRaw, toRefs} from 'vue'
 
 import {
 	assignReactive,
@@ -218,8 +218,28 @@ export const useProjectStore = defineStore('project', () => {
 	// next autosave then wiped the real file on disk.
 	let projectLoaded = false
 
+	// The autosave and history watchers below deep-watch the whole project /
+	// undoable state. @vueuse's pause() only gates their callback (save /
+	// cloneDeep) — the underlying deep `watch` still re-traverses the source on
+	// every change, and that O(komas) traversal is what makes continuous edits
+	// (marker drag, timeline zoom, …) crawl on large projects. So instead of
+	// pausing, we collapse each watcher's *source* to a constant during a burst,
+	// which unsubscribes it from `project`/`komas` entirely until the burst ends.
+	//
+	// Two independent controls, because not every continuous change is undoable:
+	//   - autosaveSuspendDepth: a counter (gestures can overlap, e.g. wheel-zoom
+	//     while dragging) that collapses the autosave source while > 0.
+	//   - historyBatching: collapses the history source; only set by the undoable
+	//     begin/endInteraction pair, which also commits one entry on end.
+	const autosaveSuspendDepth = ref(0)
+	const historyBatching = ref(false)
+
 	const undoableData = computed<UndoableData>({
 		get() {
+			// Collapse to a constant mid-interaction so the history watcher doesn't
+			// re-traverse komas on every drag tick. The single end-of-drag snapshot
+			// is taken by endInteraction()'s history.resume(true).
+			if (historyBatching.value) return null as unknown as UndoableData
 			return {
 				captureShot: project.captureShot,
 				komas: project.komas,
@@ -228,6 +248,7 @@ export const useProjectStore = defineStore('project', () => {
 			}
 		},
 		set(data) {
+			if (!data) return
 			project.captureShot = data.captureShot
 			project.komas = data.komas
 			project.markers = data.markers
@@ -366,31 +387,67 @@ export const useProjectStore = defineStore('project', () => {
 	// the empty default from being written over a real project.json when a
 	// cold-start open() fails (permission prompt, missing referenced file, etc.).
 	//
-	// Also gated on `isInteracting`: saveBlobJson() walks the whole project and
-	// JSON.stringify()s it synchronously. If that lands in the middle of a
-	// continuous pointer interaction (e.g. drawing a stroke on the timeline) it
-	// stalls the main thread, drops pointermove events, and leaves a long
-	// straight line across the stroke. While an interaction is in progress we
-	// suppress autosave and persist once it ends instead.
-	let isInteracting = false
-
+	// Also gated on `autosaveSuspendDepth`: saveBlobJson() walks the whole project
+	// and JSON.stringify()s it synchronously. If that lands in the middle of a
+	// continuous interaction (drawing a stroke, zooming the timeline) it stalls
+	// the main thread, drops events, and leaves artifacts. While a burst is in
+	// progress we suppress autosave and persist once it ends instead.
 	const requestAutoSave = debounce(() => {
 		if (!projectLoaded) return
-		if (isInteracting) return // re-armed by endInteraction()
+		if (autosaveSuspendDepth.value > 0) return // re-armed when the burst ends
 		save()
 	}, 500)
 
-	const autoSave = pausableWatch(project, requestAutoSave, {deep: true})
+	// Same trick as undoableData: while a burst is in progress the source
+	// collapses to a constant so this watcher stops deep-traversing the whole
+	// project on every change. (pausableWatch's pause would only skip the save
+	// callback, not the traversal.) The pausableWatch handle is still used by
+	// open() below.
+	const autoSave = pausableWatch(
+		() => (autosaveSuspendDepth.value > 0 ? null : project),
+		requestAutoSave,
+		{deep: true}
+	)
 
-	/** Call when a continuous pointer interaction starts (suppresses autosave). */
+	/**
+	 * Bracket a continuous, *undoable* pointer interaction (marker / drawing
+	 * drag). Suspends both autosave and history deep-tracking; endInteraction
+	 * records exactly one history entry for the whole gesture.
+	 */
 	function beginInteraction() {
-		isInteracting = true
+		// Pause history commits *before* collapsing its source, so the collapse
+		// can't record a bogus (null) snapshot.
+		history.pause()
+		historyBatching.value = true
+		autosaveSuspendDepth.value++
 		requestAutoSave.cancel() // drop a save queued by the previous interaction
 	}
 
-	/** Call when the interaction ends; persists once, off the hot path. */
 	function endInteraction() {
-		isInteracting = false
+		// Flipping historyBatching back re-subscribes the history watcher to the
+		// real (post-gesture) data, which schedules exactly one fire; resume()
+		// un-gates it so that fire records a single entry for the whole gesture.
+		// (resume(true) would *also* commit manually → a duplicate entry, because
+		// unlike the usual pause/resume flow our source actually transitions here.)
+		historyBatching.value = false
+		history.resume()
+		autosaveSuspendDepth.value--
+		requestAutoSave()
+	}
+
+	/**
+	 * Bracket a continuous *non-undoable* change (e.g. timeline zoom, which only
+	 * writes project.timeline.zoomFactor). Suspends just the autosave traversal —
+	 * history is untouched, so it neither records a no-op entry nor drops a real
+	 * edit that happens to overlap. Safe to nest with begin/endInteraction.
+	 */
+	function beginAutosaveBatch() {
+		autosaveSuspendDepth.value++
+		requestAutoSave.cancel()
+	}
+
+	function endAutosaveBatch() {
+		autosaveSuspendDepth.value--
 		requestAutoSave()
 	}
 
@@ -502,6 +559,8 @@ export const useProjectStore = defineStore('project', () => {
 		isSavedToDisk,
 		beginInteraction,
 		endInteraction,
+		beginAutosaveBatch,
+		endAutosaveBatch,
 		shot,
 		setShot,
 		layer,

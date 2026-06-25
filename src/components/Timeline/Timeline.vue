@@ -126,6 +126,7 @@ const visualizersStyles = computed(() => {
 			:frameRange="[0, project.duration]"
 			v-model:frameWidth="timeline.frameWidth"
 			:frameWidthRange="[10, timeline.frameWidthBase]"
+			@confirm="timeline.confirmZoom"
 			v-slot="{range, visibleFrameRange, rangeStyle, offsetStyle}"
 		>
 			<div

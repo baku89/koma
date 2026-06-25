@@ -101,6 +101,19 @@ useBndr($root, $root => {
 
 	let drawingMarkerIndex: number | null = null
 
+	// Batch a marker drag into a single history entry + one autosave. begin/
+	// endInteraction collapse the autosave & history watch sources so they stop
+	// deep-traversing the whole project (komas included) on every pointermove —
+	// the traversal, not the save/cloneDeep, is what makes dragging crawl on
+	// large projects. Started on the first move, ended on pointerup.
+	let dragBatching = false
+
+	function endMarkerDragBatch() {
+		if (!dragBatching) return
+		dragBatching = false
+		project.endInteraction()
+	}
+
 	// マーカーの選択、追加
 	pointer
 		.drag({
@@ -216,6 +229,11 @@ useBndr($root, $root => {
 					markersToDrag.set(i, {...project.markers[i]})
 				})
 			} else if (d.type === 'drag') {
+				if (!dragBatching) {
+					dragBatching = true
+					project.beginInteraction()
+				}
+
 				const offset = vec2.sub(d.current, d.start)
 
 				const deltaFrame = Math.round(offset[0] / timeline.frameWidth)
@@ -250,6 +268,7 @@ useBndr($root, $root => {
 
 	pointer.up().on(() => {
 		selectionRect.value = null
+		endMarkerDragBatch()
 	})
 })
 
