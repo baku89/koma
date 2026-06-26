@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import {asyncComputed} from '@vueuse/core'
 import * as Tq from 'tweeq'
 import {computed} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
-import {getObjectURL} from '@/utils'
+import {resolveAssetUrl} from '@/utils'
 
 interface Props {
 	frame: number
@@ -22,7 +23,7 @@ type Layer = ({type: 'jpg'; src: string} | {type: 'lv'}) & {
 	mixBlendMode: any
 }
 
-const layers = computed(() => {
+const layers = asyncComputed<Layer[]>(async () => {
 	const {komas, captureShot} = project
 
 	const shots: (Shot | null)[] = komas[props.frame]?.shots ?? []
@@ -46,17 +47,22 @@ const layers = computed(() => {
 				mixBlendMode,
 			})
 		} else if (shot) {
-			layers.push({
-				type: 'jpg',
-				src: getObjectURL(viewport.enableHiRes ? shot.jpg : shot.lv),
-				opacity,
-				mixBlendMode,
-			})
+			const src = await resolveAssetUrl(
+				viewport.enableHiRes ? shot.jpg : shot.lv
+			)
+			if (src) {
+				layers.push({
+					type: 'jpg',
+					src,
+					opacity,
+					mixBlendMode,
+				})
+			}
 		}
 	}
 
 	return layers
-})
+}, [])
 
 const style = computed(() => {
 	return {

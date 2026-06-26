@@ -3,6 +3,7 @@ import {computed, onUnmounted, shallowRef, watch} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
+import {resolveBlob} from '@/utils'
 
 const project = useProjectStore()
 const viewport = useViewportStore()
@@ -97,13 +98,13 @@ async function buildCache() {
 	// ready first, then wrap around to cover the rest of the range.
 	const start = Math.min(Math.max(viewport.previewFrame, inPoint), outPoint)
 
-	const jobs: {frame: number; layer: number; blob: Blob}[] = []
+	const jobs: {frame: number; layer: number; id: string}[] = []
 	for (let i = 0; i < total; i++) {
 		const frame = inPoint + ((start - inPoint + i) % total)
 		const shots = project.allKomas[frame]?.shots ?? []
 		for (let layer = 0; layer < shots.length; layer++) {
-			const blob = shots[layer]?.lv
-			if (blob) jobs.push({frame, layer, blob})
+			const id = shots[layer]?.lv
+			if (id) jobs.push({frame, layer, id})
 		}
 	}
 
@@ -113,8 +114,11 @@ async function buildCache() {
 	async function worker() {
 		while (next < jobs.length) {
 			if (gen !== generation) return
-			const {frame, layer, blob} = jobs[next++]
+			const {frame, layer, id} = jobs[next++]
 			try {
+				const blob = await resolveBlob(id)
+				if (!blob) continue
+				if (gen !== generation) return
 				const bmp = await createImageBitmap(blob, {
 					resizeWidth: bw,
 					resizeHeight: bh,

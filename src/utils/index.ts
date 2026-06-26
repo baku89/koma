@@ -1,3 +1,4 @@
+export * from './assets'
 export * from './blob'
 export * from './blobJson'
 export * from './fileSystem'

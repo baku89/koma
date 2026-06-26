@@ -9,19 +9,27 @@ import {mat2d, quat, vec2, vec3} from 'linearly'
 import {clamp, cloneDeep, debounce, isEqual} from 'lodash-es'
 import sleep from 'p-sleep'
 import {defineStore} from 'pinia'
-import {ConfigType} from 'tethr'
+import {ConfigType, TethrIdentifier} from 'tethr'
 import {computed, nextTick, reactive, ref, toRaw, toRefs} from 'vue'
 
 import {
 	assignReactive,
+	clearAssets,
 	debounceAsync,
 	deepMergeExceptArray,
-	openBlobJson,
+	frameAssetFilename,
+	getAssetFilename,
+	openJson,
 	preventConcurrentExecution,
 	queryPermission,
 	readFileFromDirectory,
-	saveBlobJson,
+	reconcileAssets,
+	registerDiskAsset,
+	registerTrashedAsset,
+	saveJson,
 	showReadwriteDirectoryPicker,
+	TRASH_DIR,
+	writeFileToDirectory,
 } from '@/utils'
 
 import defaultCustomScript from './defaultCustomScript.js?raw'
@@ -38,13 +46,20 @@ export const MixBlendModeValues: MixBlendMode[] = [
 
 type MixBlendMode = 'normal' | 'lighten' | 'darken' | 'difference'
 
-interface Project<T = Blob> {
+/**
+ * Identity of the camera last used to shoot this project, persisted so the app
+ * can auto-reconnect to the same device on reopen. This is Tethr's own
+ * descriptor (USB serial pins the exact body; webcams can't be told apart).
+ */
+export type CameraIdentity = TethrIdentifier
+
+interface Project {
 	name: string
 	fps: number
 	captureShot: {frame: number; layer: number}
 	previewRange: [number, number]
 	onionskin: number
-	komas: Koma<T>[]
+	komas: Koma[]
 	resolution: vec2
 	timeline: {
 		zoomFactor: number
@@ -77,10 +92,20 @@ interface Project<T = Blob> {
 		mixBlendMode: MixBlendMode
 	}[]
 	audio: {
-		src?: T
+		src?: Blob
 		startFrame: number
 	}
 	markers: Marker[]
+	camera?: CameraIdentity
+	/**
+	 * Every shot that has been displaced from the timeline (deleted, or replaced by
+	 * a re-shoot) and not yet purged. Intentionally NOT part of UndoableData: it is
+	 * a monotonic ledger maintained by syncTrash() as the derived set
+	 * "ever-captured − currently-live", so undo/redo *swaps* a shot between live and
+	 * trash rather than ever destroying it. The bytes stay in the project's `_trash`
+	 * folder, restorable later (Dragonframe-style).
+	 */
+	trash: TrashedShot[]
 }
 
 type UndoableData = Pick<Project, 'komas' | 'captureShot' | 'markers'> & {
@@ -93,9 +118,9 @@ type JSCode = string
 
 type CameraConfigs = Partial<ConfigType>
 
-export interface Koma<T = Blob> {
-	shots: (Shot<T> | null)[]
-	backupShots?: Shot<T>[]
+export interface Koma {
+	shots: (Shot | null)[]
+	backupShots?: Shot[]
 	target?: {
 		cameraConfigs?: CameraConfigs
 		tracker?: {
@@ -114,10 +139,11 @@ export interface Marker {
 	color: string
 }
 
-export interface Shot<T = Blob> {
-	lv: T
-	jpg: T
-	raw?: T
+export interface Shot {
+	/** Asset ids (see utils/assets) — resolve to bytes via resolveBlob/resolveAssetUrl. */
+	lv: string
+	jpg: string
+	raw?: string
 	jpgFilename?: string
 	rawFilename?: string
 	cameraConfigs?: CameraConfigs
@@ -128,6 +154,19 @@ export interface Shot<T = Blob> {
 	dmx?: number[]
 	shootTime?: number
 	captureDate?: number
+}
+
+/** A shot kept in the project's trash, with where it used to live and when it was
+ *  displaced. `shot` carries all its original metadata (shootTime, captureDate,
+ *  cameraConfigs, tracker, dmx) plus the asset ids now pointing into `_trash`. */
+export interface TrashedShot {
+	shot: Shot
+	/** Frame (koma index) it occupied when displaced. */
+	frame: number
+	/** Layer it occupied when displaced. */
+	layer: number
+	/** When it was last displaced from the timeline (ms epoch). */
+	deletedAt: number
 }
 
 const emptyProject: Project = {
@@ -183,6 +222,220 @@ const emptyProject: Project = {
 		startFrame: 0,
 	},
 	markers: [],
+	camera: undefined,
+	trash: [],
+}
+
+type BlobRef = {$type: 'blob'; filename: string}
+
+function refFilename(ref: unknown): string | undefined {
+	if (typeof ref === 'string') return ref
+	if (ref && typeof ref === 'object' && (ref as BlobRef).$type === 'blob') {
+		return (ref as BlobRef).filename
+	}
+	return undefined
+}
+
+// Tracks the directory each audio Blob already exists in, so autosave doesn't
+// rewrite a (potentially large) audio file on every tick — and, on load, so the
+// first save doesn't overwrite the audio file with itself.
+const audioSavedDir = new WeakMap<Blob, FileSystemDirectoryHandle>()
+
+/**
+ * Read project.json and turn every on-disk image reference into a session asset
+ * id (registered lazily — no bytes are read here, which is what makes open
+ * fast). Audio is kept as a real Blob, read directly from the folder.
+ */
+async function loadProject(dir: FileSystemDirectoryHandle): Promise<Project> {
+	const json: any = await openJson(dir, 'project.json')
+
+	const loadShot = (shot: any): Shot | null => {
+		if (!shot) return null
+		return {
+			...shot,
+			lv: registerDiskAsset(refFilename(shot.lv)!, dir),
+			jpg: registerDiskAsset(refFilename(shot.jpg)!, dir),
+			raw:
+				refFilename(shot.raw) !== undefined
+					? registerDiskAsset(refFilename(shot.raw)!, dir)
+					: undefined,
+		}
+	}
+
+	const komas: Koma[] = (json.komas ?? []).map((koma: any) =>
+		!koma
+			? koma
+			: {
+					...koma,
+					shots: (koma.shots ?? []).map(loadShot),
+					backupShots: koma.backupShots?.map(loadShot),
+				}
+	)
+
+	let audio = json.audio
+	const audioFile = refFilename(audio?.src)
+	if (audioFile !== undefined) {
+		// Detach audio into memory so its object URL can't break when the file is
+		// touched, and record that this copy already exists on disk so the first
+		// autosave doesn't rewrite it over itself.
+		const file = await readFileFromDirectory(dir, audioFile)
+		const src = new Blob([await file.arrayBuffer()], {type: file.type})
+		audioSavedDir.set(src, dir)
+		audio = {...audio, src}
+	}
+
+	// Trash: register each displaced shot's bytes against the `_trash` subfolder so
+	// they resolve lazily, exactly like live frames. A missing folder (or empty
+	// list) just yields an empty trash.
+	let trash: TrashedShot[] = []
+	if (Array.isArray(json.trash) && json.trash.length > 0) {
+		let trashDir: FileSystemDirectoryHandle | undefined
+		try {
+			trashDir = await dir.getDirectoryHandle(TRASH_DIR)
+		} catch {
+			trashDir = undefined
+		}
+		if (trashDir) {
+			const loadTrashedShot = (shot: any): Shot => ({
+				...shot,
+				lv: registerTrashedAsset(refFilename(shot.lv)!, trashDir!),
+				jpg: registerTrashedAsset(refFilename(shot.jpg)!, trashDir!),
+				raw:
+					refFilename(shot.raw) !== undefined
+						? registerTrashedAsset(refFilename(shot.raw)!, trashDir!)
+						: undefined,
+			})
+			trash = json.trash
+				.filter((t: any) => t && t.shot)
+				.map((t: any) => ({
+					shot: loadTrashedShot(t.shot),
+					frame: t.frame ?? 0,
+					layer: t.layer ?? 0,
+					deletedAt: t.deletedAt ?? 0,
+				}))
+		}
+	}
+
+	return {...json, komas, audio, trash}
+}
+
+function audioFilename(src: Blob): string {
+	let filename = 'audio.src'
+	if (src instanceof File && src.name.includes('.')) {
+		const ext = src.name.split('.').pop()
+		if (ext) filename += `.${ext}`
+	}
+	return filename
+}
+
+/**
+ * Bring the on-disk filenames in line with the current timeline: live frames get
+ * their sequential names (byte-free rename via move()), files that are no longer
+ * referenced are moved into _trash. Runs before project.json is written.
+ */
+async function reconcileProjectAssets(
+	dir: FileSystemDirectoryHandle,
+	project: Project
+) {
+	const desired: {id: string; name: string}[] = []
+	const protectedIds = new Set<string>()
+
+	const pushLive = (
+		id: string | undefined,
+		frame: number,
+		layer: number,
+		type: 'lv' | 'jpg' | 'raw'
+	) => {
+		if (!id) return
+		protectedIds.add(id)
+		desired.push({id, name: frameAssetFilename(project.name, layer, frame, type)})
+	}
+
+	// Backup shots have no timeline slot, so keep their current name — but still
+	// protect them from being trashed (and persist any unwritten bytes).
+	const pushKeep = (id: string | undefined) => {
+		if (!id) return
+		protectedIds.add(id)
+		const name = getAssetFilename(id)
+		if (name) desired.push({id, name})
+	}
+
+	project.komas.forEach((koma, frame) => {
+		if (!koma) return
+		koma.shots.forEach((shot, layer) => {
+			if (!shot) return
+			pushLive(shot.lv, frame, layer, 'lv')
+			pushLive(shot.jpg, frame, layer, 'jpg')
+			pushLive(shot.raw, frame, layer, 'raw')
+		})
+		koma.backupShots?.forEach(shot => {
+			pushKeep(shot.lv)
+			pushKeep(shot.jpg)
+			pushKeep(shot.raw)
+		})
+	})
+
+	// Trashed shots are deliberately NOT protected (so step 1 moves freshly
+	// displaced files into _trash), but their ids are handed over so any captured-
+	// but-never-saved bytes still get written there.
+	const trashedIds: string[] = []
+	project.trash.forEach(({shot}) => {
+		if (shot.lv) trashedIds.push(shot.lv)
+		if (shot.jpg) trashedIds.push(shot.jpg)
+		if (shot.raw) trashedIds.push(shot.raw)
+	})
+
+	await reconcileAssets(dir, desired, protectedIds, trashedIds)
+}
+
+/**
+ * Write project.json, replacing each asset id with its `{$type:'blob', filename}`
+ * reference (json format unchanged for backward compatibility). The bytes are
+ * already on disk at the right names by the time this runs (reconcile above).
+ */
+async function saveProject(dir: FileSystemDirectoryHandle, project: Project) {
+	await reconcileProjectAssets(dir, project)
+
+	const refOf = (id: string | undefined): BlobRef | undefined => {
+		if (id === undefined) return undefined
+		const filename = getAssetFilename(id)
+		return filename === undefined ? undefined : {$type: 'blob', filename}
+	}
+	const saveShot = (shot: Shot | null) =>
+		!shot
+			? null
+			: {
+					...shot,
+					lv: refOf(shot.lv),
+					jpg: refOf(shot.jpg),
+					raw: refOf(shot.raw),
+				}
+
+	const komas = project.komas.map(koma =>
+		!koma
+			? koma
+			: {
+					...koma,
+					shots: (koma.shots ?? []).map(saveShot),
+					backupShots: koma.backupShots?.map(saveShot),
+				}
+	)
+
+	let audio: any = project.audio
+	if (audio?.src instanceof Blob) {
+		const filename = audioFilename(audio.src)
+		if (audioSavedDir.get(audio.src) !== dir) {
+			await writeFileToDirectory(dir, filename, audio.src)
+			audioSavedDir.set(audio.src, dir)
+		}
+		audio = {...audio, src: {$type: 'blob', filename}}
+	}
+
+	// The trashed shots' bytes are already in _trash (reconcile above), so refOf
+	// resolves each id to its current `_trash` filename.
+	const trash = project.trash.map(t => ({...t, shot: saveShot(t.shot)}))
+
+	await saveJson(dir, 'project.json', {...project, komas, audio, trash})
 }
 
 export const useProjectStore = defineStore('project', () => {
@@ -233,6 +486,65 @@ export const useProjectStore = defineStore('project', () => {
 	//     begin/endInteraction pair, which also commits one entry on end.
 	const autosaveSuspendDepth = ref(0)
 	const historyBatching = ref(false)
+
+	// True when there are edits not yet persisted to disk. Drives the unsaved
+	// indicator and the beforeunload guard so a reload mid re-sequence warns.
+	const dirty = ref(false)
+
+	// The live shots (keyed by their lv asset id) as of the last settle. syncTrash
+	// diffs this against the current timeline to discover what was displaced — the
+	// step that lets it capture a shot an undo/redo swapped out *before* the
+	// wholesale state replacement erases it. Rebuilt on open()/createNew().
+	type LiveShot = {shot: Shot; frame: number; layer: number}
+	let prevLiveShots = new Map<string, LiveShot>()
+
+	function liveShotIndex(): Map<string, LiveShot> {
+		const live = new Map<string, LiveShot>()
+		project.komas.forEach((koma, frame) => {
+			if (!koma) return
+			koma.shots.forEach((shot, layer) => {
+				if (shot) live.set(shot.lv, {shot, frame, layer})
+			})
+			// Backup shots aren't on the timeline but must never be trashed either.
+			koma.backupShots?.forEach(shot => {
+				if (shot) live.set(shot.lv, {shot, frame: -1, layer: -1})
+			})
+		})
+		return live
+	}
+
+	/**
+	 * Maintain `project.trash` as the derived set "ever-captured − currently-live":
+	 * a shot that just left the timeline (delete, re-shoot overwrite, or an undo
+	 * that swapped it out) is appended; a shot a redo/undo brought back live is
+	 * reclaimed. Because nothing is ever destroyed here, a captured shot survives
+	 * any history navigation until an explicit purge.
+	 *
+	 * Idempotent: only mutates project.trash when the live set actually changed, so
+	 * the autosave watcher's re-fire (triggered by that very mutation) converges on
+	 * the next pass instead of looping.
+	 */
+	function syncTrash() {
+		const newLive = liveShotIndex()
+		const trashed = new Set(project.trash.map(t => t.shot.lv))
+
+		for (const [id, info] of prevLiveShots) {
+			if (newLive.has(id) || trashed.has(id)) continue
+			project.trash.push({
+				shot: cloneDeep(toRaw(info.shot)),
+				frame: info.frame,
+				layer: info.layer,
+				deletedAt: Date.now(),
+			})
+		}
+
+		const kept = project.trash.filter(t => !newLive.has(t.shot.lv))
+		if (kept.length !== project.trash.length) {
+			project.trash = kept
+		}
+
+		prevLiveShots = newLive
+	}
 
 	const undoableData = computed<UndoableData>({
 		get() {
@@ -295,7 +607,9 @@ export const useProjectStore = defineStore('project', () => {
 
 		directoryHandle.value = await opfs.localDirectoryHandle
 
+		clearAssets()
 		assignReactive(project, cloneDeep(emptyProject))
+		prevLiveShots = liveShotIndex()
 		projectLoaded = true
 
 		nextTick(() => history.clear())
@@ -323,9 +637,11 @@ export const useProjectStore = defineStore('project', () => {
 				throw new Error('No directory is selected')
 			}
 
-			const unflatProject = (await openBlobJson(directoryHandle.value, {
-				openBlob: opfs.open,
-			})) as unknown as Project
+			// Drop the previous project's asset ids/URLs before registering the
+			// new ones during load.
+			clearAssets()
+
+			const unflatProject = await loadProject(directoryHandle.value)
 
 			// In case the latest project format has more properties than the saved one,
 			// merge the saved state with the default state
@@ -333,6 +649,9 @@ export const useProjectStore = defineStore('project', () => {
 
 			autoSave.pause()
 			assignReactive(project, mergedProject)
+			// Seed the live-shot baseline from the freshly loaded timeline so the
+			// first edit diffs against it rather than against a stale set.
+			prevLiveShots = liveShotIndex()
 			autoSave.resume()
 
 			// Load succeeded — autosave may now persist changes to this directory.
@@ -357,28 +676,24 @@ export const useProjectStore = defineStore('project', () => {
 		save()
 	}
 
-	const {fn: save, isExecuting: isSaving} = debounceAsync(async () => {
-		if (isOpening.value) return
+	const {fn: save, isExecuting: isSaving} = debounceAsync(
+		async () => {
+			if (isOpening.value) return
 
-		if (!directoryHandle.value) {
-			throw new Error('No directory is specified')
-		}
+			if (!directoryHandle.value) {
+				throw new Error('No directory is specified')
+			}
 
-		await saveBlobJson(directoryHandle.value, toRaw(project), {
-			saveBlob: opfs.save,
-			pathToFilename(path) {
-				const [first, frame, , layer, type] = path
-
-				if (first === 'komas' && typeof frame === 'number') {
-					const lv = type === 'lv' ? '_lv' : ''
-					const seq = frame.toString().padStart(4, '0')
-					const ext = type === 'raw' ? 'dng' : 'jpg'
-
-					return `${project.name}_layer=${layer}${lv}_${seq}.${ext}`
-				}
+			await saveProject(directoryHandle.value, toRaw(project))
+		},
+		{
+			// Fires only once the whole (possibly re-queued) save chain settles, so
+			// dirty stays true if more edits land mid-save.
+			onFinish: () => {
+				dirty.value = false
 			},
-		})
-	})
+		}
+	)
 
 	// Enable autosave
 	//
@@ -405,7 +720,16 @@ export const useProjectStore = defineStore('project', () => {
 	// open() below.
 	const autoSave = pausableWatch(
 		() => (autosaveSuspendDepth.value > 0 ? null : project),
-		requestAutoSave,
+		() => {
+			if (projectLoaded) {
+				dirty.value = true
+				// Capture anything just displaced from the timeline into trash before
+				// the next save persists it. Runs only outside bursts (the source is
+				// collapsed during one), and bursts never change shots anyway.
+				syncTrash()
+			}
+			requestAutoSave()
+		},
 		{deep: true}
 	)
 
@@ -556,6 +880,7 @@ export const useProjectStore = defineStore('project', () => {
 		setOutPoint,
 		isOpening,
 		isSaving,
+		dirty,
 		isSavedToDisk,
 		beginInteraction,
 		endInteraction,

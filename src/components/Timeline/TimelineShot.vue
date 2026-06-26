@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {asyncComputed} from '@vueuse/core'
 import {capital} from 'case'
 import dateformat from 'dateformat'
 import {ConfigNameList} from 'tethr'
@@ -8,7 +9,7 @@ import {computed} from 'vue'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
-import {getObjectURL, toTime} from '@/utils'
+import {resolveAssetUrl, toTime} from '@/utils'
 
 interface Props {
 	frame: number
@@ -22,6 +23,8 @@ const viewport = useViewportStore()
 const timeline = useTimelineStore()
 
 const shot = computed(() => project.shot(props.frame, props.layer))
+
+const lvUrl = asyncComputed(() => resolveAssetUrl(shot.value?.lv))
 
 const selected = computed(() => {
 	return (
@@ -51,14 +54,19 @@ function selectShot() {
 
 function printShotInfo(shot: Shot) {
 	const infos: [string, string][] = [
-		['Capture Date', dateformat(shot.captureDate, 'mmm d, yyyy HH:MM:ss')],
+		[
+			'Capture Date',
+			shot.captureDate
+				? dateformat(shot.captureDate, 'mmm d, yyyy HH:MM:ss')
+				: '-',
+		],
 		['Time to Shoot', shot.shootTime ? toTime(shot.shootTime) : '-'],
 		['Jpeg Filename', shot.jpgFilename ?? '-'],
 		['', ''],
 	]
 
-	const configs = Object.entries(shot.cameraConfigs as any).filter(([name]) =>
-		ConfigNameList.includes(name as any)
+	const configs = Object.entries((shot.cameraConfigs ?? {}) as any).filter(
+		([name]) => ConfigNameList.includes(name as any)
 	)
 
 	return [...infos, ...configs]
@@ -97,7 +105,7 @@ function printShotInfo(shot: Shot) {
 			}"
 			class="captured"
 		>
-			<img :src="getObjectURL(shot.lv)" />
+			<img v-if="lvUrl" :src="lvUrl" />
 		</div>
 		<div v-else class="empty" />
 		<div

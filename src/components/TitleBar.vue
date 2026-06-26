@@ -54,18 +54,22 @@ const destroyBndr = Bndr.createScope(() => {
 
 onUnmounted(destroyBndr)
 
-const destinationInfo = computed(() => {
-	if (project.isSavedToDisk) {
-		return {
-			content: 'Saved to Disk',
-			html: true,
-		}
-	} else {
-		return {
-			content: `Saved to App`,
-			html: true,
-		}
+// Single status indicator: spinner while there is anything not yet safely on
+// disk (opening / saving=re-sequencing / unsaved edits), otherwise the
+// destination icon (local disk vs in-app OPFS).
+const saveStatus = computed(() => {
+	if (project.isOpening) {
+		return {icon: 'eos-icons:bubble-loading', content: 'Opening…'}
 	}
+	if (project.isSaving) {
+		return {icon: 'eos-icons:bubble-loading', content: 'Saving…'}
+	}
+	if (project.dirty) {
+		return {icon: 'eos-icons:bubble-loading', content: 'Unsaved changes'}
+	}
+	return project.isSavedToDisk
+		? {icon: 'clarity:hard-disk-solid', content: 'Saved to Disk'}
+		: {icon: 'octicon:cache-16', content: 'Saved to App'}
 })
 </script>
 
@@ -74,14 +78,8 @@ const destinationInfo = computed(() => {
 		<template #left>
 			<Tq.InputString v-model="project.name" style="width: 10em" />
 			<Tq.IconIndicator
-				v-tooltip="destinationInfo"
-				:icon="
-					project.isSavedToDisk ? 'clarity:hard-disk-solid' : 'octicon:cache-16'
-				"
-			/>
-			<Tq.Icon
-				v-show="project.isSaving || project.isOpening"
-				icon="eos-icons:bubble-loading"
+				v-tooltip="{content: saveStatus.content, html: true}"
+				:icon="saveStatus.icon"
 			/>
 		</template>
 		<template #center>

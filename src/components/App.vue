@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {whenever} from '@vueuse/core'
+import {useEventListener, whenever} from '@vueuse/core'
 import * as Bndr from 'bndr-js'
 import {scalar, vec2, vec3, vec4} from 'linearly'
 import sleep from 'p-sleep'
@@ -20,7 +20,13 @@ import {useTimerStore} from '@/stores/timer'
 import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
 import {preventConcurrentExecution} from '@/utils'
-import {playSound, resizeBlobImage, speak} from '@/utils'
+import {
+	frameAssetFilename,
+	playSound,
+	registerCapturedAsset,
+	resizeBlobImage,
+	speak,
+} from '@/utils'
 
 import CameraControl from './CameraControl.vue'
 import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
@@ -46,6 +52,17 @@ const dmx = useDmxStore()
 const timer = useTimerStore()
 const tracker = useTrackerStore()
 const shootAlerts = useShootAlertsStore()
+
+// Warn before unload if a save is in flight (e.g. re-sequencing files on disk
+// after a frame edit) or there are still-unsaved changes — interrupting a
+// re-sequence can leave the folder half-renamed.
+useEventListener(window, 'beforeunload', (e: BeforeUnloadEvent) => {
+	if (project.isSaving || project.dirty) {
+		e.preventDefault()
+		e.returnValue = ''
+	}
+})
+
 const gamepad = Bndr.gamepad()
 
 watch(() => project.captureShot, timer.reset)
@@ -247,10 +264,24 @@ const {fn: shoot} = preventConcurrentExecution(
 			// Resize jpg to fit the resolution of the project
 			const lv = await resizeBlobImage(jpg, project.resolution, 'cover')
 
+			// Register the captured bytes as session assets and store only their
+			// ids on the shot. The initial filename is derived from the capture
+			// slot; bytes are persisted on the next autosave.
+			const {frame, layer} = project.captureShot
+			const name = project.name
+
 			return {
-				jpg,
-				raw,
-				lv,
+				lv: registerCapturedAsset(lv, frameAssetFilename(name, layer, frame, 'lv')),
+				jpg: registerCapturedAsset(
+					jpg,
+					frameAssetFilename(name, layer, frame, 'jpg')
+				),
+				raw: raw
+					? registerCapturedAsset(
+							raw,
+							frameAssetFilename(name, layer, frame, 'raw')
+						)
+					: undefined,
 				jpgFilename,
 				rawFilename,
 				cameraConfigs,
