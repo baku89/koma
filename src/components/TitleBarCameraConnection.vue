@@ -60,6 +60,7 @@ function cameraIcon(type: string) {
 		:reference="trigger ?? null"
 		:open="open"
 		placement="bottom-start"
+		arrow
 		@update:open="onUpdateOpen"
 	>
 		<div class="camera-menu">
@@ -138,20 +139,13 @@ function cameraIcon(type: string) {
 	margin-left auto
 	opacity .6
 
-// Tq.Popover is a transparent wrapper, so the menu carries its own popup chrome
-// (mirrors Tweeq's popup-style mixin).
+// Chrome (surface, border, blur, shadow, padding) comes from the Popover's
+// Balloon now; the menu only lays out its rows.
 .camera-menu
-	padding var(--tq-popup-padding)
 	display flex
 	flex-direction column
 	gap .5em
 	min-width 14em
-	background var(--tq-color-surface)
-	border 1px solid var(--tq-color-border)
-	border-radius var(--tq-radius-popup)
-	box-shadow 0 0 20px 0px var(--tq-color-shadow)
-	backdrop-filter blur(6px)
-	color var(--tq-color-text)
 
 .empty
 	padding .3em
