@@ -44,6 +44,27 @@ async function sendGcode() {
 	gcode.value = ''
 }
 
+// CNC control dropdown. Mirrors the camera connection popup: a native Tq.Popover
+// with the same click-toggle + light-dismiss guard + drag-region focus trick
+// (the title bar swallows background clicks unless something in it is focused).
+const cncOpen = ref(false)
+const cncTrigger = ref<HTMLElement>()
+let lastCncDismissAt = 0
+
+function onCncTriggerClick() {
+	if (performance.now() - lastCncDismissAt < 200) return
+	cncOpen.value = !cncOpen.value
+}
+
+function onCncUpdateOpen(value: boolean) {
+	if (!value) lastCncDismissAt = performance.now()
+	cncOpen.value = value
+}
+
+watch(cncOpen, isOpen => {
+	if (isOpen) cncTrigger.value?.focus()
+})
+
 const destroyBndr = Bndr.createScope(() => {
 	Bndr.gamepad()
 		.devices()
@@ -159,44 +180,49 @@ const saveStatus = computed(() => {
 				icon="tabler:gizmo"
 				:active="aux.tracker.enabled"
 			/>
-			<vDropdown :triggers="['click']">
+			<button ref="cncTrigger" class="cnc-trigger" @click="onCncTriggerClick">
 				<Tq.IconIndicator
 					icon="game-icons:mechanical-arm"
 					:active="cnc.connected"
-					style="cursor: pointer"
 				/>
-				<template #popper>
-					<div class="cnc-menu">
-						<Tq.InputGroup>
-							<Tq.InputButton
-								label="Status"
-								icon="mdi:information-outline"
-								:disabled="!cnc.connected"
-								@click="cnc.send('$$')"
-							/>
-							<Tq.InputButton
-								:label="cnc.connected ? 'Disconnect' : 'Connect'"
-								:icon="cnc.connected ? 'mdi:link-off' : 'mdi:link'"
-								@click="cnc.connected ? cnc.disconnect() : cnc.connect()"
-							/>
-						</Tq.InputGroup>
-						<Tq.InputGroup>
-							<Tq.InputString
-								v-model="gcode"
-								font="numeric"
-								:disabled="!cnc.connected"
-								@confirm="sendGcode"
-							/>
-							<Tq.InputButton
-								label="Send"
-								:disabled="!cnc.connected"
-								@click="sendGcode"
-							/>
-						</Tq.InputGroup>
-						<pre ref="logEl">{{ cnc.log }}</pre>
-					</div>
-				</template>
-			</vDropdown>
+			</button>
+			<Tq.Popover
+				:reference="cncTrigger ?? null"
+				:open="cncOpen"
+				placement="bottom-end"
+				arrow
+				@update:open="onCncUpdateOpen"
+			>
+				<div class="cnc-menu">
+					<Tq.InputGroup>
+						<Tq.InputButton
+							label="Status"
+							icon="mdi:information-outline"
+							:disabled="!cnc.connected"
+							@click="cnc.send('$$')"
+						/>
+						<Tq.InputButton
+							:label="cnc.connected ? 'Disconnect' : 'Connect'"
+							:icon="cnc.connected ? 'mdi:link-off' : 'mdi:link'"
+							@click="cnc.connected ? cnc.disconnect() : cnc.connect()"
+						/>
+					</Tq.InputGroup>
+					<Tq.InputGroup>
+						<Tq.InputString
+							v-model="gcode"
+							font="numeric"
+							:disabled="!cnc.connected"
+							@confirm="sendGcode"
+						/>
+						<Tq.InputButton
+							label="Send"
+							:disabled="!cnc.connected"
+							@click="sendGcode"
+						/>
+					</Tq.InputGroup>
+					<pre ref="logEl">{{ cnc.log }}</pre>
+				</div>
+			</Tq.Popover>
 		</template>
 	</Tq.TitleBar>
 </template>
@@ -205,12 +231,18 @@ const saveStatus = computed(() => {
 @import '../../dev_modules/tweeq/src/common.styl'
 
 
+.cnc-trigger
+	display flex
+	align-items center
+	cursor pointer
+
+// Chrome (surface/border/blur/shadow/padding) comes from the Popover's Balloon;
+// the menu only sizes and lays out its rows.
 .cnc-menu
-	padding var(--tq-popup-padding)
 	width 15rem
 	display flex
 	flex-direction column
-	gap .5em
+	gap 0.5em
 
 	pre
 		white-space pre-wrap
