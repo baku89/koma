@@ -48,7 +48,6 @@
 		"eslint-plugin-unused-imports": "^4.1.4",
 		"eslint-plugin-vue": "^10.9.1",
 		"file-saver": "^2.0.5",
-		"floating-vue": "^5.2.2",
 		"gcnc": "^0.1.1",
 		"globals": "^15",
 		"howler": "^2.2.4",
