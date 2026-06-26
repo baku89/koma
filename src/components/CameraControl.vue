@@ -30,6 +30,8 @@ const configNames: ConfigName[] = [
 	'imageAspect',
 	'autoFocusFrameSize',
 	'focusMeteringMode',
+	'focusPeaking',
+	'liveviewMagnifyRatio',
 ]
 
 const configLabels = {
@@ -49,6 +51,8 @@ const configLabels = {
 	imageAspect: {label: 'Aspect', icon: 'mdi:aspect-ratio'},
 	autoFocusFrameSize: {label: 'AF Size', icon: 'mdi:camera-metering-matrix'},
 	focusMeteringMode: {label: 'Metering', icon: 'mdi:camera-metering-matrix'},
+	focusPeaking: {label: 'Peaking', icon: 'material-symbols:center-focus-strong'},
+	liveviewMagnifyRatio: {label: 'LV Zoom', icon: 'material-symbols:zoom-in'},
 } as Record<ConfigName, {label: string; icon: string}>
 
 function getConfigVisibility(name: ConfigName) {

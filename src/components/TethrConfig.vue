@@ -66,6 +66,14 @@ const inputAttrs = computed<InputAttrs>(() => {
 			return {
 				labelizer: (v: any) => (/^[a-z]+$/i.test(v) ? capital(v) : v),
 			}
+		case 'liveviewMagnifyRatio':
+			return {
+				labelizer: (v: any) => '×' + v,
+			}
+		case 'focusPeaking':
+			return {
+				labelizer: (v: any) => (v === false ? 'Off' : capital(v)),
+			}
 	}
 
 	return {}
@@ -136,17 +144,11 @@ function increment(dir: 1 | -1) {
 			@click="increment(-1)"
 			gray
 		/>
-		<Tq.InputString
-			v-if="config.value === null || !config.option"
-			:modelValue="config.value ? String(config.value) : '-'"
-			align="center"
-			disabled
-		/>
 		<Tq.InputDropdown
-			v-else-if="config.option.type === 'enum'"
+			v-if="config.option?.type === 'enum' && config.option.values.length > 0"
 			:modelValue="config.value"
 			:options="config.option.values"
-			:disabled="config.writable"
+			:disabled="!config.writable"
 			align="center"
 			v-bind="inputAttrs"
 			@update:modelValue="update"
@@ -164,6 +166,17 @@ function increment(dir: 1 | -1) {
 			:suffix="suffix"
 			v-bind="inputAttrs"
 			@update:modelValue="update"
+		/>
+		<!--
+			No usable input (value is null, there's no option, or an enum with
+			zero choices): show an inactive, read-only frame instead of an empty
+			editable dropdown.
+		-->
+		<Tq.InputString
+			v-else
+			:modelValue="config.value ? String(config.value) : '-'"
+			align="center"
+			disabled
 		/>
 		<Tq.InputButton
 			v-if="canIncrement"
