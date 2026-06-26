@@ -15,6 +15,12 @@ export const useSelectionStore = defineStore('selection', () => {
 	const Tq = useTweeq()
 
 	let selection: SelectionOptions | null = null
+	// Paste acts on the clipboard, not the live selection. Keep every context's
+	// latest paste handler (keyed by context, so at most one per kind) and run
+	// them all on paste — each no-ops unless the clipboard holds its kind of
+	// data. This lets you cut, click elsewhere (which clears or changes the
+	// selection), and paste repeatedly, regardless of what's selected now.
+	const pasteHandlers = new Map<string, () => void>()
 	let willUnselect = true
 
 	function select(options: SelectionOptions) {
@@ -30,6 +36,7 @@ export const useSelectionStore = defineStore('selection', () => {
 			selection.onUnselect()
 		}
 		selection = options
+		if (options.onPaste) pasteHandlers.set(options.context, options.onPaste)
 	}
 
 	function unselect() {
@@ -46,7 +53,7 @@ export const useSelectionStore = defineStore('selection', () => {
 	}
 
 	function paste() {
-		if (selection?.onPaste) selection.onPaste()
+		for (const onPaste of pasteHandlers.values()) onPaste()
 	}
 
 	function reserveUnselect() {

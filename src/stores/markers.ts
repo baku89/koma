@@ -62,10 +62,17 @@ export const useMarkersStore = defineStore('markers', () => {
 				deleteSelected()
 			},
 			async onPaste() {
+				// Runs on every paste, so bail unless the clipboard actually holds
+				// our markers (e.g. it's a copied image, or non-JSON text).
 				const text = await navigator.clipboard.readText()
-				const clipboard = JSON.parse(text)
+				let clipboard: {type?: string; data?: Marker[]}
+				try {
+					clipboard = JSON.parse(text)
+				} catch {
+					return
+				}
 
-				if (clipboard.type !== 'markers') return
+				if (clipboard?.type !== 'markers') return
 
 				const markers = clipboard.data as Marker[]
 
