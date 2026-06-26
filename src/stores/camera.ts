@@ -1,7 +1,6 @@
 import {useTethr} from '@tethr/vue3'
-import sleep from 'p-sleep'
 import {defineStore} from 'pinia'
-import {Tethr, TethrDeviceType} from 'tethr'
+import {Tethr, TethrDeviceType, TethrIdentifier} from 'tethr'
 import {watch} from 'vue'
 
 import {useProjectStore} from './project'
@@ -9,55 +8,52 @@ import {useProjectStore} from './project'
 export const useCameraStore = defineStore('camera', () => {
 	const project = useProjectStore()
 
-	// Use @tethr/vue3 hook for camera management
+	// @tethr/vue3 now owns device matching (requestCamera accepts an identifier)
+	// and exposes `isConnecting`, so the app no longer reaches into USB internals
+	// or guards the auto-reconnect race itself.
 	const {
 		pairedCameras,
 		requestCamera,
-		open,
+		isConnecting,
 		close,
 		camera: tethr,
 		toggleLiveview,
 		configs,
 	} = useTethr()
 
-	// Automatically connect
+	// Auto-reconnect to the project's remembered camera when it's available and
+	// nothing is connected. Re-runs when the project (its `camera` identity)
+	// changes or a device is plugged in. `prompt: false` keeps it silent — this
+	// isn't a user gesture, so a picker would throw anyway.
 	watch(
-		() => [project.cameraConfigs.model, pairedCameras.value] as const,
-		async ([model], prev) => {
-			if (!model || tethr.value) return
-			if (prev?.[0] === model) return
-
-			connectPreconfiguredCamera()
+		() => [project.camera, pairedCameras.value] as const,
+		() => {
+			if (project.camera) connect(project.camera, {prompt: false})
 		},
 		{immediate: true}
 	)
 
-	async function connectPreconfiguredCamera() {
-		for await (const cam of pairedCameras.value) {
-			if ((await cam.getModel()) === project.cameraConfigs.model) {
-				openCamera(cam)
-				break
-			}
-		}
+	async function connect(
+		query: TethrDeviceType | TethrIdentifier,
+		opts?: {prompt?: boolean}
+	) {
+		if (tethr.value || isConnecting.value) return
+		await requestCamera(query, opts)
+		if (tethr.value) await setupCamera(tethr.value)
 	}
 
-	async function openCamera(cam: Tethr) {
+	async function setupCamera(cam: Tethr) {
 		cam.setLog(false)
-
-		await open(cam)
 
 		const model = await cam.getModel()
 
-		await cam.importConfigs(project.cameraConfigs)
+		// Remember this exact camera so we can reconnect to it next time.
+		project.camera = {...cam.identifier, model: model ?? undefined}
 
-		/** TODO: Fix this */
-		if (
-			project.cameraConfigs.whiteBalance &&
-			project.cameraConfigs.whiteBalance !== 'manual'
-		) {
-			await sleep(500)
-			await cam.setWhiteBalance(project.cameraConfigs.whiteBalance)
-		}
+		// importConfigs() now verifies and retries each write itself (see
+		// TethrSigma), so the old "set white balance again after a delay"
+		// workaround is no longer needed.
+		await cam.importConfigs(project.cameraConfigs)
 
 		saveConfigs()
 
@@ -74,31 +70,31 @@ export const useCameraStore = defineStore('camera', () => {
 		await cam.startLiveview()
 	}
 
-	async function toggleConnection(type: TethrDeviceType = 'ptpusb') {
-		if (tethr.value) {
-			await close()
-			return
-		}
+	/** Connect to a specific already-paired camera, switching if needed. */
+	async function connectCamera(cam: Tethr) {
+		if (isConnecting.value || tethr.value === cam) return
+		if (tethr.value) await close()
+		await connect(cam.identifier, {prompt: false})
+	}
 
-		try {
-			await requestCamera(type)
-			console.log('tethr.value', tethr.value)
-			// The camera will be automatically set in tethr.value by useTethr
-			if (tethr.value) {
-				await openCamera(tethr.value)
-			}
-		} catch (err) {
-			if (err instanceof Error) {
-				alert(err.message)
-			}
-			return
-		}
+	function disconnect() {
+		return close()
+	}
+
+	/** Prompt to grant/select a new device of the given type and connect to it. */
+	async function grant(type: TethrDeviceType) {
+		if (isConnecting.value) return
+		if (tethr.value) await close()
+		await connect(type)
 	}
 
 	return {
 		tethr,
 		pairedCameras,
-		toggleConnection,
+		isConnecting,
+		connectCamera,
+		disconnect,
+		grant,
 		toggleLiveview,
 
 		// All camera configs from @tethr/vue3
