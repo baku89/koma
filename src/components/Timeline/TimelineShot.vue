@@ -69,15 +69,28 @@ function printShotInfo(shot: Shot) {
 		([name]) => ConfigNameList.includes(name as any)
 	)
 
-	return [...infos, ...configs]
+	// Rendered via the tooltip's v-html, so styling is inline (scoped CSS can't
+	// reach it). A 2-column grid keeps labels and values aligned.
+	const cells = [...infos, ...configs]
 		.map(([name, value]) => {
-			if (name === '') return '<hr />'
-
-			const nameHtml = `<em>${capital(name)}:</em>`
-			const valueHtml = `<span class="tq-font-numeric">${value}</span>`
-			return nameHtml + ' ' + valueHtml
+			if (name === '') {
+				return (
+					'<hr style="grid-column:1/-1;width:100%;margin:.3em 0;' +
+					'border:none;border-top:1px solid var(--tq-color-border)" />'
+				)
+			}
+			const label = `<span style="color:var(--tq-color-text-mute)">${capital(name)}</span>`
+			const val = `<span>${value}</span>`
+			return label + val
 		})
-		.join('<br />')
+		.join('')
+
+	return (
+		'<div style="display:grid;grid-template-columns:auto auto;' +
+		'gap:.2em .8em;text-align:left;font-variant-numeric:tabular-nums">' +
+		cells +
+		'</div>'
+	)
 }
 </script>
 
