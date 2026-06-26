@@ -69,7 +69,7 @@ export const useViewportStore = defineStore('viewport', () => {
 			onCopy: copyShot,
 			async onCut() {
 				await copyShot()
-				deleteShot()
+				clearShot()
 			},
 			onPaste: pasteShot,
 		})
@@ -119,6 +119,26 @@ export const useViewportStore = defineStore('viewport', () => {
 					draft.previewRange[1] -= 1
 				}
 			}
+		})
+
+		playSound('sound/Hit08-1.mp3')
+	}
+
+	// Cut/clear a shot in place: blank the cell but keep its frame, so the
+	// timeline doesn't ripple shut. Unlike deleteShot, an emptied frame is left
+	// as an empty koma rather than spliced out.
+	function clearShot() {
+		if (!isShotSelected.value) return
+
+		const frame =
+			currentFrame.value === project.captureShot.frame
+				? currentFrame.value - 1
+				: currentFrame.value
+
+		if (frame < 0 || project.duration <= frame) return
+
+		project.$patch(draft => {
+			draft.komas[frame].shots[currentLayer.value] = null
 		})
 
 		playSound('sound/Hit08-1.mp3')
