@@ -1,4 +1,6 @@
 import 'floating-vue/dist/style.css'
+// Override floating-vue's light popper styling to follow Tweeq's theme.
+import './floating-vue-theme.css'
 
 import FloatingVue from 'floating-vue'
 import {createPinia} from 'pinia'

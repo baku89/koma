@@ -1,0 +1,39 @@
+/*
+ * Make floating-vue dropdown poppers follow Tweeq's theme (so they're dark in
+ * dark mode) instead of floating-vue's built-in light styling. Only colors are
+ * overridden — layout/radius/shadow are left to floating-vue. Tweeq's theme vars
+ * live on <body>, and poppers teleport into `.TqViewport` (a body descendant),
+ * so the custom properties resolve correctly inside the popper.
+ */
+.v-popper--theme-dropdown .v-popper__inner {
+	background: var(--tq-color-surface);
+	color: var(--tq-color-text);
+	border-color: var(--tq-color-border);
+}
+
+.v-popper--theme-dropdown .v-popper__arrow-inner {
+	border-color: var(--tq-color-surface);
+}
+
+.v-popper--theme-dropdown .v-popper__arrow-outer {
+	border-color: var(--tq-color-border);
+}
+
+/*
+ * Tooltips: match Tweeq's native popups — a translucent surface with a blurred
+ * backdrop (pane-style) instead of floating-vue's opaque bubble.
+ */
+.v-popper--theme-tooltip .v-popper__inner {
+	background: var(--tq-color-surface);
+	color: var(--tq-color-text);
+	border: 1px solid var(--tq-color-border);
+	backdrop-filter: blur(6px);
+}
+
+.v-popper--theme-tooltip .v-popper__arrow-inner {
+	border-color: var(--tq-color-surface);
+}
+
+.v-popper--theme-tooltip .v-popper__arrow-outer {
+	border-color: var(--tq-color-border);
+}
