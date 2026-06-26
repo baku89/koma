@@ -300,6 +300,33 @@ const {fn: shoot} = preventConcurrentExecution(
 	}
 )
 
+// Place a freshly shot frame at the capture slot, then move the capture cursor
+// to the next empty frame. When the final frame of the duration was just filled,
+// grow the timeline by one so the cursor lands on a real (visible) empty frame
+// instead of hanging one past the end.
+function placeShotAndAdvance(newShot: Shot) {
+	project.$patch(state => {
+		const {frame, layer} = state.captureShot
+		project.setShot(frame, layer, newShot)
+
+		// Next frame without a base-layer shot.
+		let next = frame + 1
+		while (next < state.komas.length && state.komas[next]?.shots[0]) {
+			next++
+		}
+		// We filled the last frame — extend the duration by one.
+		if (next >= state.komas.length) {
+			state.komas.push({shots: []})
+		}
+
+		state.captureShot = {frame: next, layer: 0}
+		state.previewRange[1] = state.captureShot.frame
+	})
+
+	viewport.setCurrentFrame(project.captureShot.frame)
+	viewport.setCurrentLayer(project.captureShot.layer)
+}
+
 const oscIn = osc.receivers({
 	shoot: {address: '/shoot', type: 'b', default: 0},
 })
@@ -582,24 +609,7 @@ Tq.actions.register([
 				bind: ['enter', 'gamepad:a'],
 				async perform() {
 					const newShot = await shoot()
-
-					project.$patch(state => {
-						const {frame, layer} = state.captureShot
-						project.setShot(frame, layer, newShot)
-
-						// Find next empty frame
-						for (let i = frame + 1; i <= state.komas.length; i++) {
-							if (!state.komas[i] || !state.komas[i]?.shots[0]) {
-								state.captureShot = {frame: i, layer: 0}
-								break
-							}
-						}
-
-						state.previewRange[1] = state.captureShot.frame
-					})
-
-					viewport.setCurrentFrame(project.captureShot.frame)
-					viewport.setCurrentLayer(project.captureShot.layer)
+					placeShotAndAdvance(newShot)
 				},
 			},
 			{
@@ -608,24 +618,7 @@ Tq.actions.register([
 				bind: ['command+enter'],
 				async perform() {
 					const newShot = await shoot(true)
-
-					project.$patch(state => {
-						const {frame, layer} = state.captureShot
-						project.setShot(frame, layer, newShot)
-
-						// Find next empty frame
-						for (let i = frame + 1; i <= state.komas.length; i++) {
-							if (!state.komas[i] || !state.komas[i]?.shots[0]) {
-								state.captureShot = {frame: i, layer: 0}
-								break
-							}
-						}
-
-						state.previewRange[1] = state.captureShot.frame
-					})
-
-					viewport.setCurrentFrame(project.captureShot.frame)
-					viewport.setCurrentLayer(project.captureShot.layer)
+					placeShotAndAdvance(newShot)
 				},
 			},
 			{
