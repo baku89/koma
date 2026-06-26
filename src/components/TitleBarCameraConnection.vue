@@ -1,21 +1,37 @@
 <script setup lang="ts">
 import * as Tq from 'tweeq'
-import {computed, ref} from 'vue'
+import {computed, ref, watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 
 const camera = useCameraStore()
 
 const trigger = ref<HTMLElement>()
+const open = ref(false)
+
+// Native popover light-dismiss closes on an outside pointerdown — including one
+// that lands on the trigger. The trigger's own click would then reopen it, so
+// swallow a click that arrives right after a dismiss.
+let lastDismissAt = 0
+
+function onTriggerClick() {
+	if (performance.now() - lastDismissAt < 200) return
+	open.value = !open.value
+}
+
+function onUpdateOpen(value: boolean) {
+	if (!value) lastDismissAt = performance.now()
+	open.value = value
+}
 
 // The Tweeq title bar is an Electron drag region; the OS swallows background
 // pointer events there, so a popper's light-dismiss only fires while the bar is
 // `no-drag`. The bar turns off dragging when something inside it has focus, so
 // focus the trigger when the popup opens (popup buttons use mousedown.prevent,
 // so focus stays here while it's open).
-function onShow() {
-	trigger.value?.focus()
-}
+watch(open, isOpen => {
+	if (isOpen) trigger.value?.focus()
+})
 
 const label = computed(() => {
 	if (camera.isConnecting) return 'Connecting…'
@@ -34,61 +50,64 @@ function cameraIcon(type: string) {
 </script>
 
 <template>
-	<vDropdown :triggers="['click']" placement="bottom-start" @apply-show="onShow">
-		<button ref="trigger" class="trigger">
-			<Tq.Icon class="trigger-icon" :icon="icon" />
-			<span class="trigger-label">{{ label }}</span>
-			<Tq.Icon class="trigger-chevron" icon="mdi:chevron-down" />
-		</button>
+	<button ref="trigger" class="trigger" @click="onTriggerClick">
+		<Tq.Icon class="trigger-icon" :icon="icon" />
+		<span class="trigger-label">{{ label }}</span>
+		<Tq.Icon class="trigger-chevron" icon="mdi:chevron-down" />
+	</button>
 
-		<template #popper>
-			<div class="camera-menu">
-				<div v-if="camera.pairedCameras.length === 0" class="empty">
-					No cameras available
-				</div>
-
-				<div v-else class="cameras">
-					<template v-for="(cam, i) in camera.pairedCameras" :key="i">
-						<Tq.Icon class="row-icon" :icon="cameraIcon(cam.type)" />
-						<span class="row-name">{{ cam.name }}</span>
-						<Tq.InputButton
-							v-if="camera.tethr === cam"
-							icon="mdi:link-off"
-							tooltip="Disconnect"
-							subtle
-							@click="camera.disconnect()"
-						/>
-						<Tq.InputButton
-							v-else
-							icon="mdi:link"
-							tooltip="Connect"
-							:disabled="camera.isConnecting"
-							@click="camera.connectCamera(cam)"
-						/>
-					</template>
-				</div>
-
-				<hr class="divider" />
-
-				<div class="grant">
-					<Tq.InputButton
-						label="PTP/USB"
-						icon="mdi:camera-plus"
-						subtle
-						:disabled="camera.isConnecting"
-						@click="camera.grant('ptpusb')"
-					/>
-					<Tq.InputButton
-						label="Webcam"
-						icon="mdi:webcam"
-						subtle
-						:disabled="camera.isConnecting"
-						@click="camera.grant('webcam')"
-					/>
-				</div>
+	<Tq.Popover
+		:reference="trigger ?? null"
+		:open="open"
+		placement="bottom-start"
+		@update:open="onUpdateOpen"
+	>
+		<div class="camera-menu">
+			<div v-if="camera.pairedCameras.length === 0" class="empty">
+				No cameras available
 			</div>
-		</template>
-	</vDropdown>
+
+			<div v-else class="cameras">
+				<template v-for="(cam, i) in camera.pairedCameras" :key="i">
+					<Tq.Icon class="row-icon" :icon="cameraIcon(cam.type)" />
+					<span class="row-name">{{ cam.name }}</span>
+					<Tq.InputButton
+						v-if="camera.tethr === cam"
+						icon="mdi:link-off"
+						tooltip="Disconnect"
+						subtle
+						@click="camera.disconnect()"
+					/>
+					<Tq.InputButton
+						v-else
+						icon="mdi:link"
+						tooltip="Connect"
+						:disabled="camera.isConnecting"
+						@click="camera.connectCamera(cam)"
+					/>
+				</template>
+			</div>
+
+			<hr class="divider" />
+
+			<div class="grant">
+				<Tq.InputButton
+					label="PTP/USB"
+					icon="mdi:camera-plus"
+					subtle
+					:disabled="camera.isConnecting"
+					@click="camera.grant('ptpusb')"
+				/>
+				<Tq.InputButton
+					label="Webcam"
+					icon="mdi:webcam"
+					subtle
+					:disabled="camera.isConnecting"
+					@click="camera.grant('webcam')"
+				/>
+			</div>
+		</div>
+	</Tq.Popover>
 </template>
 
 <style scoped lang="stylus">
@@ -119,12 +138,20 @@ function cameraIcon(type: string) {
 	margin-left auto
 	opacity .6
 
+// Tq.Popover is a transparent wrapper, so the menu carries its own popup chrome
+// (mirrors Tweeq's popup-style mixin).
 .camera-menu
 	padding var(--tq-popup-padding)
 	display flex
 	flex-direction column
 	gap .5em
 	min-width 14em
+	background var(--tq-color-surface)
+	border 1px solid var(--tq-color-border)
+	border-radius var(--tq-radius-popup)
+	box-shadow 0 0 20px 0px var(--tq-color-shadow)
+	backdrop-filter blur(6px)
+	color var(--tq-color-text)
 
 .empty
 	padding .3em
