@@ -1,14 +1,23 @@
 import {Howl} from 'howler'
 import {scalar} from 'linearly'
-import {clamp} from 'lodash-es'
+import {clamp, cloneDeep} from 'lodash-es'
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
 import {computed, readonly, ref, shallowRef, watch} from 'vue'
 
-import {getObjectURL, playSound} from '@/utils'
+import {
+	frameAssetFilename,
+	getObjectURL,
+	imageSignature,
+	playSound,
+	reencodeImage,
+	registerCapturedAsset,
+	resizeBlobImage,
+	resolveBlob,
+} from '@/utils'
 import {scrub, seekAndPlay} from '@/utils'
 
-import {useProjectStore} from './project'
+import {type Shot, useProjectStore} from './project'
 import {useSelectionStore} from './selection'
 
 type ViewportPopup = null | {type: 'progress'; progress: number}
@@ -57,6 +66,12 @@ export const useViewportStore = defineStore('viewport', () => {
 			context: 'shot',
 			onDelete: deleteShot,
 			onUnselect: unselectShot,
+			onCopy: copyShot,
+			async onCut() {
+				await copyShot()
+				deleteShot()
+			},
+			onPaste: pasteShot,
 		})
 	}
 
@@ -106,6 +121,114 @@ export const useViewportStore = defineStore('viewport', () => {
 			}
 		})
 
+		playSound('sound/Hit08-1.mp3')
+	}
+
+	// In-app clipboard for a copied shot, matched to the system clipboard by a
+	// content signature. We can't put our own marker on the clipboard (Chrome
+	// can't write image/jpeg, and a `web ...` custom format hangs the write), and
+	// the clipboard re-encodes images so byte/hash comparison fails — hence a
+	// re-encode-stable downsample signature.
+	let clipboardShot: {sig: string; shot: Shot} | null = null
+
+	async function copyShot() {
+		const shot = project.shot(currentFrame.value, currentLayer.value)
+		if (!shot) return
+
+		const src = await resolveBlob(shot.jpg)
+		if (!src) return
+
+		// Full-resolution PNG so other apps get the real image (not the low-res
+		// lv). Chrome rejects image/jpeg on write and hangs on custom formats, so
+		// the clipboard holds a lone PNG and nothing else.
+		const png = await reencodeImage(src, 'image/png')
+		clipboardShot = {sig: await imageSignature(png), shot: cloneDeep(shot)}
+
+		try {
+			await navigator.clipboard.write([new ClipboardItem({'image/png': png})])
+		} catch (err) {
+			// In-app copy still works even if the system clipboard write fails.
+			// eslint-disable-next-line no-console
+			console.error('Clipboard write failed:', err)
+		}
+	}
+
+	async function pasteShot() {
+		let items: ClipboardItem[]
+		try {
+			items = await navigator.clipboard.read()
+		} catch (err) {
+			// eslint-disable-next-line no-console
+			console.error('Clipboard read failed:', err)
+			return
+		}
+
+		for (const item of items) {
+			const imageType = item.types.find(t => t.startsWith('image/'))
+			if (!imageType) continue
+			const blob = await item.getType(imageType)
+
+			// Our own copy (clipboard image depicts the shot we copied) → restore
+			// the full shot (lv/jpg/raw/metadata). Otherwise it's an image from
+			// another app → import it.
+			if (clipboardShot && (await imageSignature(blob)) === clipboardShot.sig) {
+				await pasteShotData(clipboardShot.shot)
+			} else {
+				await pasteExternalImage(blob)
+			}
+			return
+		}
+	}
+
+	// Duplicate an asset (new id + fresh in-memory copy) so a pasted shot is
+	// independent of its source.
+	async function duplicateAsset(
+		assetId: string,
+		type: 'lv' | 'jpg' | 'raw'
+	): Promise<string | undefined> {
+		const blob = await resolveBlob(assetId)
+		if (!blob) return undefined
+		const filename = frameAssetFilename(
+			project.name,
+			currentLayer.value,
+			currentFrame.value,
+			type
+		)
+		return registerCapturedAsset(blob, filename)
+	}
+
+	async function pasteShotData(src: Shot) {
+		const lv = await duplicateAsset(src.lv, 'lv')
+		const jpg = await duplicateAsset(src.jpg, 'jpg')
+		if (!lv || !jpg) return
+		const raw = src.raw ? await duplicateAsset(src.raw, 'raw') : undefined
+
+		project.setShot(currentFrame.value, currentLayer.value, {
+			...cloneDeep(src),
+			lv,
+			jpg,
+			raw,
+		})
+		playSound('sound/Hit08-1.mp3')
+	}
+
+	async function pasteExternalImage(blob: Blob) {
+		const frame = currentFrame.value
+		const layer = currentLayer.value
+
+		const jpeg = await reencodeImage(blob, 'image/jpeg')
+		const lvBlob = await resizeBlobImage(jpeg, project.resolution, 'cover')
+
+		const jpg = registerCapturedAsset(
+			jpeg,
+			frameAssetFilename(project.name, layer, frame, 'jpg')
+		)
+		const lv = registerCapturedAsset(
+			lvBlob,
+			frameAssetFilename(project.name, layer, frame, 'lv')
+		)
+
+		project.setShot(frame, layer, {lv, jpg, captureDate: Date.now()})
 		playSound('sound/Hit08-1.mp3')
 	}
 

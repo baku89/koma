@@ -79,3 +79,53 @@ export async function resizeBlobImage(
 		canvas!.toBlob(b => (b ? resolve(b) : reject()), 'image/jpeg', 0.9)
 	})
 }
+
+/**
+ * A small, re-encode-stable content signature of an image (16×16 grayscale,
+ * quantized). Lets us tell whether two blobs depict the same picture even after
+ * the system clipboard re-encodes it (JPEG↔PNG), which defeats byte/hash
+ * comparison. Same picture → equal strings; different pictures → different.
+ */
+export async function imageSignature(blob: Blob): Promise<string> {
+	const N = 16
+	const bitmap = await createImageBitmap(blob, {imageOrientation: 'from-image'})
+	const c = document.createElement('canvas')
+	c.width = N
+	c.height = N
+	const ctx = c.getContext('2d')!
+	ctx.drawImage(bitmap, 0, 0, N, N)
+	bitmap.close()
+	const {data} = ctx.getImageData(0, 0, N, N)
+	let sig = ''
+	for (let i = 0; i < data.length; i += 4) {
+		const gray = (data[i] + data[i + 1] + data[i + 2]) / 3
+		// 4-bit buckets absorb minor re-encode differences.
+		sig += (gray >> 4).toString(16)
+	}
+	return sig
+}
+
+/**
+ * Re-encode an image blob to the given type at its natural resolution (with EXIF
+ * orientation baked in). Used to put a full-quality PNG on the system clipboard
+ * and to normalize pasted external images to JPEG.
+ */
+export async function reencodeImage(
+	blob: Blob,
+	type: 'image/png' | 'image/jpeg' = 'image/png',
+	quality = 0.92
+): Promise<Blob> {
+	const bitmap = await createImageBitmap(blob, {imageOrientation: 'from-image'})
+	const c = document.createElement('canvas')
+	c.width = bitmap.width
+	c.height = bitmap.height
+	c.getContext('2d')!.drawImage(bitmap, 0, 0)
+	bitmap.close()
+	return await new Promise<Blob>((resolve, reject) => {
+		c.toBlob(
+			b => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+			type,
+			quality
+		)
+	})
+}
