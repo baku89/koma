@@ -351,7 +351,9 @@ const visualizersStyles = computed(() => {
 
 .visualizers
 	position absolute
-	bottom 0
+	// Keep markers / the line graph / waveform clear of the horizontal scrollbar
+	// sitting just below the timeline content, instead of running flush into it.
+	bottom var(--tq-scrollbar-width)
 	width 100%
 
 .drawing
