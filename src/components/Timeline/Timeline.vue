@@ -14,6 +14,7 @@ import TimelineDrawing from './TimelineDrawing.vue'
 import TimelineGraph from './TimelineGraph.vue'
 import TimelineKoma from './TimelineKoma.vue'
 import TimelineMarkers from './TimelineMarkers.vue'
+import TimelineToolCursor from './TimelineToolCursor.vue'
 
 const project = useProjectStore()
 const viewport = useViewportStore()
@@ -236,6 +237,8 @@ const visualizersStyles = computed(() => {
 				<TimelineDrawing class="drawing" :range="range" />
 				<TimelineMarkers :range="range" :rangeStyle="rangeStyle" />
 			</div>
+
+			<TimelineToolCursor :range="range" />
 		</Tq.Timeline>
 	</div>
 </template>

@@ -120,6 +120,13 @@ useBndr($root, $root => {
 			coordinate: 'offset',
 		})
 		.on(d => {
+			// A dropped pointerup can leave this drag live; bail when a move
+			// arrives with no button down (see the marker-move drag below).
+			if (d.type === 'drag' && d.event.buttons === 0) {
+				selectionRect.value = null
+				return
+			}
+
 			if (canAddMarker.value) {
 				// マーカーの追加
 				cursorVisible.value = false
@@ -211,6 +218,16 @@ useBndr($root, $root => {
 			selector: '.TimelineMarker, .duration-handle',
 		})
 		.on(d => {
+			// pointerup / pointercancel is sometimes dropped (released outside the
+			// window, pointer-capture quirks), leaving Bndr convinced the drag is
+			// still live so the marker keeps following the cursor. If a move arrives
+			// with no button pressed, treat it as the end we never received. Same
+			// guard the preview-range drag in Timeline.vue uses.
+			if (d.type === 'drag' && d.event.buttons === 0) {
+				endMarkerDragBatch()
+				return
+			}
+
 			if (d.type === 'down') {
 				markersToDrag.clear()
 
