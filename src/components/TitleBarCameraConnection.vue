@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {useEventListener} from '@vueuse/core'
 import * as Tq from 'tweeq'
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 
@@ -7,6 +8,7 @@ import {useCameraStore} from '@/stores/camera'
 const camera = useCameraStore()
 
 const trigger = ref<HTMLElement>()
+const menu = ref<HTMLElement>()
 const open = ref(false)
 
 // Whether the machine has any webcam at all. enumerateDevices() lists
@@ -34,29 +36,57 @@ onBeforeUnmount(() => {
 	navigator.mediaDevices.removeEventListener('devicechange', refreshWebcam)
 })
 
-// Native popover light-dismiss closes on an outside pointerdown — including one
-// that lands on the trigger. The trigger's own click would then reopen it, so
-// swallow a click that arrives right after a dismiss.
-let lastDismissAt = 0
-
 function onTriggerClick() {
-	if (performance.now() - lastDismissAt < 200) return
 	open.value = !open.value
 }
 
 function onUpdateOpen(value: boolean) {
-	if (!value) lastDismissAt = performance.now()
 	open.value = value
 }
 
-// The Tweeq title bar is an Electron drag region; the OS swallows background
-// pointer events there, so a popper's light-dismiss only fires while the bar is
-// `no-drag`. The bar turns off dragging when something inside it has focus, so
-// focus the trigger when the popup opens (popup buttons use mousedown.prevent,
-// so focus stays here while it's open).
+// Light dismiss, but on our terms. The native popover light-dismiss fires on the
+// very pointerdown that opens the balloon from the "Connect to Camera" prompt
+// elsewhere, so it flickered closed-then-reopened. The popover is manual and we
+// dismiss here instead — closing on an outside pointerdown / Esc, but never for
+// the trigger (it toggles itself), clicks inside the balloon, or a
+// `[data-camera-connect]` prompt button (which must keep us open).
+useEventListener(
+	'pointerdown',
+	e => {
+		if (!open.value) return
+		const target = e.target as Element | null
+		if (!target) return
+		if (trigger.value?.contains(target)) return
+		if (target.closest('[data-camera-connect]')) return
+		if (menu.value?.closest('.TqBalloon')?.contains(target)) return
+		open.value = false
+	},
+	{capture: true}
+)
+
+useEventListener('keydown', e => {
+	if (e.key === 'Escape' && open.value) open.value = false
+})
+
+// Keep focus on the trigger while the popup is up (popup buttons use
+// mousedown.prevent, so focus stays here), which also keeps the Tweeq title bar
+// — an Electron drag region — in its `no-drag` state while interacting.
 watch(open, isOpen => {
 	if (isOpen) trigger.value?.focus()
 })
+
+// Another part of the app (the "Connect to Camera" prompt in Camera Control)
+// can ask us to open and briefly flash for attention — the same flash the
+// Balloon/InputButton use, shared so it reads identically.
+const {flashing, flash} = Tq.useFlash()
+
+watch(
+	() => camera.connectPromptNonce,
+	() => {
+		open.value = true
+		flash()
+	}
+)
 
 const label = computed(() => {
 	if (camera.isConnecting) return 'Connecting…'
@@ -75,7 +105,12 @@ function cameraIcon(type: string) {
 </script>
 
 <template>
-	<button ref="trigger" class="trigger" @click="onTriggerClick">
+	<button
+		ref="trigger"
+		class="trigger"
+		:class="{flashing}"
+		@click="onTriggerClick"
+	>
 		<Tq.Icon class="trigger-icon" :icon="icon" />
 		<span class="trigger-label">{{ label }}</span>
 		<Tq.Icon class="trigger-chevron" icon="mdi:chevron-down" />
@@ -86,9 +121,12 @@ function cameraIcon(type: string) {
 		:open="open"
 		placement="bottom-start"
 		arrow
+		:flash="flashing"
+		:light-dismiss="false"
+		exit-transition
 		@update:open="onUpdateOpen"
 	>
-		<div class="camera-menu">
+		<div ref="menu" class="camera-menu">
 			<div v-if="camera.pairedCameras.length === 0" class="empty">
 				No cameras available
 			</div>
@@ -150,6 +188,18 @@ function cameraIcon(type: string) {
 	padding 0 .5em
 	cursor pointer
 
+	// The same attention flash as the Balloon/InputButton (this bespoke dropdown
+	// trigger isn't an InputButton, so it borrows the shared useFlash() state).
+	// Glow only — no scale (it sits in the title bar, where a bump reads as jitter).
+	&.flashing
+		animation trigger-flash .6s ease-in-out 2
+
+@keyframes trigger-flash
+	0%, 100%
+		box-shadow 0 0 0 0 transparent
+	50%
+		box-shadow 0 0 0 2px var(--tq-color-accent), 0 0 10px 1px var(--tq-color-accent)
+
 .trigger-icon
 	flex none
 
@@ -166,7 +216,8 @@ function cameraIcon(type: string) {
 	opacity .6
 
 // Chrome (surface, border, blur, shadow, padding) comes from the Popover's
-// Balloon now; the menu only lays out its rows.
+// Balloon now; the menu only lays out its rows. The attention flash lives on the
+// Balloon itself (forwarded via the Popover's `flash` prop).
 .camera-menu
 	display flex
 	flex-direction column

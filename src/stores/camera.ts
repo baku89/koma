@@ -1,7 +1,7 @@
 import {useTethr} from '@tethr/vue3'
 import {defineStore} from 'pinia'
 import {Tethr, TethrDeviceType, TethrIdentifier} from 'tethr'
-import {watch} from 'vue'
+import {ref, watch} from 'vue'
 
 import {useProjectStore} from './project'
 
@@ -88,6 +88,15 @@ export const useCameraStore = defineStore('camera', () => {
 		await connect(type)
 	}
 
+	// Bumped to ask the title-bar connection popup to open (and flash for
+	// attention) — e.g. from the "Connect to Camera" button shown in Camera
+	// Control while disconnected. A nonce so repeated requests each re-trigger.
+	const connectPromptNonce = ref(0)
+
+	function promptConnect() {
+		connectPromptNonce.value++
+	}
+
 	return {
 		tethr,
 		pairedCameras,
@@ -96,6 +105,8 @@ export const useCameraStore = defineStore('camera', () => {
 		disconnect,
 		grant,
 		toggleLiveview,
+		connectPromptNonce,
+		promptConnect,
 
 		// All camera configs from @tethr/vue3
 		...configs,
