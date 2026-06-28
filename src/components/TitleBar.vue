@@ -113,9 +113,10 @@ const saveStatus = computed(() => {
 		</template>
 		<template #center>
 			<Tq.InputGroup>
-				<Tq.InputCheckbox
-					v-model="viewport.isPlaying"
+				<Tq.InputButton
 					:icon="viewport.isPlaying ? 'mdi:pause' : 'mdi:play'"
+					:subtle="!viewport.isPlaying"
+					@click="viewport.isPlaying = !viewport.isPlaying"
 				/>
 				<Tq.InputTime
 					:modelValue="viewport.previewFrame"
