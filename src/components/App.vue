@@ -500,33 +500,67 @@ Tq.actions.register([
 				icon: 'mdi:gear',
 				bind: 'command+option+,',
 				async perform() {
-					const result = await Tq.modal.prompt(
-						{
-							name: project.name,
-							fps: project.fps,
-							duration: project.duration,
-							shootCondition: project.shootCondition,
-							preShootScript: project.preShootScript ?? '',
-							customScript: project.customScript ?? '',
-						},
-						{
-							name: {type: 'string'},
-							fps: {type: 'number', min: 1, max: 60, step: 1},
-							duration: {type: 'number', min: 0, step: 1},
-							shootCondition: {type: 'string', ui: 'code', lang: 'javascript'},
-							preShootScript: {type: 'string', ui: 'code', lang: 'javascript'},
-							customScript: {type: 'string', ui: 'code', lang: 'javascript'},
-						},
-						{
-							title: 'Project Settings',
-						}
+					await Tq.modal.promptTabs(
+						[
+							{
+								id: 'general',
+								title: 'General',
+								scheme: {
+									name: {type: 'string'},
+									fps: {type: 'number', min: 1, max: 60, step: 1},
+									duration: {type: 'number', min: 0, step: 1},
+								},
+								value: {
+									name: project.name,
+									fps: project.fps,
+									duration: project.duration,
+								},
+								onInput(v) {
+									project.setDuration(v.duration)
+									project.$patch({name: v.name, fps: v.fps})
+								},
+							},
+							{
+								id: 'shootCondition',
+								title: 'Shoot Condition',
+								scheme: {
+									shootCondition: {
+										type: 'string',
+										ui: 'code',
+										lang: 'javascript',
+									},
+								},
+								value: {shootCondition: project.shootCondition},
+								onInput(v) {
+									project.$patch({shootCondition: v.shootCondition})
+								},
+							},
+							{
+								id: 'scripts',
+								title: 'Scripts',
+								scheme: {
+									preShootScript: {
+										type: 'string',
+										ui: 'code',
+										lang: 'javascript',
+									},
+									customScript: {
+										type: 'string',
+										ui: 'code',
+										lang: 'javascript',
+									},
+								},
+								value: {
+									preShootScript: project.preShootScript ?? '',
+									customScript: project.customScript ?? '',
+								},
+								onInput(v) {
+									project.$patch(v)
+								},
+							},
+						],
+						{title: 'Project Settings'}
 					)
-
-					if (!result) return
-
-					project.setDuration(result.duration)
-
-					project.$patch(result)
 				},
 			},
 		],
