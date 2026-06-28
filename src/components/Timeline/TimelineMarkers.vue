@@ -12,6 +12,7 @@ import {useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
 import {speak} from '@/utils'
 
+import MarkerEditPopover from './MarkerEditPopover.vue'
 import TimelineMarker from './TimelineMarker.vue'
 
 const props = defineProps<{
@@ -55,17 +56,14 @@ function onPressMarker(event: PointerEvent, index: number) {
 	markers.select(index)
 }
 
-// Double-click a marker to rename it.
-function onEditLabel(index: number) {
-	const marker = project.markers[index]
-	if (!marker) return
+// Double-click a marker to edit its label, color and duration in a popover
+// anchored to the marker. Light-dismissable (click outside / Esc to close).
+const editingMarkerIndex = ref<number | null>(null)
+const editingMarkerEl = ref<HTMLElement>()
 
-	const label = window.prompt('Marker label', marker.label)
-	if (label === null) return
-
-	project.$patch(draft => {
-		draft.markers[index].label = label
-	})
+function onEditMarker(event: MouseEvent, index: number) {
+	editingMarkerEl.value = event.currentTarget as HTMLElement
+	editingMarkerIndex.value = index
 }
 
 const markersToDrag: Map<number, Marker> = new Map()
@@ -303,9 +301,13 @@ const visibleMarkers = computed(() => {
 			:rangeStyle="rangeStyle"
 			:selected="markers.isSelected(i)"
 			@pointerdown="onPressMarker($event, i)"
-			@dblclick="onEditLabel(i)"
+			@dblclick="onEditMarker($event, i)"
 		/>
 		<div v-if="selectionRect" class="selection-rect" :style="selectionRect" />
+		<MarkerEditPopover
+			v-model:index="editingMarkerIndex"
+			:reference="editingMarkerEl ?? null"
+		/>
 	</div>
 </template>
 
