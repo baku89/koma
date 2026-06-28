@@ -254,6 +254,8 @@ const saveStatus = computed(() => {
 	display flex
 	align-items center
 	align-self stretch
+	// A bit more breathing room after the "Koma" app name.
+	margin-left var(--tq-gap-section)
 
 	span
 		max-width 16em

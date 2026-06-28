@@ -92,7 +92,7 @@ function setColor(index: number, color: string) {
 .visibility
 	width var(--tq-icon-size)
 	height var(--tq-icon-size)
-	margin-right 2px
+	margin-right var(--tq-gap-group)
 	hover-transition(color)
 
 	&:hover
