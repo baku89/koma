@@ -524,19 +524,38 @@ Tq.actions.register([
 				icon: 'mdi:settings',
 				bind: 'command+,',
 				async perform() {
+					// Track the appearance so a light/dark toggle can snap the
+					// background to that mode's default (the user can then tweak it).
+					let prevDark = Tq.theme.colorMode === 'dark'
+
 					const result = await Tq.modal.prompt(
 						{
 							accentColor: Tq.theme.accentColor,
-							darkMode: Tq.theme.colorMode === 'dark',
+							grayColor: Tq.theme.grayColor,
+							backgroundColor: Tq.theme.backgroundColor,
+							darkMode: prevDark,
 						},
 						{
 							accentColor: {type: 'string', ui: 'color'},
+							grayColor: {type: 'string', ui: 'color'},
+							backgroundColor: {type: 'string', ui: 'color'},
 							darkMode: {type: 'boolean'},
 						},
 						{
 							title: 'Preferences',
 							onInput(value) {
+								// On a light/dark toggle, reset the background to the
+								// mode default and keep the form's copy in sync so a
+								// later edit doesn't push the stale value back.
+								if (value.darkMode !== prevDark) {
+									value.backgroundColor = value.darkMode
+										? '#111111'
+										: '#ffffff'
+									prevDark = value.darkMode
+								}
 								Tq.theme.accentColor = value.accentColor
+								Tq.theme.grayColor = value.grayColor
+								Tq.theme.backgroundColor = value.backgroundColor
 								Tq.theme.colorMode = value.darkMode ? 'dark' : 'light'
 							},
 						}
@@ -545,6 +564,8 @@ Tq.actions.register([
 					if (!result) return
 
 					Tq.theme.accentColor = result.accentColor
+					Tq.theme.grayColor = result.grayColor
+					Tq.theme.backgroundColor = result.backgroundColor
 					Tq.theme.colorMode = result.darkMode ? 'dark' : 'light'
 				},
 			},
