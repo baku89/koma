@@ -85,82 +85,160 @@ function draw() {
 	ctx.globalCompositeOperation = 'source-over'
 }
 
-async function buildCache() {
-	const gen = ++generation
-	clearCache()
+// Sliding-window decode: keep a window of frames decoded around the playhead and
+// evict the rest, so an arbitrarily long play-through stays bounded in memory
+// (decoding the whole range up front did not). Workers always pull the nearest
+// not-yet-decoded frame ahead of the playhead — so decoding tracks play order —
+// and `prune()` drops frames once they've left the window.
+const WINDOW_AHEAD = 32
+const WINDOW_BEHIND = 8
+const CONCURRENCY = 8
 
-	const [bw, bh] = backing.value
+// "frame:layer" keys currently being decoded, so workers don't claim the same one.
+const inProgress = new Set<string>()
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+// The frames the player will run through next, in play order: inside the preview
+// range it loops; outside it (before the in-point / past the out-point) it plays
+// straight to the project end. Mirrors the viewport store.
+function playRange() {
 	const [inPoint, outPoint] = project.previewRange
-	const total = outPoint - inPoint + 1
-	if (total <= 0) return
+	const head = viewport.previewFrame
+	const outside = head < inPoint || head > outPoint
+	return outside
+		? {from: head, to: project.allKomas.length - 1, loop: false}
+		: {from: inPoint, to: outPoint, loop: true}
+}
 
-	// Decode starting from the current playhead so the frames about to play are
-	// ready first, then wrap around to cover the rest of the range.
-	const start = Math.min(Math.max(viewport.previewFrame, inPoint), outPoint)
+function clampHead({from, to}: ReturnType<typeof playRange>) {
+	return Math.min(Math.max(viewport.previewFrame, from), to)
+}
 
-	const jobs: {frame: number; layer: number; id: string}[] = []
-	for (let i = 0; i < total; i++) {
-		const frame = inPoint + ((start - inPoint + i) % total)
-		const shots = project.allKomas[frame]?.shots ?? []
-		for (let layer = 0; layer < shots.length; layer++) {
-			const id = shots[layer]?.lv
-			if (id) jobs.push({frame, layer, id})
+// The set of frames to keep decoded: WINDOW_AHEAD ahead of the head (in play
+// order, wrapping when looping) plus a few behind.
+function windowFrames(range: ReturnType<typeof playRange>, head: number) {
+	const {from, to, loop} = range
+	const span = to - from + 1
+	const keep = new Set<number>()
+
+	let f = head
+	for (let i = 0; i < WINDOW_AHEAD && i <= span; i++) {
+		keep.add(f)
+		if (++f > to) {
+			if (!loop) break
+			f = from
 		}
 	}
 
-	let next = 0
-	const CONCURRENCY = 8
+	f = head
+	for (let i = 0; i < WINDOW_BEHIND && i <= span; i++) {
+		if (--f < from) {
+			if (!loop) break
+			f = to
+		}
+		keep.add(f)
+	}
 
-	async function worker() {
-		while (next < jobs.length) {
-			if (gen !== generation) return
-			const {frame, layer, id} = jobs[next++]
-			try {
-				const blob = await resolveBlob(id)
-				if (!blob) continue
-				if (gen !== generation) return
+	return keep
+}
+
+// Drop cached bitmaps that have fallen outside the window.
+function prune() {
+	const range = playRange()
+	const keep = windowFrames(range, clampHead(range))
+	for (const k of [...cache.keys()]) {
+		const frame = Number(k.slice(0, k.indexOf(':')))
+		if (!keep.has(frame)) {
+			cache.get(k)?.close()
+			cache.delete(k)
+		}
+	}
+}
+
+// The nearest frame:layer ahead of the playhead that still needs decoding; claims
+// it via `inProgress` so concurrent workers don't duplicate work.
+function claimNextJob() {
+	const {from, to, loop} = playRange()
+	const span = to - from + 1
+	let f = Math.min(Math.max(viewport.previewFrame, from), to)
+
+	for (let i = 0; i < WINDOW_AHEAD && i <= span; i++) {
+		const shots = project.allKomas[f]?.shots ?? []
+		for (let layer = 0; layer < shots.length; layer++) {
+			const id = shots[layer]?.lv
+			if (!id) continue
+			const k = key(f, layer)
+			if (cache.has(k) || inProgress.has(k)) continue
+			inProgress.add(k)
+			return {frame: f, layer, id, k}
+		}
+		if (++f > to) {
+			if (!loop) break
+			f = from
+		}
+	}
+	return null
+}
+
+async function decodeWorker(gen: number) {
+	const [bw, bh] = backing.value
+	while (gen === generation && viewport.isPlaying) {
+		const job = claimNextJob()
+		if (!job) {
+			// Window is full; wait a beat and re-check as the playhead advances.
+			await delay(16)
+			continue
+		}
+		try {
+			const blob = await resolveBlob(job.id)
+			if (blob && gen === generation) {
 				const bmp = await createImageBitmap(blob, {
 					resizeWidth: bw,
 					resizeHeight: bh,
 					resizeQuality: 'medium',
 				})
-				if (gen !== generation) {
+				if (gen === generation) {
+					cache.set(job.k, bmp)
+					if (job.frame === viewport.previewFrame) draw()
+				} else {
 					bmp.close()
-					return
 				}
-				cache.set(key(frame, layer), bmp)
-				if (frame === viewport.previewFrame) draw()
-			} catch {
-				// Skip frames that fail to decode; playback just repeats the prior one.
 			}
+		} catch {
+			// Skip frames that fail to decode; playback just repeats the prior one.
+		} finally {
+			inProgress.delete(job.k)
 		}
 	}
-
-	await Promise.all(
-		Array(Math.min(CONCURRENCY, jobs.length))
-			.fill(0)
-			.map(worker)
-	)
 }
 
 watch(
 	() => viewport.isPlaying,
 	playing => {
 		if (playing) {
-			buildCache()
-			draw()
-		} else {
-			generation++ // cancel any in-flight build
+			const gen = ++generation
 			clearCache()
+			inProgress.clear()
+			draw()
+			for (let i = 0; i < CONCURRENCY; i++) decodeWorker(gen)
+		} else {
+			generation++ // stop workers / cancel in-flight decodes
+			clearCache()
+			inProgress.clear()
 		}
 	}
 )
 
-// Redraw on each frame advance (and when the active layer changes) while playing.
+// Redraw on each frame advance (and when the active layer changes) while playing,
+// and slide the decode window along with the playhead.
 watch(
 	() => [viewport.previewFrame, viewport.currentLayer] as const,
 	() => {
-		if (viewport.isPlaying) draw()
+		if (viewport.isPlaying) {
+			prune()
+			draw()
+		}
 	}
 )
 
