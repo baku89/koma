@@ -21,6 +21,10 @@ const {width, height} = useElementSize($root)
 
 const ws = shallowRef<WaveSurfer | null>(null)
 
+// Audio length in seconds, refreshed on load. Reactive so the offset below
+// recomputes once the duration is known.
+const duration = shallowRef(0)
+
 watch(
 	() => [$root.value, height.value] as const,
 	([container]) => {
@@ -82,6 +86,8 @@ watch(
 )
 
 function updateZoom() {
+	duration.value = ws.value?.getDuration() ?? 0
+
 	const time = props.range?.[0] ?? 0
 	const zoom = pxPerSec.value
 
@@ -99,19 +105,22 @@ function setZoom(zoom: number) {
 	}
 }
 
+// WaveSurfer's own scroll clamps to the audio content, so near the start/end it
+// can't line the waveform up with a timeline that's longer than the audio (it
+// sticks to an edge). Re-place the whole element by exactly the clamped-away
+// amount so audio time `range[0]` always sits at the left edge — and once the
+// view is fully past the audio, the waveform just slides off-screen.
 const styles = computed(() => {
-	if (!props.range) return {}
+	const range = props.range
+	if (!range || !duration.value) return {}
 
-	const [start] = props.range
+	const px = pxPerSec.value
+	const maxScroll = Math.max(0, duration.value * px - width.value)
+	const desiredScroll = range[0] * px
+	const actualScroll = Math.max(0, Math.min(desiredScroll, maxScroll))
+	const offset = actualScroll - desiredScroll
 
-	if (start < 0) {
-		return {
-			transform: `translateX(${Math.abs(start) * pxPerSec.value}px)`,
-		}
-	} else {
-		// TODO: Implement for the case when the end exceeds the duration
-		return {}
-	}
+	return offset ? {transform: `translateX(${offset}px)`} : {}
 })
 
 onBeforeUnmount(() => ws.value?.destroy())
