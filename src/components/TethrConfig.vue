@@ -96,10 +96,39 @@ const whiteBalanceIcons = new Map<WhiteBalance, string>([
 	['custom', 'material-symbols:settings'],
 ])
 
+// Long, loosely-numeric enums shown as a spinnable drum instead of a dropdown.
+const drumConfigs: ConfigName[] = [
+	'aperture',
+	'shutterSpeed',
+	'iso',
+	'exposureComp',
+]
+const isDrumConfig = computed(
+	() => !!props.name && drumConfigs.includes(props.name)
+)
+
 const canIncrement = computed(() => {
 	if (!props.config.writable) return false
 	return true
 })
+
+// Which input the template actually renders (mirrors the v-if chain below).
+const isEnum = computed(() => {
+	const o = props.config.option
+	return o?.type === 'enum' && o.values.length > 0
+})
+const asDrum = computed(() => isDrumConfig.value && isEnum.value)
+const asNumber = computed(() => {
+	const o = props.config.option
+	return typeof props.config.value === 'number' && o?.type === 'range'
+})
+
+// ± steppers flank a drum or a number field, but not a plain dropdown (Mode, WB,
+// Quality, …) — clicking through an arbitrary enum one-by-one isn't useful, and
+// the dropdown itself is the affordance.
+const showSteppers = computed(
+	() => canIncrement.value && (asDrum.value || asNumber.value)
+)
 
 function increment(dir: 1 | -1) {
 	if (!props.config.writable) return
@@ -139,13 +168,29 @@ function increment(dir: 1 | -1) {
 <template>
 	<Tq.InputGroup class="TethrConfig">
 		<Tq.InputButton
-			v-if="canIncrement"
-			icon="ic:round-minus"
+			v-if="showSteppers"
+			icon="mdi:chevron-left"
 			@click="increment(-1)"
 			subtle
+			narrow
+		/>
+		<!-- Long, loosely-numeric lists (aperture / shutter speed / ISO / exposure
+			comp) — show them as a drum the user can spin instead of a tall dropdown. -->
+		<Tq.InputDrum
+			v-if="
+				isDrumConfig &&
+				config.option?.type === 'enum' &&
+				config.option.values.length > 0
+			"
+			:modelValue="config.value"
+			:options="config.option.values"
+			:disabled="!config.writable"
+			font="numeric"
+			v-bind="inputAttrs"
+			@update:modelValue="update"
 		/>
 		<Tq.InputDropdown
-			v-if="config.option?.type === 'enum' && config.option.values.length > 0"
+			v-else-if="config.option?.type === 'enum' && config.option.values.length > 0"
 			:modelValue="config.value"
 			:options="config.option.values"
 			:disabled="!config.writable"
@@ -179,9 +224,10 @@ function increment(dir: 1 | -1) {
 			disabled
 		/>
 		<Tq.InputButton
-			v-if="canIncrement"
+			v-if="showSteppers"
 			subtle
-			icon="ic:round-plus"
+			narrow
+			icon="mdi:chevron-right"
 			@click="increment(1)"
 		/>
 	</Tq.InputGroup>
