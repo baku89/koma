@@ -7,7 +7,11 @@ import {useCameraStore} from '@/stores/camera'
 
 const camera = useCameraStore()
 
-const trigger = ref<HTMLElement>()
+const triggerButton = ref<InstanceType<typeof Tq.InputButton>>()
+// The InputButton's root <button> element, for focus/hit-testing/popover anchor.
+const triggerEl = computed(
+	() => triggerButton.value?.$el as HTMLElement | undefined
+)
 const menu = ref<HTMLElement>()
 const open = ref(false)
 
@@ -56,7 +60,7 @@ useEventListener(
 		if (!open.value) return
 		const target = e.target as Element | null
 		if (!target) return
-		if (trigger.value?.contains(target)) return
+		if (triggerEl.value?.contains(target)) return
 		if (target.closest('[data-camera-connect]')) return
 		if (menu.value?.closest('.TqBalloon')?.contains(target)) return
 		open.value = false
@@ -72,7 +76,7 @@ useEventListener('keydown', e => {
 // mousedown.prevent, so focus stays here), which also keeps the Tweeq title bar
 // — an Electron drag region — in its `no-drag` state while interacting.
 watch(open, isOpen => {
-	if (isOpen) trigger.value?.focus()
+	if (isOpen) triggerEl.value?.focus()
 })
 
 // Another part of the app (the "Connect to Camera" prompt in Camera Control)
@@ -105,19 +109,19 @@ function cameraIcon(type: string) {
 </script>
 
 <template>
-	<button
-		ref="trigger"
-		class="trigger"
+	<Tq.InputButton
+		ref="triggerButton"
+		class="camera-trigger"
 		:class="{flashing}"
+		:icon="icon"
+		:label="label"
+		right-icon="mdi:chevron-down"
+		subtle
 		@click="onTriggerClick"
-	>
-		<Tq.Icon class="trigger-icon" :icon="icon" />
-		<span class="trigger-label">{{ label }}</span>
-		<Tq.Icon class="trigger-chevron" icon="mdi:chevron-down" />
-	</button>
+	/>
 
 	<Tq.Popover
-		:reference="trigger ?? null"
+		:reference="triggerEl ?? null"
 		:open="open"
 		placement="bottom-start"
 		arrow
@@ -176,44 +180,16 @@ function cameraIcon(type: string) {
 </template>
 
 <style scoped lang="stylus">
-.trigger
-	height var(--tq-input-height)
+// Now a Tq.InputButton (icon + name + chevron, spread layout). It carries the
+// shared useFlash() `flashing` class so it pulses in lockstep with the Balloon.
+.camera-trigger
 	min-width 12em
-	border-radius var(--tq-radius-input)
-	background var(--tq-color-input)
-	color var(--tq-color-text)
-	display flex
-	align-items center
-	gap .3em
-	padding 0 .5em
-	cursor pointer
 
-	// The same attention flash as the Balloon/InputButton (this bespoke dropdown
-	// trigger isn't an InputButton, so it borrows the shared useFlash() state).
-	// Glow only — no scale (it sits in the title bar, where a bump reads as jitter).
-	&.flashing
-		animation trigger-flash .6s ease-in-out 2
-
-@keyframes trigger-flash
-	0%, 100%
-		box-shadow 0 0 0 0 transparent
-	50%
-		box-shadow 0 0 0 2px var(--tq-color-accent), 0 0 10px 1px var(--tq-color-accent)
-
-.trigger-icon
-	flex none
-
-.trigger-label
-	flex 1
-	text-align left
-	overflow hidden
-	text-overflow ellipsis
-	white-space nowrap
-
-.trigger-chevron
-	flex none
-	margin-left auto
-	opacity .6
+	// Dim the chevron and hug it to the right edge a touch (a trailing affordance,
+	// not a primary glyph).
+	:deep(.icon.right)
+		opacity .6
+		margin-right -.15em
 
 // Chrome (surface, border, blur, shadow, padding) comes from the Popover's
 // Balloon now; the menu only lays out its rows. The attention flash lives on the
