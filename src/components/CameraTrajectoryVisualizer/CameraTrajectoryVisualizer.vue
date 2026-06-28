@@ -294,6 +294,7 @@ const paneExpanded = ref(false)
 			</Scene>
 		</Renderer>
 		<Tq.PaneExpandable
+			class="calib-pane"
 			icon="mdi:gear"
 			@expand="paneExpanded = true"
 			@collapse="paneExpanded = false"
@@ -371,13 +372,10 @@ const paneExpanded = ref(false)
 	position absolute
 	top 0
 
-// Widen the calibration pane. TqPaneExpandable defaults to a 260px content
-// width, but each Parameter input has min-width 15rem (240px); together with
-// the label column that overflows 260px and clips the vec3 inputs / record
-// buttons. Override from here (the shared tweeq component is left untouched).
-.CameraTrajectoryVisualizer :deep(.TqPaneExpandable .wrapper)
-	width 24rem
-
-.CameraTrajectoryVisualizer :deep(.TqPaneExpandable.open .content)
-	width 24rem
+// Position the gear button in the top-right corner (the PaneExpandable button
+// is inline; the consumer places it).
+.calib-pane
+	position absolute
+	top 9px
+	right 9px
 </style>
