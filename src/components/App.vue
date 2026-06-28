@@ -901,11 +901,18 @@ Tq.actions.register([
 			<TitleBar />
 		</template>
 		<template #default>
-			<Tq.PaneSplit name="vertical" direction="vertical">
+			<Tq.PaneSplit
+				name="vertical"
+				direction="vertical"
+				fixed="second"
+				:size="300"
+			>
 				<template #first>
 					<Tq.PaneSplit
 						name="preview"
 						direction="horizontal"
+						fixed="second"
+						:size="300"
 						:scroll="[false, false]"
 					>
 						<template #first>
@@ -917,7 +924,12 @@ Tq.actions.register([
 					</Tq.PaneSplit>
 				</template>
 				<template #second>
-					<Tq.PaneSplit name="bottom" direction="horizontal">
+					<Tq.PaneSplit
+						name="bottom"
+						direction="horizontal"
+						fixed="first"
+						:size="280"
+					>
 						<template #first>
 							<div class="control">
 								<Tq.ParameterGrid>
@@ -925,6 +937,12 @@ Tq.actions.register([
 										<Tq.InputRadio
 											v-model="timeline.currentTool"
 											:options="['select', 'marker', 'pencil', 'eraser']"
+											:tooltips="[
+												'Select (V)',
+												'Marker (M)',
+												'Pencil (G)',
+												'Eraser (E)',
+											]"
 										>
 											<template #option="{value}">
 												<Tq.Icon
