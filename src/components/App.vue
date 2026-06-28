@@ -428,10 +428,12 @@ async function applyExposureFromShot(shot: Shot | null) {
 Tq.actions.register([
 	{
 		id: 'file',
+		order: 10,
 		icon: 'mdi:folder',
 		children: [
 			{
 				id: 'create_new',
+				label: 'Create New Project',
 				icon: 'mdi:file',
 				bind: 'command+n',
 				async perform() {
@@ -523,60 +525,60 @@ Tq.actions.register([
 					project.$patch(result)
 				},
 			},
-			{
-				id: 'preferences',
-				icon: 'mdi:settings',
-				bind: 'command+,',
-				async perform() {
-					// Track the appearance so a light/dark toggle can snap the
-					// background to that mode's default (the user can then tweak it).
-					let prevDark = Tq.theme.colorMode === 'dark'
-
-					const result = await Tq.modal.prompt(
-						{
-							accentColor: Tq.theme.accentColor,
-							grayColor: Tq.theme.grayColor,
-							backgroundColor: Tq.theme.backgroundColor,
-							darkMode: prevDark,
-						},
-						{
-							accentColor: {type: 'string', ui: 'color'},
-							grayColor: {type: 'string', ui: 'color'},
-							backgroundColor: {type: 'string', ui: 'color'},
-							darkMode: {type: 'boolean'},
-						},
-						{
-							title: 'Preferences',
-							onInput(value) {
-								// On a light/dark toggle, reset the background to the
-								// mode default and keep the form's copy in sync so a
-								// later edit doesn't push the stale value back.
-								if (value.darkMode !== prevDark) {
-									value.backgroundColor = value.darkMode
-										? '#111111'
-										: '#ffffff'
-									prevDark = value.darkMode
-								}
-								Tq.theme.accentColor = value.accentColor
-								Tq.theme.grayColor = value.grayColor
-								Tq.theme.backgroundColor = value.backgroundColor
-								Tq.theme.colorMode = value.darkMode ? 'dark' : 'light'
-							},
-						}
-					)
-
-					if (!result) return
-
-					Tq.theme.accentColor = result.accentColor
-					Tq.theme.grayColor = result.grayColor
-					Tq.theme.backgroundColor = result.backgroundColor
-					Tq.theme.colorMode = result.darkMode ? 'dark' : 'light'
-				},
-			},
 		],
 	},
 	{
+		id: 'preferences',
+		order: 1000,
+		icon: 'mdi:settings',
+		bind: 'command+,',
+		async perform() {
+			// Track the appearance so a light/dark toggle can snap the
+			// background to that mode's default (the user can then tweak it).
+			let prevDark = Tq.theme.colorMode === 'dark'
+
+			const result = await Tq.modal.prompt(
+				{
+					accentColor: Tq.theme.accentColor,
+					grayColor: Tq.theme.grayColor,
+					backgroundColor: Tq.theme.backgroundColor,
+					darkMode: prevDark,
+				},
+				{
+					accentColor: {type: 'string', ui: 'color'},
+					grayColor: {type: 'string', ui: 'color'},
+					backgroundColor: {type: 'string', ui: 'color'},
+					darkMode: {type: 'boolean'},
+				},
+				{
+					title: 'Preferences',
+					onInput(value) {
+						// On a light/dark toggle, reset the background to the
+						// mode default and keep the form's copy in sync so a
+						// later edit doesn't push the stale value back.
+						if (value.darkMode !== prevDark) {
+							value.backgroundColor = value.darkMode ? '#111111' : '#ffffff'
+							prevDark = value.darkMode
+						}
+						Tq.theme.accentColor = value.accentColor
+						Tq.theme.grayColor = value.grayColor
+						Tq.theme.backgroundColor = value.backgroundColor
+						Tq.theme.colorMode = value.darkMode ? 'dark' : 'light'
+					},
+				}
+			)
+
+			if (!result) return
+
+			Tq.theme.accentColor = result.accentColor
+			Tq.theme.grayColor = result.grayColor
+			Tq.theme.backgroundColor = result.backgroundColor
+			Tq.theme.colorMode = result.darkMode ? 'dark' : 'light'
+		},
+	},
+	{
 		id: 'camera',
+		order: 60,
 		icon: 'mdi:camera',
 		children: [
 			{
@@ -626,6 +628,7 @@ Tq.actions.register([
 	},
 	{
 		id: 'capture',
+		order: 70,
 		icon: 'tabler:capture-filled',
 		children: [
 			{
@@ -689,6 +692,7 @@ Tq.actions.register([
 	},
 	{
 		id: 'script',
+		order: 80,
 		icon: 'mdi:script-text-play',
 		children: [
 			{
@@ -703,6 +707,7 @@ Tq.actions.register([
 	},
 	{
 		id: 'edit',
+		order: 20,
 		icon: 'material-symbols:edit',
 		children: [
 			{
@@ -729,6 +734,7 @@ Tq.actions.register([
 	},
 	{
 		id: 'timeline',
+		order: 30,
 		children: [
 			{
 				id: 'go_forward_1_frame',
@@ -857,6 +863,7 @@ Tq.actions.register([
 	},
 	{
 		id: 'viewport',
+		order: 40,
 		icon: 'mdi:frame',
 		children: [
 			{
@@ -897,6 +904,7 @@ Tq.actions.register([
 	},
 	{
 		id: 'playback',
+		order: 50,
 		icon: 'mdi:animation-play',
 		children: [
 			{
