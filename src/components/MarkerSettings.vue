@@ -32,6 +32,7 @@ const visibleProps = computed(() => {
 				v-model="timeline.toolOptions.duration"
 				:min="0"
 				:step="1"
+				suffix="F"
 			/>
 		</Tq.Parameter>
 	</Tq.ParameterGroup>
