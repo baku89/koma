@@ -60,7 +60,9 @@ function draw() {
 	const topLayer = Math.min(viewport.currentLayer, shots.length - 1)
 
 	if (topLayer < 0) {
-		// Empty frame (e.g. the capture frame): clear to the black frame bg.
+		// Empty frame — most commonly the live capture frame, which the preview range
+		// includes as its out-point. Clear to transparent (not black) so the
+		// live-view koma rendered under the canvas shows the real-time feed through.
 		ctx.clearRect(0, 0, c.width, c.height)
 		return
 	}

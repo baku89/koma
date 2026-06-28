@@ -296,12 +296,16 @@ export const useViewportStore = defineStore('viewport', () => {
 			startFrame = inPoint
 		}
 
-		// Starting outside the preview range (before the in-point or past the
-		// out-point) means you've stepped out of the working segment, so ignore the
-		// range and play straight through to the end of the project (no range loop).
-		const outsideRange = startFrame < inPoint || startFrame > outPoint
-		const playEnd = outsideRange ? project.allKomas.length - 1 : outPoint
-		const canLoop = project.isLooping && !outsideRange
+		// Starting before the in-point plays the lead-in and then stops at the
+		// out-point — you're previewing into the working segment, not stepping out of
+		// it. Starting past the out-point means you've left the segment, so ignore the
+		// range and play straight through to the end of the project. Either way, no
+		// range loop when started outside.
+		const startsBeforeRange = startFrame < inPoint
+		const startsAfterRange = startFrame > outPoint
+		const playEnd = startsAfterRange ? project.allKomas.length - 1 : outPoint
+		const canLoop =
+			project.isLooping && !startsBeforeRange && !startsAfterRange
 
 		const audioTime = (startFrame - audioStartFrame) / fps
 		await seekAndPlay(howl.value, audioTime)

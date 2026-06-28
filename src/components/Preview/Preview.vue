@@ -164,6 +164,18 @@ async function onDblclick(e: MouseEvent) {
 					:style="{opacity, '--tint': tint}"
 				/>
 			</div>
+			<!--
+				The playback canvas goes transparent on the live capture frame (it has
+				no decoded shot). Render the live-view koma under it during playback so
+				the real-time camera feed shows through there instead of a black gap —
+				the preview range loops up to the capture frame, so the playhead lands
+				on it every loop.
+			-->
+			<ViewportKoma
+				v-if="viewport.isPlaying"
+				class="koma"
+				:frame="project.captureShot.frame"
+			/>
 			<!-- Smooth playback: pre-decoded ImageBitmaps blitted to a canvas. -->
 			<PreviewPlayback v-show="viewport.isPlaying" />
 			<svg
