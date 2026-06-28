@@ -6,7 +6,7 @@ import {
 } from '@vueuse/core'
 import {useIDBKeyval} from '@vueuse/integrations/useIDBKeyval'
 import {mat2d, quat, vec2, vec3} from 'linearly'
-import {clamp, cloneDeep, debounce, isEqual} from 'lodash-es'
+import {clamp, cloneDeep, debounce} from 'lodash-es'
 import sleep from 'p-sleep'
 import {defineStore} from 'pinia'
 import {ConfigType, TethrIdentifier} from 'tethr'
@@ -449,15 +449,81 @@ export const useProjectStore = defineStore('project', () => {
 			{shallow: true}
 		)
 
+	// Saved to a real filesystem folder (true) vs an in-app OPFS project (false).
 	const isSavedToDisk = asyncComputed(async () => {
 		if (!directoryHandle.value) return false
-
-		const isSavedToOPFS = await directoryHandle.value.isSameEntry(
-			await opfs.localDirectoryHandle
-		)
-
-		return !isSavedToOPFS
+		return !(await opfs.isWithinLocal(directoryHandle.value))
 	})
+
+	// Recently-opened projects (both FS folders and in-app), persisted by handle
+	// so they survive reloads — same mechanism as directoryHandle above.
+	type RecentProject = {
+		handle: FileSystemDirectoryHandle
+		name: string
+		type: 'fs' | 'opfs'
+		lastOpened: number
+	}
+
+	const {data: recentProjects} = useIDBKeyval<RecentProject[]>(
+		'com.baku89.koma.recentProjects',
+		[],
+		{shallow: true}
+	)
+
+	const RECENT_LIMIT = 10
+
+	async function rememberProject(
+		handle: FileSystemDirectoryHandle,
+		name: string
+	) {
+		const type = (await opfs.isWithinLocal(handle)) ? 'opfs' : 'fs'
+
+		// Drop any existing entry pointing at the same directory, then prepend.
+		const kept: RecentProject[] = []
+		for (const e of recentProjects.value) {
+			if (await e.handle.isSameEntry(handle)) continue
+			kept.push(e)
+		}
+		kept.unshift({handle, name, type, lastOpened: Date.now()})
+		recentProjects.value = kept.slice(0, RECENT_LIMIT)
+	}
+
+	async function openRecent(entry: RecentProject) {
+		try {
+			if (entry.type === 'fs') {
+				await queryPermission(entry.handle)
+			}
+			await open(entry.handle)
+		} catch {
+			// Handle revoked / folder gone — forget it.
+			recentProjects.value = recentProjects.value.filter(p => p !== entry)
+			alert(`Could not open "${entry.name}".`)
+		}
+	}
+
+	function todayName(): string {
+		const d = new Date()
+		return (
+			`${d.getFullYear()}-` +
+			`${String(d.getMonth() + 1).padStart(2, '0')}-` +
+			`${String(d.getDate()).padStart(2, '0')}`
+		)
+	}
+
+	// `base`, or `base_2`, `base_3`… if an in-app project of that name exists.
+	async function uniqueProjectDirName(base: string): Promise<string> {
+		const existing = new Set(
+			(await opfs.listProjectDirs()).map(dir => dir.name)
+		)
+		if (!existing.has(base)) return base
+		let i = 2
+		while (existing.has(`${base}_${i}`)) i++
+		return `${base}_${i}`
+	}
+
+	async function defaultProjectName(): Promise<string> {
+		return uniqueProjectDirName(todayName())
+	}
 
 	const project = reactive<Project>(cloneDeep(emptyProject))
 
@@ -470,6 +536,13 @@ export const useProjectStore = defineStore('project', () => {
 	// file made openBlobJson throw, left `project` as the empty default, and the
 	// next autosave then wiped the real file on disk.
 	let projectLoaded = false
+
+	// An "ephemeral" project is a fresh in-memory one that has NOT been written to
+	// disk yet — opening the app or hitting Create New starts here. We only
+	// materialize it (create the OPFS dir, autosave, add to recents) once the user
+	// makes a meaningful content change, so merely opening the app (or panning /
+	// zooming) never litters "Saved to App" with empty projects.
+	let ephemeral = false
 
 	// The autosave and history watchers below deep-watch the whole project /
 	// undoable state. @vueuse's pause() only gates their callback (save /
@@ -593,32 +666,56 @@ export const useProjectStore = defineStore('project', () => {
 
 	// Open and Save Projects
 	async function createNew() {
-		await save()
-
-		if (!isSavedToDisk.value && !isEqual(toRaw(project), emptyProject)) {
-			if (
-				!confirm(
-					'Do you want to create a new project? Your unsaved changes will be lost.'
-				)
-			) {
-				return
-			}
-		}
-
-		directoryHandle.value = await opfs.localDirectoryHandle
+		// Flush the current project first (if any — none on a cold start). Nothing
+		// is lost on switch: in-app projects autosave to their own subdir and stay
+		// in the recent list, so no destructive confirmation is needed.
+		if (directoryHandle.value) await save()
 
 		clearAssets()
-		assignReactive(project, cloneDeep(emptyProject))
-		prevLiveShots = liveShotIndex()
-		projectLoaded = true
+		await startEphemeralProject()
 
 		nextTick(() => history.clear())
+	}
 
-		if (directoryHandle.value?.name === '') {
-			for await (const key of directoryHandle.value.keys()) {
-				directoryHandle.value.removeEntry(key)
-			}
+	// A fresh, not-yet-persisted in-app project held only in memory. No OPFS
+	// directory is created until materializeEphemeral() runs on the first
+	// meaningful edit, so opening the app (or just panning/zooming) never leaves
+	// an empty project behind.
+	async function startEphemeralProject() {
+		assignReactive(project, cloneDeep(emptyProject))
+		project.name = await defaultProjectName()
+		directoryHandle.value = null
+		prevLiveShots = liveShotIndex()
+		projectLoaded = true
+		ephemeral = true
+	}
+
+	// First meaningful edit on an ephemeral project: give it a real OPFS directory,
+	// bind autosave to it, and remember it.
+	async function materializeEphemeral() {
+		ephemeral = false
+		const name = await uniqueProjectDirName(project.name || todayName())
+		const dir = await opfs.createProjectDir(name)
+		directoryHandle.value = dir
+		project.name = name
+		await rememberProject(dir, name)
+	}
+
+	// Whether the project carries content worth persisting (captured/imported
+	// frames, markers, a timeline drawing, or audio). View-state — zoom/pan, the
+	// capture cursor — deliberately doesn't count.
+	function hasContent(p: Project): boolean {
+		if (
+			p.komas.some(
+				k => k && (k.shots.some(Boolean) || (k.backupShots?.length ?? 0) > 0)
+			)
+		) {
+			return true
 		}
+		if (p.markers.length > 0) return true
+		if (p.timeline.drawing) return true
+		if (p.audio?.src) return true
+		return false
 	}
 
 	const {fn: open, isExecuting: isOpening} = preventConcurrentExecution(
@@ -656,6 +753,9 @@ export const useProjectStore = defineStore('project', () => {
 
 			// Load succeeded — autosave may now persist changes to this directory.
 			projectLoaded = true
+			ephemeral = false
+
+			await rememberProject(directoryHandle.value, project.name)
 
 			nextTick(() => history.clear())
 		},
@@ -673,6 +773,8 @@ export const useProjectStore = defineStore('project', () => {
 
 		directoryHandle.value = handle
 		projectLoaded = true
+		ephemeral = false
+		await rememberProject(handle, project.name)
 		save()
 	}
 
@@ -707,9 +809,14 @@ export const useProjectStore = defineStore('project', () => {
 	// continuous interaction (drawing a stroke, zooming the timeline) it stalls
 	// the main thread, drops events, and leaves artifacts. While a burst is in
 	// progress we suppress autosave and persist once it ends instead.
-	const requestAutoSave = debounce(() => {
+	const requestAutoSave = debounce(async () => {
 		if (!projectLoaded) return
 		if (autosaveSuspendDepth.value > 0) return // re-armed when the burst ends
+		if (ephemeral) {
+			// Don't persist (or create a directory) until there's real content.
+			if (!hasContent(project)) return
+			await materializeEphemeral()
+		}
 		save()
 	}, 500)
 
@@ -721,7 +828,10 @@ export const useProjectStore = defineStore('project', () => {
 	const autoSave = pausableWatch(
 		() => (autosaveSuspendDepth.value > 0 ? null : project),
 		() => {
-			if (projectLoaded) {
+			// An ephemeral project with no real content yet isn't "dirty" — leaving
+			// it that way would flag unsaved changes (and warn on unload) for a blank
+			// just-opened app.
+			if (projectLoaded && (!ephemeral || hasContent(project))) {
 				dirty.value = true
 				// Capture anything just displaced from the timeline into trash before
 				// the next save persists it. Runs only outside bursts (the source is
@@ -775,11 +885,23 @@ export const useProjectStore = defineStore('project', () => {
 		requestAutoSave()
 	}
 
-	whenever(isDirectoryHandlePersisted, () => {
-		if (directoryHandle.value) {
-			open(directoryHandle.value)
+	whenever(isDirectoryHandlePersisted, async () => {
+		let handle = directoryHandle.value
+
+		// A persisted pointer at the `local/` container itself is the pre-migration
+		// in-app project; redirect to the (migrated) subdirectory.
+		if (handle && (await opfs.isLocalContainer(handle))) {
+			const dirs = await opfs.listProjectDirs()
+			handle = dirs[0] ?? null
+			directoryHandle.value = handle
+		}
+
+		if (handle) {
+			open(handle)
 		} else {
-			opfs.localDirectoryHandle.then(open)
+			// No previous project — start a fresh, not-yet-persisted one (a project
+			// directory is only created once the user makes a real edit).
+			startEphemeralProject()
 		}
 	})
 
@@ -864,6 +986,121 @@ export const useProjectStore = defineStore('project', () => {
 		return await file.text()
 	}
 
+	// ---- In-App Projects management (Preferences → In-App Projects) -----------
+
+	type InAppProject = {
+		handle: FileSystemDirectoryHandle
+		dirName: string
+		name: string
+		size: number
+		current: boolean
+	}
+
+	async function listInAppProjects(): Promise<InAppProject[]> {
+		const dirs = await opfs.listProjectDirs()
+		const current = directoryHandle.value
+		const out: InAppProject[] = []
+		for (const dir of dirs) {
+			let name = dir.name
+			try {
+				const text = await (
+					await readFileFromDirectory(dir, 'project.json')
+				).text()
+				const json = JSON.parse(text)
+				if (typeof json.name === 'string') name = json.name
+			} catch {
+				// No project.json yet — fall back to the directory name.
+			}
+			out.push({
+				handle: dir,
+				dirName: dir.name,
+				name,
+				size: await opfs.dirSize(dir),
+				current: current ? await dir.isSameEntry(current) : false,
+			})
+		}
+		return out
+	}
+
+	async function forgetRecent(handle: FileSystemDirectoryHandle) {
+		const kept: RecentProject[] = []
+		for (const e of recentProjects.value) {
+			if (await e.handle.isSameEntry(handle)) continue
+			kept.push(e)
+		}
+		recentProjects.value = kept
+	}
+
+	async function patchProjectName(
+		dir: FileSystemDirectoryHandle,
+		name: string
+	) {
+		try {
+			const text = await (
+				await readFileFromDirectory(dir, 'project.json')
+			).text()
+			const json = JSON.parse(text)
+			json.name = name
+			await writeFileToDirectory(
+				dir,
+				'project.json',
+				new Blob([JSON.stringify(json)])
+			)
+		} catch {
+			// No project.json to patch.
+		}
+	}
+
+	async function deleteInAppProject(entry: InAppProject) {
+		// Move off the current project first so autosave can't recreate it.
+		if (entry.current) {
+			const others = (await opfs.listProjectDirs()).filter(
+				d => d.name !== entry.dirName
+			)
+			if (others.length > 0) {
+				await open(others[0])
+			} else {
+				clearAssets()
+				await startEphemeralProject()
+			}
+		}
+		await opfs.deleteProjectDir(entry.dirName)
+		await forgetRecent(entry.handle)
+	}
+
+	async function renameInAppProject(entry: InAppProject, rawName: string) {
+		const newName = rawName.trim()
+		if (!newName || newName === entry.dirName) return
+		const unique = await uniqueProjectDirName(newName)
+
+		await forgetRecent(entry.handle)
+		const newDir = await opfs.renameProjectDir(entry.dirName, unique)
+		await patchProjectName(newDir, unique)
+
+		if (entry.current) {
+			// Rebind + reload from the renamed directory (fresh asset store).
+			await open(newDir)
+		} else {
+			await rememberProject(newDir, unique)
+		}
+	}
+
+	async function exportInAppProjectToFolder(entry: InAppProject) {
+		const target = await showReadwriteDirectoryPicker()
+		await opfs.copyDirContents(entry.handle, target)
+
+		const wasCurrent = entry.current
+		await forgetRecent(entry.handle)
+		await opfs.deleteProjectDir(entry.dirName)
+
+		if (wasCurrent) {
+			// Reload from the filesystem copy; autosave now targets the real folder.
+			await open(target)
+		} else {
+			await rememberProject(target, entry.name)
+		}
+	}
+
 	return {
 		...toRefs(project),
 		readProjectFile,
@@ -874,6 +1111,12 @@ export const useProjectStore = defineStore('project', () => {
 		open,
 		save,
 		saveAs,
+		recentProjects,
+		openRecent,
+		listInAppProjects,
+		deleteInAppProject,
+		renameInAppProject,
+		exportInAppProjectToFolder,
 		allKomas,
 		previewKomas,
 		setInPoint,
