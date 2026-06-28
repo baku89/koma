@@ -296,6 +296,13 @@ export const useViewportStore = defineStore('viewport', () => {
 			startFrame = inPoint
 		}
 
+		// Starting past the out point means you've stepped outside the preview
+		// range, so ignore it and just play straight through to the end of the
+		// project (no range loop).
+		const playingPastRange = startFrame > outPoint
+		const playEnd = playingPastRange ? project.allKomas.length - 1 : outPoint
+		const canLoop = project.isLooping && !playingPastRange
+
 		const audioTime = (startFrame - audioStartFrame) / fps
 		await seekAndPlay(howl.value, audioTime)
 
@@ -312,15 +319,15 @@ export const useViewportStore = defineStore('viewport', () => {
 
 			let frame = startFrame + elapsedFrames
 
-			if (frame > outPoint) {
-				if (project.isLooping) {
+			if (frame > playEnd) {
+				if (canLoop) {
 					const audioTimeAtInPoint = (inPoint - audioStartFrame) / fps
 					await seekAndPlay(howl.value, audioTimeAtInPoint)
 
 					startTime = now
 					startFrame = frame = inPoint
 				} else {
-					setCurrentFrame(outPoint)
+					setCurrentFrame(playEnd)
 					isPlaying.value = false
 					return
 				}
