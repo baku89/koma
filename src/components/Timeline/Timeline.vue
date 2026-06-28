@@ -55,6 +55,60 @@ function onDragRuler(value: number) {
 	viewport.isPlaying = false
 }
 
+//------------------------------------------------------------------------------
+// Preview range の左右ドラッグ
+
+type PreviewDragMode = 'start' | 'end'
+
+let previewDragMode: PreviewDragMode | null = null
+let previewDragStartX = 0
+let previewDragStartRange: vec2 = [0, 0]
+let previewDragBatching = false
+
+function onPreviewDown(mode: PreviewDragMode, e: PointerEvent) {
+	previewDragMode = mode
+	previewDragStartX = e.clientX
+	previewDragStartRange = [...project.previewRange]
+	;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+}
+
+function onPreviewMove(e: PointerEvent) {
+	if (!previewDragMode) return
+
+	// pointerup / pointercancel を取りこぼしても、ボタン未押下の move
+	// （＝ただのホバー）が来たらドラッグ終了とみなす。これが無いと
+	// state が残ったままホバーで in/out が勝手に追従してしまう。
+	if (e.buttons === 0) {
+		onPreviewUp()
+		return
+	}
+
+	if (!previewDragBatching) {
+		previewDragBatching = true
+		project.beginAutosaveBatch()
+	}
+
+	const deltaFrame = Math.round(
+		(e.clientX - previewDragStartX) / timeline.frameWidth
+	)
+	const [origIn, origOut] = previewDragStartRange
+
+	if (previewDragMode === 'start') {
+		project.setInPoint(origIn + deltaFrame)
+	} else {
+		project.setOutPoint(origOut + deltaFrame)
+	}
+}
+
+function onPreviewUp() {
+	if (!previewDragMode) return
+	previewDragMode = null
+	if (previewDragBatching) {
+		previewDragBatching = false
+		project.endAutosaveBatch()
+	}
+}
+
 const layers = computed(() => {
 	const komaLayerCounts = project.komas.map((_, i) => project.layerCount(i))
 	const layerCount = Math.max(...komaLayerCounts, project.captureShot.layer + 1)
@@ -143,7 +197,24 @@ const visualizersStyles = computed(() => {
 				:scales="toScales(visibleFrameRange, timeline.frameWidth)"
 				@drag="onDragRuler"
 			>
-				<div class="preview-range" :style="rangeStyle(project.previewRange)" />
+				<div class="preview-range" :style="rangeStyle(project.previewRange)">
+					<div
+						class="handle start"
+						@pointerdown.stop="onPreviewDown('start', $event)"
+						@pointermove="onPreviewMove"
+						@pointerup="onPreviewUp"
+						@pointercancel="onPreviewUp"
+						@lostpointercapture="onPreviewUp"
+					/>
+					<div
+						class="handle end"
+						@pointerdown.stop="onPreviewDown('end', $event)"
+						@pointermove="onPreviewMove"
+						@pointerup="onPreviewUp"
+						@pointercancel="onPreviewUp"
+						@lostpointercapture="onPreviewUp"
+					/>
+				</div>
 			</Tq.Ruler>
 
 			<div class="komas">
@@ -197,26 +268,24 @@ const visualizersStyles = computed(() => {
 
 .preview-range
 	height 100%
-	background set-alpha(--tq-color-text, 0.2)
 	position relative
+	background set-alpha(--tq-color-text, 0.2)
 
-	&:before
-	&:after
-		content ''
-		display block
+	.handle
 		position absolute
 		top 0
 		width 6px
 		height 100%
 		border 1px solid var(--tq-color-text)
+		cursor ew-resize
 
-	&:before
-		left 0
-		border-right none
+		&.start
+			left 0
+			border-right none
 
-	&:after
-		right 0
-		border-left none
+		&.end
+			right 0
+			border-left none
 
 .content
 	margin-top var(--header-height)
