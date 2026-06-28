@@ -99,11 +99,12 @@ const saveStatus = computed(() => {
 <template>
 	<Tq.TitleBar name="Koma" icon="favicon.svg">
 		<template #left>
+			<div class="project-name"><span>{{ project.name }}</span></div>
 			<Tq.IconIndicator
 				v-tooltip="{content: saveStatus.content, html: true}"
 				:icon="saveStatus.icon"
+				inline
 			/>
-			<div class="project-name"><span>{{ project.name }}</span></div>
 			<Tq.InputButton
 				v-tooltip="'Project Settings'"
 				icon="mdi:gear"
@@ -152,16 +153,24 @@ const saveStatus = computed(() => {
 			</Tq.InputGroup>
 			<Tq.InputCheckbox
 				v-model="dmx.blackout"
-				v-tooltip="'Blackout — temporarily turn off all DMX lights'"
+				v-tooltip="{
+					title: 'Blackout',
+					description: 'Temporarily turn off all DMX lights',
+				}"
 				icon="mdi:lightbulb-off-outline"
 			/>
 			<Tq.InputGroup>
 				<Tq.InputButton
 					v-tooltip="'Reset Timer'"
 					icon="material-symbols:timer"
+					subtle
 					@click="timer.reset"
 				/>
 				<Tq.InputString
+					v-tooltip="{
+						title: 'Time to Shoot',
+						description: 'Elapsed time since the last capture',
+					}"
 					:modelValue="toTime(timer.current)"
 					style="width: 5em"
 					font="numeric"

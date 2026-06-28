@@ -90,8 +90,8 @@ function setColor(index: number, color: string) {
 		background var(--tq-color-input-hover)
 
 .visibility
-	width 16px
-	height 16px
+	width var(--tq-icon-size)
+	height var(--tq-icon-size)
 	margin-right 2px
 	hover-transition(color)
 
