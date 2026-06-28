@@ -7,7 +7,7 @@ import sleep from 'p-sleep'
 // @ts-ignore
 import saferEval from 'safer-eval'
 import {initTweeq, useTweeq} from 'tweeq'
-import {watch} from 'vue'
+import {markRaw, watch, watchEffect} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 import {useCncStore} from '@/stores/cnc'
@@ -31,6 +31,7 @@ import {
 import CameraControl from './CameraControl.vue'
 import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
 import DmxControl from './DmxControl.vue'
+import InAppProjectsPanel from './InAppProjectsPanel.vue'
 import MarkerSettings from './MarkerSettings.vue'
 import Preview from './Preview'
 import Timeline from './Timeline'
@@ -275,7 +276,10 @@ const {fn: shoot} = preventConcurrentExecution(
 			const name = project.name
 
 			return {
-				lv: registerCapturedAsset(lv, frameAssetFilename(name, layer, frame, 'lv')),
+				lv: registerCapturedAsset(
+					lv,
+					frameAssetFilename(name, layer, frame, 'lv')
+				),
 				jpg: registerCapturedAsset(
 					jpg,
 					frameAssetFilename(name, layer, frame, 'jpg')
@@ -537,43 +541,47 @@ Tq.actions.register([
 			// background to that mode's default (the user can then tweak it).
 			let prevDark = Tq.theme.colorMode === 'dark'
 
-			const result = await Tq.modal.prompt(
-				{
-					accentColor: Tq.theme.accentColor,
-					grayColor: Tq.theme.grayColor,
-					backgroundColor: Tq.theme.backgroundColor,
-					darkMode: prevDark,
-				},
-				{
-					accentColor: {type: 'string', ui: 'color'},
-					grayColor: {type: 'string', ui: 'color'},
-					backgroundColor: {type: 'string', ui: 'color'},
-					darkMode: {type: 'boolean'},
-				},
-				{
-					title: 'Preferences',
-					onInput(value) {
-						// On a light/dark toggle, reset the background to the
-						// mode default and keep the form's copy in sync so a
-						// later edit doesn't push the stale value back.
-						if (value.darkMode !== prevDark) {
-							value.backgroundColor = value.darkMode ? '#111111' : '#ffffff'
-							prevDark = value.darkMode
-						}
-						Tq.theme.accentColor = value.accentColor
-						Tq.theme.grayColor = value.grayColor
-						Tq.theme.backgroundColor = value.backgroundColor
-						Tq.theme.colorMode = value.darkMode ? 'dark' : 'light'
+			await Tq.modal.promptTabs(
+				[
+					{
+						id: 'appearances',
+						title: 'Appearances',
+						scheme: {
+							accentColor: {type: 'string', ui: 'color'},
+							grayColor: {type: 'string', ui: 'color'},
+							backgroundColor: {type: 'string', ui: 'color'},
+							darkMode: {type: 'boolean'},
+						},
+						value: {
+							accentColor: Tq.theme.accentColor,
+							grayColor: Tq.theme.grayColor,
+							backgroundColor: Tq.theme.backgroundColor,
+							darkMode: prevDark,
+						},
+						onInput(value) {
+							// On a light/dark toggle, reset the background to the mode
+							// default and keep the form's copy in sync so a later edit
+							// doesn't push the stale value back.
+							if (value.darkMode !== prevDark) {
+								value.backgroundColor = value.darkMode
+									? '#111111'
+									: '#ffffff'
+								prevDark = value.darkMode
+							}
+							Tq.theme.accentColor = value.accentColor
+							Tq.theme.grayColor = value.grayColor
+							Tq.theme.backgroundColor = value.backgroundColor
+							Tq.theme.colorMode = value.darkMode ? 'dark' : 'light'
+						},
 					},
-				}
+					{
+						id: 'projects',
+						title: 'In-App Projects',
+						component: markRaw(InAppProjectsPanel),
+					},
+				],
+				{title: 'Preferences'}
 			)
-
-			if (!result) return
-
-			Tq.theme.accentColor = result.accentColor
-			Tq.theme.grayColor = result.grayColor
-			Tq.theme.backgroundColor = result.backgroundColor
-			Tq.theme.colorMode = result.darkMode ? 'dark' : 'light'
 		},
 	},
 	{
@@ -926,6 +934,19 @@ Tq.actions.register([
 		],
 	},
 ])
+
+// Recent Projects: appended (below a splitter) to the File menu group, and kept
+// in sync with the persisted list. 💾 = in-app, 📁 = filesystem folder.
+watchEffect(() => {
+	Tq.actions.setMenuExtras(
+		'file',
+		project.recentProjects.map(p => ({
+			label: p.name,
+			icon: p.type === 'opfs' ? 'octicon:cache-16' : 'mdi:folder',
+			perform: () => project.openRecent(p),
+		}))
+	)
+})
 </script>
 
 <template>
