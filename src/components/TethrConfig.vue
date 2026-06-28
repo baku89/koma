@@ -142,7 +142,7 @@ function increment(dir: 1 | -1) {
 			v-if="canIncrement"
 			icon="ic:round-minus"
 			@click="increment(-1)"
-			gray
+			subtle
 		/>
 		<Tq.InputDropdown
 			v-if="config.option?.type === 'enum' && config.option.values.length > 0"
@@ -180,7 +180,7 @@ function increment(dir: 1 | -1) {
 		/>
 		<Tq.InputButton
 			v-if="canIncrement"
-			gray
+			subtle
 			icon="ic:round-plus"
 			@click="increment(1)"
 		/>
