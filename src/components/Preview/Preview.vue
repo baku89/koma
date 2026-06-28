@@ -2,11 +2,12 @@
 import {useElementBounding} from '@vueuse/core'
 import {mat2d, vec2} from 'linearly'
 import {useTweeq} from 'tweeq'
-import {computed, shallowRef} from 'vue'
+import {computed, ref, shallowRef, watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
+import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
 import {useZUI} from '@/use/useZUI'
 import {Rect} from '@/utils/Rect'
@@ -18,7 +19,45 @@ const Tq = useTweeq()
 const project = useProjectStore()
 const camera = useCameraStore()
 const viewport = useViewportStore()
+const tracker = useTrackerStore()
 const shootAlerts = useShootAlertsStore()
+
+// Two top-right overlay panes (viewport settings / shoot alerts). Settings is
+// an ordinary hover pane. Alerts are persistent: shown by default whenever any
+// exist, never light-dismissed, and folded away only while settings is up (the
+// two are exclusive) or after the user explicitly clicks the collapse chevron.
+// A blocked shutter re-reveals them (see the revealNonce watch below).
+const settingsOpen = ref(false)
+const alertsDismissed = ref(false)
+
+const hasAlerts = computed(() => shootAlerts.alerts.length > 0)
+const alertsOpen = computed(
+	() => hasAlerts.value && !settingsOpen.value && !alertsDismissed.value
+)
+
+// A fresh batch of alerts re-asserts itself even if previously dismissed.
+watch(hasAlerts, has => {
+	if (has) alertsDismissed.value = false
+})
+
+// A blocked shutter re-reveals the alerts even if the user had collapsed them,
+// so the reason the shot refused is back in view.
+watch(
+	() => shootAlerts.revealNonce,
+	() => (alertsDismissed.value = false)
+)
+
+function onAlertsToggle(open: boolean) {
+	if (open) {
+		// Clicking the collapsed button un-dismisses the alerts and closes settings.
+		alertsDismissed.value = false
+		settingsOpen.value = false
+	} else if (!settingsOpen.value) {
+		// Collapsed by the user (chevron click), not by settings taking over →
+		// keep it folded.
+		alertsDismissed.value = true
+	}
+}
 
 const $wrapper = shallowRef<HTMLElement | null>(null)
 
@@ -142,12 +181,80 @@ async function onDblclick(e: MouseEvent) {
 				}"
 			/>
 		</div>
-		<ul class="shootAlerts">
-			<li v-for="(alert, i) in shootAlerts.alerts" :key="i">
-				<Tq.Icon icon="material-symbols:error" />
-				<span>{{ alert }}</span>
-			</li>
-		</ul>
+		<div class="viewportOverlay">
+			<Tq.PaneExpandable
+				icon="mdi:tune"
+				placement="bottom-end"
+				:open="settingsOpen"
+				@update:open="settingsOpen = $event"
+			>
+				<Tq.ParameterGrid>
+					<Tq.ParameterHeading>Preview Settings</Tq.ParameterHeading>
+					<Tq.Parameter
+						icon="fluent-emoji-high-contrast:onion"
+						label="Onionskin Depth"
+						:hint="{
+							title: 'Onionskin',
+							description: 'Ghost previous frames to gauge motion',
+						}"
+					>
+						<Tq.InputNumber
+							v-model="project.onionskin"
+							:max="0"
+							:min="-3"
+							:step="0.1"
+							suffix="F"
+						/>
+					</Tq.Parameter>
+					<Tq.Parameter
+						label="Trajectory Smoothing"
+						icon="ooui:map-trail"
+						:hint="{
+							title: 'Trajectory averaging',
+							description:
+								'Number of tracker samples to smooth the camera path',
+						}"
+					>
+						<Tq.InputNumber
+							v-model="tracker.averageSamples"
+							:min="0"
+							:max="3"
+							:step="1"
+						/>
+					</Tq.Parameter>
+					<Tq.Parameter
+						label="Preview Zoom"
+						icon="material-symbols:zoom-in"
+						hint="Magnify the preview"
+					>
+						<Tq.InputNumber
+							v-model="project.viewport.zoom"
+							:min="1"
+							:max="1.5"
+							:step="0.05"
+						/>
+					</Tq.Parameter>
+				</Tq.ParameterGrid>
+			</Tq.PaneExpandable>
+
+			<Tq.PaneExpandable
+				v-if="hasAlerts"
+				class="alerts"
+				:class="{collapsedAlert: !alertsOpen}"
+				icon="material-symbols:error"
+				placement="bottom-end"
+				persistent
+				:open="alertsOpen"
+				@update:open="onAlertsToggle($event)"
+			>
+				<ul class="alert-list">
+					<li v-for="(alert, i) in shootAlerts.alerts" :key="i">
+						<Tq.Icon icon="material-symbols:error" />
+						<span>{{ alert }}</span>
+					</li>
+				</ul>
+			</Tq.PaneExpandable>
+		</div>
 	</div>
 </template>
 
@@ -235,11 +342,16 @@ async function onDblclick(e: MouseEvent) {
 		border-radius 9999px
 		transition width 0.5s ease
 
-.shootAlerts
+.viewportOverlay
 	position absolute
 	top 1rem
 	right 1rem
-	width 260px
+	display flex
+	gap var(--tq-gap-control)
+
+// Shoot alerts list, shown inside the alerts pane's balloon.
+:deep(.alert-list)
+	width 18rem
 	display flex
 	flex-direction column
 	gap 9px
@@ -247,14 +359,15 @@ async function onDblclick(e: MouseEvent) {
 	li
 		display grid
 		grid-template-columns min-content 1fr
-		background var(--tq-color-surface)
-		border-radius var(--tq-radius-input)
-		backdrop-filter blur(4px)
-		padding 1rem
 		gap 9px
 		line-height 20px
-		border 2px solid var(--tq-color-rec)
+		align-items start
 
 	.iconify
 		color var(--tq-color-error)
+
+// When there are alerts but the pane is collapsed, flag the round button red.
+:deep(.alerts.collapsedAlert .button)
+	color var(--tq-color-error)
+	border-color var(--tq-color-error)
 </style>

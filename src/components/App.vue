@@ -166,6 +166,10 @@ const {fn: shoot} = preventConcurrentExecution(
 		}
 
 		if (!force && !shootAlerts.canShoot) {
+			// Re-reveal the alert pane (it may have been collapsed) so the reason
+			// the shutter refused is shown.
+			shootAlerts.requestReveal()
+
 			await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
 
 			for (const msg of shootAlerts.alerts) {
@@ -974,35 +978,6 @@ Tq.actions.register([
 									</Tq.Parameter>
 									<CameraControl />
 									<DmxControl />
-									<Tq.ParameterGroup label="Viewport" name="viewportSettings">
-										<Tq.Parameter
-											icon="fluent-emoji-high-contrast:onion"
-											label="Onion"
-										>
-											<Tq.InputNumber
-												v-model="project.onionskin"
-												:max="0"
-												:min="-3"
-												:step="0.1"
-											/>
-										</Tq.Parameter>
-										<Tq.Parameter label="Traj. Ave." icon="ooui:map-trail">
-											<Tq.InputNumber
-												v-model="tracker.averageSamples"
-												:min="0"
-												:max="3"
-												:step="1"
-											/>
-										</Tq.Parameter>
-										<Tq.Parameter label="Zoom" icon="material-symbols:zoom-in">
-											<Tq.InputNumber
-												v-model="project.viewport.zoom"
-												:min="1"
-												:max="1.5"
-												:step="0.05"
-											/>
-										</Tq.Parameter>
-									</Tq.ParameterGroup>
 									<MarkerSettings />
 								</Tq.ParameterGrid>
 							</div>

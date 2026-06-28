@@ -3,7 +3,7 @@ import {defineStore} from 'pinia'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import saferEval from 'safer-eval'
-import {computed} from 'vue'
+import {computed, ref} from 'vue'
 
 import {useCameraStore} from './camera'
 import {useProjectStore} from './project'
@@ -48,8 +48,20 @@ export const useShootAlertsStore = defineStore('shootAlerts', () => {
 
 	const canShoot = computed(() => alerts.value.length === 0)
 
+	// Bumped whenever a shoot is blocked by these alerts. The preview watches it
+	// to re-reveal the (possibly user-collapsed) alert pane so the reason the
+	// shutter refused is back in view. A monotonic nonce, not a boolean, so two
+	// failures in a row each fire the watcher.
+	const revealNonce = ref(0)
+
+	function requestReveal() {
+		revealNonce.value++
+	}
+
 	return {
 		alerts,
 		canShoot,
+		revealNonce,
+		requestReveal,
 	}
 })
