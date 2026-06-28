@@ -123,7 +123,7 @@ const visualizersStyles = computed(() => {
 		</aside>
 		<Tq.Timeline
 			ref="$timeline"
-			:frameRange="[0, project.duration]"
+			:frameRange="[0, project.allKomas.length]"
 			v-model:frameWidth="timeline.frameWidth"
 			:frameWidthRange="[10, timeline.frameWidthBase]"
 			@confirm="timeline.confirmZoom"
