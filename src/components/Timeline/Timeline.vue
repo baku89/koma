@@ -230,6 +230,7 @@ const visualizersStyles = computed(() => {
 
 			<div class="visualizers" :style="visualizersStyles">
 				<Waveform
+					v-if="project.audio.src"
 					:src="project.audio.src"
 					:range="[range[0] / project.fps, range[1] / project.fps]"
 				/>
