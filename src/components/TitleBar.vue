@@ -13,6 +13,8 @@ import {toTime} from '@/utils'
 
 import TitleBarCameraConnection from './TitleBarCameraConnection.vue'
 
+const {actions} = Tq.useTweeq()
+
 const viewport = useViewportStore()
 const project = useProjectStore()
 const timer = useTimerStore()
@@ -97,10 +99,16 @@ const saveStatus = computed(() => {
 <template>
 	<Tq.TitleBar name="Koma" icon="favicon.svg">
 		<template #left>
-			<Tq.InputString v-model="project.name" style="width: 10em" />
 			<Tq.IconIndicator
 				v-tooltip="{content: saveStatus.content, html: true}"
 				:icon="saveStatus.icon"
+			/>
+			<div class="project-name"><span>{{ project.name }}</span></div>
+			<Tq.InputButton
+				v-tooltip="'Project Settings'"
+				icon="mdi:gear"
+				subtle
+				@click="actions.perform('project_settings')"
 			/>
 		</template>
 		<template #center>
@@ -138,6 +146,7 @@ const saveStatus = computed(() => {
 					v-model="viewport.coloredOnionskin"
 					icon="icon-park-outline:color-filter"
 					v-tooltip="'Colored Onionskin'"
+					:disabled="!viewport.enableOnionskin"
 				/>
 			</Tq.InputGroup>
 			<Tq.InputCheckbox
@@ -230,6 +239,18 @@ const saveStatus = computed(() => {
 <style lang="stylus" scoped>
 @import '../../dev_modules/tweeq/src/common.styl'
 
+
+.project-name
+	display flex
+	align-items center
+	align-self stretch
+
+	span
+		max-width 16em
+		overflow hidden
+		text-overflow ellipsis
+		white-space nowrap
+		font-weight bold
 
 .cnc-trigger
 	display flex
