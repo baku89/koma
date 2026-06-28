@@ -392,6 +392,14 @@ async function reconcileProjectAssets(
  * Write project.json, replacing each asset id with its `{$type:'blob', filename}`
  * reference (json format unchanged for backward compatibility). The bytes are
  * already on disk at the right names by the time this runs (reconcile above).
+ *
+ * TODO(known bug): the *first* save of a freshly created in-app project is
+ * noticeably slow when another in-app project was created/edited earlier in the
+ * same session (create A, edit, autosave → create B → B's first save drags).
+ * Root cause not yet pinned. Suspects: createNew()'s `await save()` flush of the
+ * previous project writing its RAM-held capture blobs to disk, and/or OPFS
+ * write/enumeration cost. To diagnose, wrap reconcileProjectAssets / saveJson
+ * here and the createNew() flush in `performance.now()` timing and repro.
  */
 async function saveProject(dir: FileSystemDirectoryHandle, project: Project) {
 	await reconcileProjectAssets(dir, project)
