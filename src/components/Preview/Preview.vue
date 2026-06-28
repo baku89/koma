@@ -361,7 +361,7 @@ async function onDblclick(e: MouseEvent) {
 		grid-template-columns min-content 1fr
 		gap 9px
 		line-height 20px
-		align-items start
+		align-items center
 
 	.iconify
 		color var(--tq-color-error)
