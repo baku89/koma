@@ -958,27 +958,19 @@ Tq.actions.register([
 										<Tq.InputRadio
 											v-model="timeline.currentTool"
 											:options="['select', 'marker', 'pencil', 'eraser']"
+											:icons="[
+												'ph:cursor-fill',
+												'subway:mark',
+												'mdi:pencil',
+												'mdi:eraser',
+											]"
 											:tooltips="[
 												'Select (V)',
 												'Marker (M)',
 												'Pencil (G)',
 												'Eraser (E)',
 											]"
-										>
-											<template #option="{value}">
-												<Tq.Icon
-													:icon="
-														value === 'select'
-															? 'ph:cursor-fill'
-															: value === 'marker'
-																? 'subway:mark'
-																: value === 'pencil'
-																	? 'mdi:pencil'
-																	: 'mdi:eraser'
-													"
-												/>
-											</template>
-										</Tq.InputRadio>
+										/>
 									</Tq.Parameter>
 									<CameraControl />
 									<DmxControl />
