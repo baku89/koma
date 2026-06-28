@@ -210,6 +210,7 @@ const saveStatus = computed(() => {
 				:open="cncOpen"
 				placement="bottom-end"
 				arrow
+				exit-transition
 				@update:open="onCncUpdateOpen"
 			>
 				<div class="cnc-menu">
