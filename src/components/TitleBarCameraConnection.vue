@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import * as Tq from 'tweeq'
-import {computed, ref, watch} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 
@@ -8,6 +8,31 @@ const camera = useCameraStore()
 
 const trigger = ref<HTMLElement>()
 const open = ref(false)
+
+// Whether the machine has any webcam at all. enumerateDevices() lists
+// `videoinput` entries even before permission is granted (labels are empty, but
+// the count is accurate), so we can gray out the Webcam button when there's
+// none to connect to. devicechange keeps it live across plug/unplug.
+const hasWebcam = ref(true)
+
+async function refreshWebcam() {
+	try {
+		const devices = await navigator.mediaDevices.enumerateDevices()
+		hasWebcam.value = devices.some(d => d.kind === 'videoinput')
+	} catch {
+		// If we can't enumerate, don't lock the user out — leave it enabled.
+		hasWebcam.value = true
+	}
+}
+
+onMounted(() => {
+	refreshWebcam()
+	navigator.mediaDevices.addEventListener('devicechange', refreshWebcam)
+})
+
+onBeforeUnmount(() => {
+	navigator.mediaDevices.removeEventListener('devicechange', refreshWebcam)
+})
 
 // Native popover light-dismiss closes on an outside pointerdown — including one
 // that lands on the trigger. The trigger's own click would then reopen it, so
@@ -103,7 +128,8 @@ function cameraIcon(type: string) {
 					label="Webcam"
 					icon="mdi:webcam"
 					subtle
-					:disabled="camera.isConnecting"
+					:disabled="camera.isConnecting || !hasWebcam"
+					:tooltip="hasWebcam ? undefined : 'No webcam found'"
 					@click="camera.grant('webcam')"
 				/>
 			</div>
