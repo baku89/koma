@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {vec2} from 'linearly'
-import {toPercent} from 'tweeq'
 import {computed} from 'vue'
 
 import {Marker} from '@/stores/project'
@@ -17,7 +16,10 @@ const styles = computed(() => {
 	const {frame, verticalPosition, color, duration} = props.marker
 
 	return {
-		top: toPercent(verticalPosition),
+		// Map verticalPosition (0..1) across the band inset by the marker's own
+		// height, so the whole marker stays inside instead of poking out the top
+		// at 0 and the bottom at 1.
+		top: `calc((100% - 1em) * ${verticalPosition})`,
 		color,
 		...props.rangeStyle([frame, frame + duration - 1]),
 	}
