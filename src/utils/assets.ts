@@ -291,11 +291,32 @@ export async function reconcileAssets(
 		dirty.push({e, name})
 	}
 
-	for (let i = 0; i < dirty.length; i++) {
-		await moveEntry(dirty[i].e, dir, `_tmp_${i}`, false)
-	}
-	for (const {e, name} of dirty) {
-		await moveEntry(e, dir, name, false)
+	// Rename one at a time, always picking an asset whose target name is currently
+	// free, so a shift cascades cleanly (…→0002, …→0003) with no temp files. Only
+	// a genuine cycle (rare) needs to park one file on a temp. This avoids staging
+	// *every* file through a temp at once (the old two-phase pass), which on a local
+	// folder — where move() falls back to copy+delete — meant a swarm of `_tmp_#`
+	// swap files and two byte-copies per file.
+	const remaining = dirty.map(d => ({e: d.e, target: d.name, from: d.e.filename}))
+	const occupied = new Set(remaining.map(p => p.from))
+	let tempCounter = 0
+
+	while (remaining.length > 0) {
+		const idx = remaining.findIndex(p => !occupied.has(p.target))
+		if (idx >= 0) {
+			const [p] = remaining.splice(idx, 1)
+			occupied.delete(p.from)
+			await moveEntry(p.e, dir, p.target, false)
+		} else {
+			// Every remaining target is still occupied → a cycle; park one on a temp
+			// to free its name, then it'll land on its target once that frees up.
+			const p = remaining.shift()!
+			const tmp = `_tmp_${tempCounter++}`
+			occupied.delete(p.from)
+			await moveEntry(p.e, dir, tmp, false)
+			occupied.add(tmp)
+			remaining.push({e: p.e, target: p.target, from: tmp})
+		}
 	}
 
 	// 3. Sweep stray temp files. After a successful run none of our own temps
@@ -318,8 +339,13 @@ export function frameAssetFilename(
 	frame: number,
 	type: 'lv' | 'jpg' | 'raw'
 ): string {
-	const lv = type === 'lv' ? '_lv' : ''
 	const seq = frame.toString().padStart(4, '0')
 	const ext = type === 'raw' ? 'dng' : 'jpg'
-	return `${name}_layer=${layer}${lv}_${seq}.${ext}`
+	// Frame number first, with live-view as a `.lv` sub-extension, so files sort
+	// stably by frame: …_0001.jpg, …_0001.lv.jpg, …_0002.jpg (the old `_lv_####`
+	// grouped all live-view files apart from their frames). Backward compatible:
+	// existing projects keep their stored filenames until the next save, when the
+	// reconcile pass renames them to this scheme.
+	const sub = type === 'lv' ? '.lv' : ''
+	return `${name}_layer=${layer}_${seq}${sub}.${ext}`
 }
