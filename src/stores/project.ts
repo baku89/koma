@@ -656,8 +656,14 @@ export const useProjectStore = defineStore('project', () => {
 	})
 
 	const allKomas = computed<Koma[]>(() => {
-		const komaNumberToFill =
-			Math.max(project.captureShot.frame - project.komas.length + 1, 0) + 1
+		// Always one empty slot past the komas so there's a selectable "next" frame
+		// to capture into; extend further only when the capture cursor was parked
+		// beyond the last koma. (Don't add a second, redundant trailing slot — that
+		// made the timeline show phantom numbered frames past the end.)
+		const komaNumberToFill = Math.max(
+			project.captureShot.frame - project.komas.length + 1,
+			1
+		)
 
 		return [
 			...project.komas,

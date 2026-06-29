@@ -123,15 +123,21 @@ function toScales(range: vec2, unitWidth: number) {
 	const start = Math.ceil(range[0])
 	const end = Math.floor(range[1])
 
+	// The frame past the last koma (last frame + 1) is selectable as the capture
+	// slot, but it isn't a real koma — so don't number it (or anything beyond).
+	const lastNumbered = project.duration - 1
+
 	if (unitWidth > 20) {
-		return _range(start, end + 1).map((value: number) => ({
-			value,
-			label: value.toString(),
-		}))
+		return _range(start, end + 1)
+			.filter((value: number) => value <= lastNumbered)
+			.map((value: number) => ({
+				value,
+				label: value.toString(),
+			}))
 	} else {
 		const fps = project.fps
 		return _range(start, end)
-			.filter((f: number) => f % fps === 0)
+			.filter((f: number) => f % fps === 0 && f <= lastNumbered)
 			.map((value: number) => ({value, label: value.toString()}))
 	}
 }
