@@ -59,21 +59,39 @@ function draw() {
 	const shots = project.allKomas[frame]?.shots ?? []
 	const topLayer = Math.min(viewport.currentLayer, shots.length - 1)
 
-	if (topLayer < 0) {
-		// Empty frame — most commonly the live capture frame, which the preview range
-		// includes as its out-point. Clear to transparent (not black) so the
-		// live-view koma rendered under the canvas shows the real-time feed through.
-		ctx.clearRect(0, 0, c.width, c.height)
+	// The visible layers that actually have something to decode (a non-null shot
+	// with an `lv`). A frame with none is genuinely empty — note a frame can have
+	// a non-empty `shots` array whose visible layers are all null (e.g. capturing
+	// only an upper layer), so emptiness can't be judged by `topLayer` alone.
+	const realLayers: number[] = []
+	for (let layer = 0; layer <= topLayer; layer++) {
+		if (shots[layer]?.lv) realLayers.push(layer)
+	}
+
+	if (realLayers.length === 0) {
+		if (frame === project.captureShot.frame) {
+			// The live capture frame (the preview range's out-point). Clear to
+			// transparent so the live-view koma rendered under the canvas shows the
+			// real-time feed through.
+			ctx.clearRect(0, 0, c.width, c.height)
+		} else {
+			// An empty koma mid-timeline. The capture frame's live-view koma sits
+			// persistently under the canvas, so a transparent clear would let the live
+			// feed bleed through here too. Paint black (matching `.frame`) so an empty
+			// koma reads as black instead of showing the live view or the prior frame.
+			ctx.fillStyle = 'black'
+			ctx.fillRect(0, 0, c.width, c.height)
+		}
 		return
 	}
 
-	// Keep showing the previous frame until this one's base layer is decoded, so
+	// Keep showing the previous frame until at least one real layer is decoded, so
 	// a not-yet-cached frame repeats rather than flashing black.
-	if (!cache.has(key(frame, 0))) return
+	if (!realLayers.some(layer => cache.has(key(frame, layer)))) return
 
 	ctx.clearRect(0, 0, c.width, c.height)
 
-	for (let layer = 0; layer <= topLayer; layer++) {
+	for (const layer of realLayers) {
 		const bmp = cache.get(key(frame, layer))
 		if (!bmp) continue
 
