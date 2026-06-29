@@ -1031,12 +1031,6 @@ watchEffect(() => {
 												'mdi:pencil',
 												'mdi:eraser',
 											]"
-											:tooltips="[
-												'Select (V)',
-												'Marker (M)',
-												'Pencil (G)',
-												'Eraser (E)',
-											]"
 										/>
 									</Tq.Parameter>
 									<CameraControl />
