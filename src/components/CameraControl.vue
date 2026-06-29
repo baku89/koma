@@ -236,6 +236,12 @@ function setConfigColor(name: ConfigName, value: string) {
 .empty-message
 	color var(--tq-color-text-mute)
 
+// Without a cap the connect button keeps its content width (align-items
+// flex-start) and overflows the column on a narrow panel. Cap it to the cell so
+// the label clips to an ellipsis (+ tooltip) instead.
+.empty-state :deep(.TqInputButton)
+	max-width 100%
+
 .visibility
 	width var(--tq-icon-size)
 	height var(--tq-icon-size)
