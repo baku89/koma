@@ -47,6 +47,8 @@ const layers = asyncComputed<Layer[]>(async () => {
 				mixBlendMode,
 			})
 		} else if (shot) {
+			// Regenerate the lv from the hi-res jpg if its file is missing.
+			if (!viewport.enableHiRes) await project.ensureLv(props.frame, layer)
 			const src = await resolveAssetUrl(
 				viewport.enableHiRes ? shot.jpg : shot.lv
 			)

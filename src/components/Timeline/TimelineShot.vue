@@ -24,7 +24,11 @@ const timeline = useTimelineStore()
 
 const shot = computed(() => project.shot(props.frame, props.layer))
 
-const lvUrl = asyncComputed(() => resolveAssetUrl(shot.value?.lv))
+const lvUrl = asyncComputed(async () => {
+	// Regenerate the lv from the hi-res jpg if its file is missing, then resolve.
+	await project.ensureLv(props.frame, props.layer)
+	return resolveAssetUrl(shot.value?.lv)
+})
 
 const selected = computed(() => {
 	return (

@@ -19,6 +19,7 @@ import {
 	deepMergeExceptArray,
 	frameAssetFilename,
 	getAssetFilename,
+	healAssetBlob,
 	openJson,
 	preventConcurrentExecution,
 	queryPermission,
@@ -26,6 +27,8 @@ import {
 	reconcileAssets,
 	registerDiskAsset,
 	registerTrashedAsset,
+	resizeBlobImage,
+	resolveBlob,
 	saveJson,
 	showReadwriteDirectoryPicker,
 	TRASH_DIR,
@@ -946,6 +949,41 @@ export const useProjectStore = defineStore('project', () => {
 		return project.komas[frame]?.shots?.at(layer) ?? null
 	}
 
+	// Self-heal a live-view preview whose on-disk file is gone (e.g. an older
+	// project whose lv files were never migrated to the new naming, or were lost).
+	// When a shot's lv won't resolve but its hi-res jpg does, regenerate the lv by
+	// downscaling the jpg to the project resolution — the same thing capture/paste
+	// do — and stash it on the *existing* lv id. So it shows immediately and the
+	// next reconcile writes it to disk under the lv id's filename. The shot is not
+	// mutated, so this adds no undo entry.
+	const lvHealed = new Set<string>()
+	const lvHealing = new Map<string, Promise<void>>()
+
+	async function ensureLv(frame: number, layer: number): Promise<void> {
+		const s = shot(frame, layer)
+		if (!s || !s.lv || !s.jpg) return
+		const {lv: lvId, jpg: jpgId} = s
+		if (lvHealed.has(lvId)) return
+		const inFlight = lvHealing.get(lvId)
+		if (inFlight) return inFlight
+
+		const p = (async () => {
+			// Already resolvable → nothing to do (remember so we skip next time).
+			if (await resolveBlob(lvId)) {
+				lvHealed.add(lvId)
+				return
+			}
+			const jpgBlob = await resolveBlob(jpgId)
+			if (!jpgBlob) return // can't heal yet; leave unmarked to retry later
+			const lvBlob = await resizeBlobImage(jpgBlob, project.resolution, 'cover')
+			healAssetBlob(lvId, lvBlob)
+			lvHealed.add(lvId)
+		})().finally(() => lvHealing.delete(lvId))
+
+		lvHealing.set(lvId, p)
+		return p
+	}
+
 	function setShot(frame: number, layer: number, shot: Shot) {
 		while (frame >= project.komas.length) {
 			project.komas.push({shots: []})
@@ -1144,6 +1182,7 @@ export const useProjectStore = defineStore('project', () => {
 		beginAutosaveBatch,
 		endAutosaveBatch,
 		shot,
+		ensureLv,
 		setShot,
 		layer,
 		layerCount,

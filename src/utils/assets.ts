@@ -116,6 +116,26 @@ export function setAssetFilename(id: string, filename: string) {
 	if (e) e.filename = filename
 }
 
+/**
+ * Replace a disk-backed asset's bytes with an in-memory blob, keeping its id and
+ * filename. Used to self-heal a live-view preview whose on-disk file is gone:
+ * regenerate it from the hi-res jpg, stash it here so it resolves immediately,
+ * and drop the disk pointer so the next reconcile *writes* these bytes out under
+ * the (unchanged) filename instead of skipping it as already-in-place.
+ */
+export function healAssetBlob(id: string, blob: Blob) {
+	const e = entries.get(id)
+	if (!e) return
+	if (e.url) {
+		URL.revokeObjectURL(e.url)
+		urlOrder.delete(id)
+		e.url = undefined
+	}
+	e.blob = blob
+	e.parentDir = undefined
+	e.handle = undefined
+}
+
 async function getBlob(e: AssetEntry): Promise<Blob | undefined> {
 	if (e.blob) return e.blob
 	try {

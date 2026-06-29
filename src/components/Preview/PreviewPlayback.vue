@@ -211,6 +211,8 @@ async function decodeWorker(gen: number) {
 			continue
 		}
 		try {
+			// Regenerate the lv from the hi-res jpg if its file is missing.
+			await project.ensureLv(job.frame, job.layer)
 			const blob = await resolveBlob(job.id)
 			if (blob && gen === generation) {
 				const bmp = await createImageBitmap(blob, {
