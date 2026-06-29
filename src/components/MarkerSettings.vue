@@ -2,9 +2,11 @@
 import * as Tq from 'tweeq'
 import {computed} from 'vue'
 
+import {useMarkersStore} from '@/stores/markers'
 import {useTimelineStore} from '@/stores/timeline'
 
 const timeline = useTimelineStore()
+const markers = useMarkersStore()
 
 const visibleProps = computed(() => {
 	switch (timeline.currentTool) {
@@ -22,10 +24,17 @@ const visibleProps = computed(() => {
 <template>
 	<Tq.ParameterGroup label="Tool Options" name="toolOptions">
 		<Tq.Parameter v-if="visibleProps.includes('color')" label="Color">
-			<Tq.InputColor v-model="timeline.toolOptions.color" :alpha="false" />
+			<Tq.InputColor
+				v-model="timeline.toolOptions.color"
+				:alpha="false"
+				@confirm="markers.endToolOptionEdit"
+			/>
 		</Tq.Parameter>
 		<Tq.Parameter v-if="visibleProps.includes('label')" label="Label">
-			<Tq.InputString v-model="timeline.toolOptions.label" />
+			<Tq.InputString
+				v-model="timeline.toolOptions.label"
+				@confirm="markers.endToolOptionEdit"
+			/>
 		</Tq.Parameter>
 		<Tq.Parameter v-if="visibleProps.includes('duration')" label="Duration">
 			<Tq.InputNumber
@@ -33,6 +42,7 @@ const visibleProps = computed(() => {
 				:min="0"
 				:step="1"
 				suffix="F"
+				@confirm="markers.endToolOptionEdit"
 			/>
 		</Tq.Parameter>
 	</Tq.ParameterGroup>

@@ -24,6 +24,7 @@ export const useMarkersStore = defineStore('markers', () => {
 	}
 
 	function unselect() {
+		endToolOptionEdit()
 		selectedIndices.value.clear()
 	}
 
@@ -94,6 +95,15 @@ export const useMarkersStore = defineStore('markers', () => {
 		return selectedIndices.value.has(index)
 	}
 
+	// Commit state for the bracketed tool-option edit (see the watcher below).
+	let toolEditing = false
+
+	function endToolOptionEdit() {
+		if (!toolEditing) return
+		toolEditing = false
+		project.endInteraction()
+	}
+
 	const applyCursorSettingsToSelectionWatcher = pausableWatch(
 		() =>
 			[
@@ -121,6 +131,17 @@ export const useMarkersStore = defineStore('markers', () => {
 				return
 			}
 
+			// Editing tool options applies to every selected marker, so each tweak
+			// (a duration drag, each keystroke) would otherwise fire autosave + a
+			// history entry. Bracket it as one interaction: begin lazily here on the
+			// first real apply (only when markers are actually selected, so changing
+			// the cursor defaults alone never creates a save/undo entry), end on the
+			// input's `confirm`. Suspends autosave/history deep-traversal meanwhile.
+			if (!toolEditing) {
+				toolEditing = true
+				project.beginInteraction()
+			}
+
 			project.$patch(d => {
 				selectedIndices.value.forEach(index => {
 					d.markers[index] = {...d.markers[index], ...changed}
@@ -134,6 +155,7 @@ export const useMarkersStore = defineStore('markers', () => {
 		unselect,
 		select,
 		isSelected,
+		endToolOptionEdit,
 		selectedIndices: readonly(selectedIndices),
 	}
 })

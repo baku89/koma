@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import * as Tq from 'tweeq'
-import {computed, nextTick, ref, watch} from 'vue'
+import {computed, nextTick, onUnmounted, ref, watch} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 
@@ -29,6 +29,10 @@ function patch<K extends 'label' | 'color' | 'duration'>(
 ) {
 	const index = props.index
 	if (index === null) return
+	// Lazily open the interaction on the first real write (mirrors the marker
+	// drag in TimelineMarkers), so merely opening the popover and auto-focusing
+	// the label doesn't fire a save or a no-op undo entry.
+	beginEdit()
 	project.$patch(draft => {
 		draft.markers[index][key] = value
 	})
@@ -48,6 +52,32 @@ const duration = computed({
 	get: () => marker.value?.duration ?? 0,
 	set: v => patch('duration', v),
 })
+
+// Each field write goes to the undoable `markers`, so without bracketing every
+// tweak (a duration drag, each keystroke) would fire autosave + a history entry.
+// Bracket an edit as a single interaction: begin lazily on the first write, end
+// on `confirm` — it suspends autosave/history during the gesture and commits
+// exactly one save + one undo step on commit. `confirm` is the complete "edit
+// committed" signal across every input (Enter, drag end, and blur all emit it;
+// the color pad emits *only* confirm, no blur), so we don't also listen to blur.
+// The guard keeps begin/end paired across repeated commits and field switches.
+let interacting = false
+
+function beginEdit() {
+	if (interacting) return
+	interacting = true
+	project.beginInteraction()
+}
+
+function endEdit() {
+	if (!interacting) return
+	interacting = false
+	project.endInteraction()
+}
+
+// If the popover closes mid-edit (light-dismiss, unmount), flush the interaction
+// so the suspend depth never leaks.
+onUnmounted(endEdit)
 
 // A zero-duration marker collapses to a dot and is shifted left by half its
 // height (margin-left: -0.5em) so the dot centers on its frame. That moves the
@@ -74,7 +104,10 @@ watch(open, async isOpen => {
 })
 
 function onUpdateOpen(value: boolean) {
-	if (!value) emit('update:index', null)
+	if (!value) {
+		endEdit()
+		emit('update:index', null)
+	}
 }
 </script>
 
@@ -91,13 +124,23 @@ function onUpdateOpen(value: boolean) {
 		<div ref="$grid" class="MarkerEditPopover">
 			<Tq.ParameterGrid>
 				<Tq.Parameter label="Label">
-					<Tq.InputString v-model="label" />
+					<Tq.InputString v-model="label" @confirm="endEdit" />
 				</Tq.Parameter>
 				<Tq.Parameter label="Color">
-					<Tq.InputColor v-model="color" :alpha="false" />
+					<Tq.InputColor
+						v-model="color"
+						:alpha="false"
+						@confirm="endEdit"
+					/>
 				</Tq.Parameter>
 				<Tq.Parameter label="Duration">
-					<Tq.InputNumber v-model="duration" :min="0" :step="1" />
+					<Tq.InputNumber
+						v-model="duration"
+						:min="0"
+						:step="1"
+						suffix="F"
+						@confirm="endEdit"
+					/>
 				</Tq.Parameter>
 			</Tq.ParameterGrid>
 		</div>
