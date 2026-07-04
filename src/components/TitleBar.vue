@@ -67,15 +67,28 @@ watch(cncOpen, isOpen => {
 	if (isOpen) cncTrigger.value?.focus()
 })
 
+const gamepad = Bndr.gamepad()
+
 const destroyBndr = Bndr.createScope(() => {
-	Bndr.gamepad()
-		.devices()
-		.on(gs => {
-			gamepads.value = gs.map(g => g.id)
-		})
+	gamepad.devices().on(gs => {
+		gamepads.value = gs.map(g => g.id)
+	})
 })
 
 onUnmounted(destroyBndr)
+
+// WebHID controllers (Joy-Con) need an explicit, user-gesture permission prompt —
+// unlike standard gamepads (Xbox, DualSense) which the Gamepad API exposes
+// automatically. A lone Joy-Con (especially over Bluetooth) often isn't seen by
+// the Gamepad API at all, so clicking the indicator grants it over WebHID; once
+// granted it auto-reconnects on later launches.
+async function connectGamepad() {
+	try {
+		await gamepad.requestDevice()
+	} catch {
+		// WebHID unsupported (non-Chromium) or the user dismissed the picker.
+	}
+}
 
 // Single status indicator: spinner while there is anything not yet safely on
 // disk (opening / saving=re-sequencing / unsaved edits), otherwise the
@@ -186,11 +199,13 @@ const saveStatus = computed(() => {
 					content:
 						gamepads.length > 0
 							? gamepads.join('<br />')
-							: 'No Gamepad Connected',
+							: 'Click to connect a Joy-Con (WebHID)',
 					html: true,
 				}"
 				:active="gamepads.length > 0"
 				icon="solar:gamepad-bold"
+				style="cursor: pointer"
+				@click="connectGamepad"
 			/>
 			<Tq.IconIndicator
 				v-tooltip="

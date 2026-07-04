@@ -15,6 +15,12 @@ export default defineConfig({
 	base: './',
 	server: {
 		port: 5555,
+		// The linked sibling bndr-js checkout (yarn link → ../bndr-js, with WebHID
+		// Joy-Con support) and its deps (joy-con-webhid, ahrs) live outside this
+		// project root; let Vite serve them.
+		fs: {
+			allow: ['..'],
+		},
 	},
 	plugins: [
 		glsl(),

@@ -350,7 +350,10 @@ whenever(oscIn.shoot, () => Tq.actions.perform('shoot'))
 //   physical up → next frame, right → next layer, down → prev frame,
 //   left → prev layer.
 const gamepadAxis = gamepad
-	.axisDirection()
+	// Lower than the default 0.5 threshold: a lone Joy-Con's stick over WebHID
+	// reports an asymmetric range, so one direction (physical up → next frame)
+	// never reaches 0.5. 0.3 still clears the (deadzoned) rest position.
+	.axisDirection(null, {threshold: 0.3})
 	.map((v): vec2 | null => (v ? [-v[1], v[0]] : null))
 
 const gamepadAxisNeutral = gamepadAxis.filter(v => v === null)
