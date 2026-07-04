@@ -111,6 +111,27 @@ function setMove(rawMatrix: mat4) {
 	}
 }
 
+// Snap the current tracker pose onto the camera pose recorded at the selected
+// koma, so the trajectory reconnects after the receiver/rig has been repositioned.
+// The live capture frame holds no recorded shot, so fall back to the koma right
+// before it (the same reference `distanceFromPrevKoma` and deleteShot use).
+const alignTargetFrame = computed(() =>
+	viewport.currentFrame === project.captureShot.frame
+		? viewport.currentFrame - 1
+		: viewport.currentFrame
+)
+
+const alignTarget = computed(
+	() => project.shot(alignTargetFrame.value, 0)?.tracker ?? null
+)
+
+function alignToKoma() {
+	const tr = alignTarget.value
+	if (!tr) return
+	const dest = mat4.fromRotationTranslation(tr.rotation, tr.position)
+	tracker.calibrateOriginMatrix(tracker.matrix, dest)
+}
+
 const yOrigin = ref<mat4 | null>(null)
 
 function setUp(rawMatrix: mat4) {
@@ -315,6 +336,23 @@ const paneExpanded = ref(false)
 						:label="!moveOrigin ? 'Record Matrix' : 'Delta Matrix'"
 						:blink="!!moveOrigin"
 						@record="setMove"
+					/>
+				</Tq.Parameter>
+				<Tq.Parameter
+					label="Align to Koma"
+					icon="material-symbols:my-location"
+					:hint="{
+						title: 'Align to Koma',
+						description:
+							'Snap the current tracker pose to the camera pose recorded at ' +
+							'the selected koma (or the koma before it, if the capture frame ' +
+							'is selected) so the trajectory reconnects after moving the rig.',
+					}"
+				>
+					<Tq.InputButton
+						:label="alignTarget ? `Align to #${alignTargetFrame}` : 'No koma data'"
+						:disabled="!alignTarget"
+						@click="alignToKoma"
 					/>
 				</Tq.Parameter>
 				<Tq.Parameter label="Set Up" icon="material-symbols:move">
