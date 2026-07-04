@@ -115,7 +115,7 @@ function cameraIcon(type: string) {
 		:class="{flashing}"
 		:icon="icon"
 		:label="label"
-		right-icon="mdi:chevron-down"
+		chevron
 		subtle
 		@click="onTriggerClick"
 	/>
@@ -180,16 +180,11 @@ function cameraIcon(type: string) {
 </template>
 
 <style scoped lang="stylus">
-// Now a Tq.InputButton (icon + name + chevron, spread layout). It carries the
-// shared useFlash() `flashing` class so it pulses in lockstep with the Balloon.
+// A Tq.InputButton (icon + name + chevron, spread layout via the `chevron` prop).
+// It carries the shared useFlash() `flashing` class so it pulses in lockstep with
+// the Balloon.
 .camera-trigger
 	min-width 12em
-
-	// Dim the chevron and hug it to the right edge a touch (a trailing affordance,
-	// not a primary glyph).
-	:deep(.icon.right)
-		opacity .6
-		margin-right -.15em
 
 // Chrome (surface, border, blur, shadow, padding) comes from the Popover's
 // Balloon now; the menu only lays out its rows. The attention flash lives on the
