@@ -14,7 +14,7 @@ koma（ストップモーション撮影アプリ）のプロジェクト知識�
 目的: koma プロジェクトを開いたら、最後に撮影に使ったカメラ（USB/webcam）が今つながっていれば自動再接続する。
 
 **Tethr 側 API:**
-- `Tethr.identifier: TethrIdentifier`（抽象。TethrPTPUSB は `device.usb` から、TethrWebcam は `{type:'webcam'}`）。`TethrIdentifier = {type:'ptpusb', usb?:{vendorId,productId,serialNumber?}, model?} | {type:'webcam', model?}`。
+- `Tethr.identifier: TethrIdentifier`（抽象。TethrPTPUSB は `device.usb` から、TethrWebcam は `device.deviceId`+`label` から）。`TethrIdentifier = {type:'ptpusb', usb?:{vendorId,productId,serialNumber?}, model?} | {type:'webcam', deviceId?, label?, model?}`。
 - `TethrManager.requestCamera(query: TethrDeviceType | TethrIdentifier, {prompt=true})`: identifier 指定時はまずペア済みデバイスを照合（serial → vendor:product → model）して無言で返す。無く `prompt!==false` の時だけ picker 表示（USB picker は vendor:product で絞る）。未 open のインスタンスを返す（hook が open）。
 - `useTethr()` は `isConnecting`（readonly ref）と `requestCamera(query, opts)` を公開。
 
@@ -22,7 +22,7 @@ koma（ストップモーション撮影アプリ）のプロジェクト知識�
 
 **load-bearing な落とし穴:**
 - `navigator.usb.requestDevice()` / webcam `getUserMedia` は **transient user activation** が必要。プロジェクト開時の自動再接続はジェスチャでないので `prompt:false`（無言 `getDevices()` 経路）必須、でないと throw。これが `prompt` オプションの存在理由。
-- Tethr の webcam は **単一/デフォルト**（per-device deviceId 無し）。個別 webcam は区別不可、identity は `type:'webcam'` のみ。
+- **webcam は 1台＝1デバイス**（2026-07-04 に facingMode 切替から変更）。`TethrManager` が `Map<deviceId, TethrWebcam>` を `enumerateDevices` から同期し、各 webcam を個別に `pairedCameras` へ。identity は `deviceId`（照合キー）+ `label`（表示名・fallback）。旧 `facingMode` config は削除。**落とし穴:** `enumerateDevices()` はカメラ権限を1度も許可していないと deviceId/label が空 → 個別列挙は grant 後のみ（`requestCamera('webcam')` が getUserMedia で grant → 列挙）。deviceId は権限永続時のみ安定 = 自動再接続は best-effort（USB serial と同様）。表示名は Chromium がラベル末尾に付ける USB `(vvvv:pppp)` を `cleanWebcamLabel` で除去。
 - `isConnecting` 導入の理由: `requestCamera` は open 前に `pairedCameras`（自動再接続が listen）を変えるので、ガードが無いと手動接続時に「前に記憶したカメラ」が勝つレース（"USB接続後も webcam が残る" バグ）。
 - `device.usb.serialNumber` は通信不要で読める（ペア済みなら）が `getModel()`/PTP serial はデバイス通信が要る → USB serial を identity に採用。`Tethr.getSerialNumber()` は ptpusb 未実装（null）。
 
