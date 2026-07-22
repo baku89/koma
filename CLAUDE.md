@@ -58,6 +58,35 @@ Sigma fp 接続中に koma ページをリロードすると再接続不能（co
 
 NB: macOS `ptpcamera` デーモンの claim 競合（症状は `claimInterface` が "Unable to claim interface"、ptpcamera kill で解決）とは別物。ここは claimInterface 成功・転送のみ失敗。
 
+### Canon EOS 対応（EOS R5 で実機デバッグ, 2026-07-22）
+`TethrCanon`（gphoto2 の EOS event-driven プロトコル移植）を実機 R5 で通した際の知見。接続・設定 read/write・ライブビュー・撮影が全て動作確認済み。
+
+**検出の罠（最大の落とし穴）:** 近代 EOS ミラーレス（R5 等）は **`vendorExtensionID` を Canon(`0x0b`) ではなく汎用 MTP(`0x6`) で列挙**する（`manufacturer:"Canon.Inc"`, `model:"Canon EOS R5"`, `vendorExtensionDesc:""`）。EOS プロパティ（絞り/SS/ISO 等）は標準 `GetDevicePropDesc` では出ず（`devicePropsSupported` は MTP 標準数個 = `0x5001`=BatteryLevel など）、**GetEvent(`0x9116`) 経由でしか来ない**という `TethrCanon` の前提と一致。→ `isCanonEOS` は「GetEvent あり **かつ**（Canon拡張ID **または** manufacturer が `/canon/i`）」で判定（拡張ID必須にすると R5 を取りこぼす）。誤検出時は汎用 `TethrPTPUSB` が標準プロパティ read/write を試み、`0x200a`(DeviceProp Not Supported) や transaction desync で死ぬ。
+
+**撮影は NonAF プレス必須（`#captureAndCollectObjects`）:** R5 は**素のフルプレス `RemoteReleaseOn(0x2)` を先行ハーフプレス無しで送ると拒否**（DeviceBusy 連発 → "Cannot send command"）。かつ AF モードだと通常のハーフプレス `0x1` で毎回 AF が走りフレームがずれる（ストップモーション致命的）。解決 = **Canon EDSDK の NonAF 値**（`0x10000` ビット = AFなし）を RemoteReleaseOn に使う: ハーフ `ShutterHalfNonAF=0x10001`(Halfway_NonAF) → フル `ShutterFullNonAF=0x10003`(Completely_NonAF) → off(`0x10003`) → off(`0x10001`)。実機実証: 素フルプレス拒否 / NonAFハーフ後に素フル`0x2`を送っても切れない / `0x10001`→`0x10003` で AF 走らずシャッター切れる。AF は別途 `runAutoFocus()`。
+
+**RAW+JPEG の 2枚目取りこぼし（`#objectAddedWaiters` の race）:** RAW+JPEG L 設定だと R5 は 2つの ObjectAdded レコードを**同一 GetEvent blob 内**に載せる。`#handleEventData` は blob を同期処理するので、1枚目が唯一の waiter を `shift()` で resolve（`.then` は次マイクロタスク＝兄弟 waiter 未登録）、2枚目は waiter 空で捨てられる → CR3 だけ返り JPEG 消失。→ `#pendingObjects` バッファを追加（waiter 無し＆`#isCapturing` 中なら push、`#waitObjectAdded` が先に drain、takePhoto 冒頭で clear）。修正後は CR3+JPG の 2 オブジェクトが返る。
+
+**koma 側の JPEG 必須:** `App.vue` の撮影は `if (!jpg) throw 'No JPEG image found'`（`/jpe?g/.test(format)` で jpg/raw 振り分け、jpg を lv にリサイズ）。**RAW のみ設定だと撮影が通らない** → カメラを RAW+JPEG（or JPEG）にする必要。JPEG は `ObjectFormatCode.Jpeg=0x3801`→`getObjectFormatName`→`"jpeg"` で `/jpe?g/` に一致。CR3 は未マップで `format:"0xb108"` のまま（非jpeg = raw 扱いなので機能的には問題なし。blob MIME は `#downloadCapturedObject` が明示設定）。
+
+**接続リトライ（`initTethrUSBPTP`、旧「リロードで再オープン不能」問題の解）:** open 失敗時に最大3回（`{maxAttempts, retryDelayMs}` で可変）: 死んだハンドルを close → 300ms 待ち → `getDevices()` から**同一カメラの現ハンドルを取り直して**再 open（自己修復 Device Reset 0x66 も再実行される）。`isRetriableOpenError` の対象 = claim 失敗 / disconnected / transfer error / DataView 範囲外（リロード残骸）/ timeout / Cannot send|receive / Invalid container length / ID mismatch / stall。**picker 経由の対話的接続は `PatientOpenOptions`（15回×1s）**: "Connecting…" の間にユーザーが ptpcamerad を kill すれば次のリトライで掴む（「接続してから kill」の順序をアプリが待つ）。macOS は `ptpcamerad` が即 respawn するので接続時 `while ...; kill -9 ptpcamerad; sleep 1` ループ（**0.05秒等の過度な高頻度は転送を途中で壊すので不可**、1秒程度に）。それでもカメラ側 PTP が wedge したら（Image Capture にも出ない等）**カメラの電源 OFF/ON** が確実。
+
+**その他の R5 実機知見:**
+- **AF/MF**: `setFocusMode` 実装済みだが、レンズ/本体が AF の間はカメラが FocusMode の許可リストに MF を載せない＝PC から切替不可（本体/レンズスイッチで MF に）。`#descFromProp` は**選択肢が2つ以上の時だけ writable**（1択は read-only 表示）。
+- **フォーカスドライブ**: `runManualFocus('near|far:1-3')` = DriveLens(0x9155)、LV 動作中のみ。koma は Camera Control「Focus」行（◀◀◀〜▶▶▶ 横並び flex）+ キー `1`/`2`（`shift+` で大ステップ）→ `nudgeFocus`（F.D. 優先、無ければ DriveLens）。**罠: `canRunManualFocus`/`manualFocusOptions` は既存 ConfigName** — useTethr で同名の生 ref を返すと `...configs` spread に上書きされる（TethrConfig 形が届いて `v-if` が偽に）。UI は `camera.canRunManualFocus?.value` を参照。
+- **LV magnify**: Zoom(0x9158) は **1 と 5 の2段**（6/10→5x 相当にクランプ、15 無視 = 本体の 15x は PTP から不可）。位置は ZoomPosition(0x9159)、座標=センサー実寸 8192×5464（`ZoomPosMax`、~8000,5000 で端クランプ）。`setLiveviewMagnifyPos(x,y)` は正規化 [0,1]。倍率の現在値はイベントに乗らないので last-set キャッシュ。Preview の **Shift+クリックで「その点を拡大」**（通常クリック=AF は従来通り）。
+- **カメラ名**: USB descriptor の productName は "Canon Digital Camera" — `TethrPTPUSB.name` は **PTP DeviceInfo.model（"Canon EOS R5"）優先**に。`getDeviceInfo()` はメモ化＋`open()` で先読み。
+- **標準 PTP の文字列プロパティ書き込みはコピペバグだった**: `setDevicePropValue` の String ケースが `writeBigUint64`（"Cannot convert raw to a BigInt" で即死）→ `PTPDataView.writeUTF16StringNT` を新設して修正。あわせて **set 前に `isDevicePropSupported` を確認**（unsupported は無言 no-op）＋ `Tethr.importConfigs` は per-config try/catch（**異機種の保存設定を流し込むのは通常運転**なので、1個の失敗で接続セットアップ全体を殺さない）。
+
+### LV パフォーマンス（2026-07-22 実測で確立。R5 21.7fps / fp 19.3fps 到達）
+`lvProbe()` / `sigmaStatusProbe()`（`stores/camera.ts` の TEMP デバッグ、`window.cam` 前提）で計測しながら詰めた。**教訓: 推測で直さず、トランザクション毎の (label, 所要, resCode) と worstGaps を見る。**
+
+- **PTPDevice `#waitBulkIn` は2段階読み**: 16KB 先読み → コンテナヘッダの宣言長で残りを正確に読む（1024 境界）。`maxByteLength` は**確保量ではなく上限ガードに降格**（旧: 宣言 4MB/frame 確保の GC チャーン）。ゴミ長（リロード残骸＝ヘッダでない位置）に当たったら **~8MB のドレイン読みで一気に掃いて再同期**（これが無いと 16KB×8回しか掃けず "Invalid container length" で死ぬ）。全ベンダー共通の恩恵。
+- **LiveviewDriver は decode パイプライン**: 転送ループは grab 専念、blob は並行 decode レーンへ（最新のみ保持・古いのはドロップ）。初回フレームだけ同期 draw（captureStream 前に canvas サイズ確定）。**ImageBitmap は draw 後に必ず `close()`**。
+- **NotReady/Busy は正常応答**: `backoffMs: 20`（Canon/Sigma とも）。汎用 200ms のままだと追いつく度に 200ms 停止 → ~5fps に落ちる（初期症状）。
+- **最重要: LV 中のカメラは「叩きすぎ」で他コマンドが激遅化する**。R5: VF を全力ポーリング（47req/s、半分空振り）すると **GetEvent が 250ms** かかり 500ms 毎のポーリングで周期的フリーズ。**`frameGapMs: 25` の息継ぎで GetEvent が 1ms に**（fps は不変 21.7）→ イベントポーリングを 300ms に戻せてダイヤル反映 ~0.3s と両立。**R5 は 0xc101 interrupt nudge をダイヤル変更で送らない**（実測）＝ポーリング間隔がそのまま UI 反映遅延。
+- **fp の固有制約**: `GetViewFrame` は busy を返さず**次フレームまでブロック**（avg 51ms = 供給 19.3fps が上限）。`GetCamStatus2` は LV 中、**要求グループに関係なく**断続的に 200-270ms かかる（CanSetInfo5 説は実測で棄却）→ 400ms 毎の FL/FD ポーリングが約2回/秒のつっかかりを生むが、**FL（ズームリング）の即時反映を優先して受け入れ**（3s 間引き案は却下）。安いズーム専用クエリが見つかれば再訪。
+
 ---
 
 ## アセット保存（lazy-resolve モデル, 2026-06-26）
