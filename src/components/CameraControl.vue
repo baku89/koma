@@ -19,6 +19,7 @@ const configNames: ConfigName[] = [
 	'exposureComp',
 	'focalLength',
 	'focusDistance',
+	'focusMode',
 	'aperture',
 	'shutterSpeed',
 	'whiteBalance',
@@ -48,6 +49,11 @@ const configLabels = {
 	},
 	focalLength: {label: 'F.L.', icon: 'lucide:focus', hint: 'Focal length'},
 	focusDistance: {label: 'F.D.', icon: 'tabler:frustum', hint: 'Focus distance'},
+	focusMode: {
+		label: 'AF/MF',
+		icon: 'material-symbols:center-focus-strong',
+		hint: 'Focus mode (AF / MF)',
+	},
 	aperture: {label: 'Apr.', icon: 'ph:aperture', hint: 'Aperture'},
 	shutterSpeed: {
 		label: 'SS',
@@ -148,6 +154,22 @@ function setConfigColor(name: ConfigName, value: string) {
 		},
 	})
 }
+
+// Manual-focus nudge buttons: a chevron whose direction is near (←) / far (→)
+// and whose weight (single / double / triple) is the step size 1 / 2 / 3.
+function focusDriveIcon(option: string) {
+	const [dir, step] = option.split(':')
+	const side = dir === 'near' ? 'left' : 'right'
+	const weight =
+		step === '3' ? 'chevron-triple' : step === '2' ? 'chevron-double' : 'chevron'
+	return `mdi:${weight}-${side}`
+}
+
+function focusDriveTooltip(option: string) {
+	const [dir, step] = option.split(':')
+	const size = step === '3' ? 'large' : step === '2' ? 'medium' : 'small'
+	return `Focus ${dir === 'near' ? 'nearer' : 'farther'} — ${size} step`
+}
 </script>
 
 <template>
@@ -186,6 +208,32 @@ function setConfigColor(name: ConfigName, value: string) {
 						{{ configLabels[name].label }}
 					</template>
 					<TethrConfig :config="(camera as any)[name]" :name="name" />
+				</Tq.Parameter>
+
+				<!-- Manual focus is a lens-drive action (near/far nudges), not a
+				config, so it gets its own row of buttons rather than a TethrConfig
+				control — slotted right after F.D., which it complements (and stands
+				in for on bodies with no absolute focus distance, e.g. Canon). -->
+				<Tq.Parameter
+					v-if="name === 'focusDistance' && camera.canRunManualFocus?.value"
+					:key="name + '/focus-drive'"
+					label="Focus"
+					hint="Manual focus — nudge nearer / farther (needs live view)"
+				>
+					<template #label>
+						<Tq.Icon class="focus-icon" icon="mdi:image-filter-center-focus" />
+						Focus
+					</template>
+					<div class="focus-drive">
+						<Tq.InputButton
+							v-for="option in camera.manualFocusOptions?.value ?? []"
+							:key="option"
+							:icon="focusDriveIcon(option)"
+							:tooltip="focusDriveTooltip(option)"
+							subtle
+							@click="camera.runManualFocus(option)"
+						/>
+					</div>
 				</Tq.Parameter>
 			</template>
 		</template>
@@ -258,4 +306,21 @@ function setConfigColor(name: ConfigName, value: string) {
 
 	&:hover
 		background var(--tq-color-input-hover)
+
+.focus-icon
+	width var(--tq-icon-size)
+	height var(--tq-icon-size)
+	// Nudge in to line up with the color-pad icon the config rows carry.
+	margin-left calc(var(--tq-icon-size) + var(--tq-gap-group))
+
+.focus-drive
+	display flex
+	align-items center
+	gap 2px
+	width 100%
+
+	// Stretch the nudge buttons to divide the control column evenly instead of
+	// sitting as fixed squares.
+	:deep(.TqInputButton)
+		flex 1 1 0
 </style>

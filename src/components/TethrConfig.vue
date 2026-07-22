@@ -70,6 +70,11 @@ const inputAttrs = computed<InputAttrs>(() => {
 			return {
 				labelizer: (v: any) => '×' + v,
 			}
+		case 'focusMode':
+			return {
+				labelizer: (v: any) =>
+					v === 'af' ? 'Auto Focus' : v === 'mf' ? 'Manual Focus' : String(v),
+			}
 		case 'focusPeaking':
 			return {
 				labelizer: (v: any) => (v === false ? 'Off' : capital(v)),
@@ -102,6 +107,8 @@ const drumConfigs: ConfigName[] = [
 	'shutterSpeed',
 	'iso',
 	'exposureComp',
+	'colorTemperature',
+	'liveviewMagnifyRatio',
 ]
 const isDrumConfig = computed(
 	() => !!props.name && drumConfigs.includes(props.name)

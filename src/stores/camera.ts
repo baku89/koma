@@ -18,6 +18,8 @@ export const useCameraStore = defineStore('camera', () => {
 		close,
 		camera: tethr,
 		toggleLiveview,
+		runManualFocus,
+		setLiveviewMagnifyPos,
 		configs,
 	} = useTethr()
 
@@ -105,6 +107,8 @@ export const useCameraStore = defineStore('camera', () => {
 		disconnect,
 		grant,
 		toggleLiveview,
+		runManualFocus,
+		setLiveviewMagnifyPos,
 		connectPromptNonce,
 		promptConnect,
 
