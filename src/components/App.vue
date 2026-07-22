@@ -241,22 +241,26 @@ const {fn: shoot} = preventConcurrentExecution(
 
 			tethr.off('progress', onProgress)
 
+			// Surface the camera's actual failure instead of masking every non-ok
+			// result as "No JPEG image found" further down.
+			if (result.status !== 'ok') {
+				throw new Error(result.message ?? 'Failed to capture')
+			}
+
 			let jpg: Blob | undefined
 			let raw: Blob | undefined
 			let jpgFilename: string | undefined
 			let rawFilename: string | undefined
 
-			if (result.status === 'ok') {
-				for (const object of result.value) {
-					const format = String(object.format)
+			for (const object of result.value) {
+				const format = String(object.format)
 
-					if (/jpe?g/.test(format)) {
-						jpg = object.blob
-						jpgFilename = object.filename
-					} else {
-						raw = object.blob
-						rawFilename = object.filename
-					}
+				if (/jpe?g/.test(format)) {
+					jpg = object.blob
+					jpgFilename = object.filename
+				} else {
+					raw = object.blob
+					rawFilename = object.filename
 				}
 			}
 
