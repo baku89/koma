@@ -131,6 +131,16 @@ async function onDblclick(e: MouseEvent) {
 
 	pos = vec2.transformMat2d(pos, xform)
 
+	if (e.shiftKey) {
+		// Shift-click: magnify live view into the clicked point. Zoom in first —
+		// the zoom-rect position only takes hold while magnified — then aim it.
+		// Re-aim from 1× (set LV Zoom back to 1); while magnified the view shows
+		// only the crop, so a click there wouldn't map to the full frame.
+		await tethr.setLiveviewMagnifyRatio(5)
+		await camera.setLiveviewMagnifyPos(pos[0], pos[1])
+		return
+	}
+
 	await tethr.setAutoFocusFrameCenter(pos)
 	await tethr.runAutoFocus()
 }
