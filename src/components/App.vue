@@ -432,6 +432,21 @@ async function applyExposureFromShot(shot: Shot | null) {
 	await tethr.importConfigs(exposureConfigs)
 }
 
+// Focus nudge shared by the keyboard/gamepad bindings: prefer absolute focus
+// distance (F.D.); fall back to a relative lens drive (Canon has no F.D. but can
+// DriveLens). `big` is the coarser step used by the Shift-modified bindings.
+function nudgeFocus(direction: 'near' | 'far', big = false) {
+	const fd = camera.focusDistance.value
+	if (fd !== null) {
+		const step = big ? 0.05 : 0.005
+		camera.focusDistance.set(fd + (direction === 'far' ? step : -step))
+	} else if (camera.canRunManualFocus?.value) {
+		const option =
+			direction === 'far' ? (big ? 'far:3' : 'far:1') : big ? 'near:3' : 'near:1'
+		camera.runManualFocus(option)
+	}
+}
+
 Tq.actions.register([
 	{
 		id: 'file',
@@ -630,19 +645,27 @@ Tq.actions.register([
 				id: 'nudge_focus_far',
 				icon: 'material-symbols:landscape-outline',
 				bind: ['2', 'gamepad:y'],
-				perform() {
-					if (camera.focusDistance.value === null) return
-					camera.focusDistance.set(camera.focusDistance.value + 0.005)
-				},
+				perform: () => nudgeFocus('far'),
 			},
 			{
 				id: 'nudge_focus_near',
 				icon: 'tabler:macro',
 				bind: ['1', 'gamepad:x'],
-				perform() {
-					if (camera.focusDistance.value === null) return
-					camera.focusDistance.set(camera.focusDistance.value - 0.005)
-				},
+				perform: () => nudgeFocus('near'),
+			},
+			{
+				id: 'nudge_focus_far_more',
+				label: 'Nudge Focus Far (More)',
+				icon: 'material-symbols:landscape-outline',
+				bind: 'shift+2',
+				perform: () => nudgeFocus('far', true),
+			},
+			{
+				id: 'nudge_focus_near_more',
+				label: 'Nudge Focus Near (More)',
+				icon: 'tabler:macro',
+				bind: 'shift+1',
+				perform: () => nudgeFocus('near', true),
 			},
 			{
 				id: 'apply_exposure_from_koma',
