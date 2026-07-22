@@ -79,6 +79,19 @@ const inputAttrs = computed<InputAttrs>(() => {
 			return {
 				labelizer: (v: any) => (v === false ? 'Off' : capital(v)),
 			}
+		case 'depthOfFieldPreview':
+			return {
+				labelizer: (v: any) => (v ? 'On' : 'Off'),
+			}
+		case 'imageQuality':
+			return {
+				// e.g. 'craw + large fine' -> 'CRAW + Large Fine'
+				labelizer: (v: any) =>
+					String(v)
+						.split(' + ')
+						.map(part => (/^c?raw$/.test(part) ? part.toUpperCase() : capital(part)))
+						.join(' + '),
+			}
 	}
 
 	return {}
@@ -123,6 +136,15 @@ const canIncrement = computed(() => {
 const isEnum = computed(() => {
 	const o = props.config.option
 	return o?.type === 'enum' && o.values.length > 0
+})
+
+// Display text for the read-only fallback frame. Runs the value through the
+// config's labelizer (when it has one) so e.g. a read-only focusMode shows
+// "Auto Focus", not the raw 'af'.
+const fallbackLabel = computed(() => {
+	const {value} = props.config
+	if (value === null || value === undefined) return '-'
+	return inputAttrs.value.labelizer?.(value) ?? String(value)
 })
 const asDrum = computed(() => isDrumConfig.value && isEnum.value)
 const asNumber = computed(() => {
@@ -226,7 +248,7 @@ function increment(dir: 1 | -1) {
 		-->
 		<Tq.InputString
 			v-else
-			:modelValue="config.value ? String(config.value) : '-'"
+			:modelValue="fallbackLabel"
 			align="center"
 			disabled
 		/>

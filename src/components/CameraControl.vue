@@ -21,6 +21,7 @@ const configNames: ConfigName[] = [
 	'focusDistance',
 	'focusMode',
 	'aperture',
+	'depthOfFieldPreview',
 	'shutterSpeed',
 	'whiteBalance',
 	'colorTemperature',
@@ -55,6 +56,11 @@ const configLabels = {
 		hint: 'Focus mode (AF / MF)',
 	},
 	aperture: {label: 'Apr.', icon: 'ph:aperture', hint: 'Aperture'},
+	depthOfFieldPreview: {
+		label: 'DoF',
+		icon: 'mdi:camera-iris',
+		hint: 'Depth of field preview (stop down to the taking aperture)',
+	},
 	shutterSpeed: {
 		label: 'SS',
 		icon: 'material-symbols:shutter-speed',
