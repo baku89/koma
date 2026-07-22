@@ -71,12 +71,25 @@ NB: macOS `ptpcamera` デーモンの claim 競合（症状は `claimInterface` 
 
 **接続リトライ（`initTethrUSBPTP`、旧「リロードで再オープン不能」問題の解）:** open 失敗時に最大3回（`{maxAttempts, retryDelayMs}` で可変）: 死んだハンドルを close → 300ms 待ち → `getDevices()` から**同一カメラの現ハンドルを取り直して**再 open（自己修復 Device Reset 0x66 も再実行される）。`isRetriableOpenError` の対象 = claim 失敗 / disconnected / transfer error / DataView 範囲外（リロード残骸）/ timeout / Cannot send|receive / Invalid container length / ID mismatch / stall。**picker 経由の対話的接続は `PatientOpenOptions`（15回×1s）**: "Connecting…" の間にユーザーが ptpcamerad を kill すれば次のリトライで掴む（「接続してから kill」の順序をアプリが待つ）。macOS は `ptpcamerad` が即 respawn するので接続時 `while ...; kill -9 ptpcamerad; sleep 1` ループ（**0.05秒等の過度な高頻度は転送を途中で壊すので不可**、1秒程度に）。それでもカメラ側 PTP が wedge したら（Image Capture にも出ない等）**カメラの電源 OFF/ON** が確実。
 
+**Canon 設定3種（2026-07-22 実機検証済み、Dragonframe 同等）:**
+- **Picture Style = `colorMode`**: EOS prop `0xd110`（u8）。値表は gphoto2 `canon_eos_picturestyle`: 0x81 standard 〜 0x88 fine detail、0x21-23 user1-3。
+- **Image Quality = `imageQuality`**: EOS prop `0xd120`（単スロット）/ `0xd121`(CF) / `0xd122`(SD) — どれで報告されるかは実機依存なので `#imageFormatPropCode()` が自動判別。**値は複合構造** `[u32 枚数][ファイル毎: u32 0x10, u32 type, u32 size, u32 comp]`（type 1=JPG/6=RAW、comp 4=RAW/3=fine or CRAW/2=normal、size 0=L/1=M/2=S/5=M1/6=M2/0xe=S1/0xf=S2）。AvailList のエントリも可変長 → イベントパーサに ImageFormat 特別扱いを追加。**ラベルはカメラ自身の許可リストから生成**（'craw + large fine' 等）。set は選択肢を wire 形式に再エンコードして SetDevicePropValueEx。
+- **DoF preview = `depthOfFieldPreview`**（ConfigName 新設・boolean）: EOS prop `0xd1b2` に 0/1。**許可リストが無い host-driven トグル**なので prop が存在すれば常に writable 扱い。
+- **AF/MF の書き込みの非対称性**: `d108=3`(MF) への切替は**PC から効く**（画面も切り替わる）。**AF への戻しは「以前カメラが報告した non-manual 値」が必要** — 当て推量の 0 を送ると **result=ok なのに無視される**（readback 3 のまま）。`#lastAFFocusRaw` に記憶して使う。UI は **read-only 表示**（UX 判断: AF/MF は本体で切替。TethrConfig の read-only fallback も labelizer を通す = "Auto Focus"/"Manual Focus" 表示）。
+- **単一オプション = read-only**: `#descFromProp` は**選択肢が2つ以上の時だけ writable**（1択の editable 風ドロップダウンを出さない）。
+
 **その他の R5 実機知見:**
-- **AF/MF**: `setFocusMode` 実装済みだが、レンズ/本体が AF の間はカメラが FocusMode の許可リストに MF を載せない＝PC から切替不可（本体/レンズスイッチで MF に）。`#descFromProp` は**選択肢が2つ以上の時だけ writable**（1択は read-only 表示）。
+- **AF/MF**: レンズ/本体が AF の間はカメラが FocusMode の許可リストに MF を載せない（上記の通り書き込み自体は可能）。
 - **フォーカスドライブ**: `runManualFocus('near|far:1-3')` = DriveLens(0x9155)、LV 動作中のみ。koma は Camera Control「Focus」行（◀◀◀〜▶▶▶ 横並び flex）+ キー `1`/`2`（`shift+` で大ステップ）→ `nudgeFocus`（F.D. 優先、無ければ DriveLens）。**罠: `canRunManualFocus`/`manualFocusOptions` は既存 ConfigName** — useTethr で同名の生 ref を返すと `...configs` spread に上書きされる（TethrConfig 形が届いて `v-if` が偽に）。UI は `camera.canRunManualFocus?.value` を参照。
 - **LV magnify**: Zoom(0x9158) は **1 と 5 の2段**（6/10→5x 相当にクランプ、15 無視 = 本体の 15x は PTP から不可）。位置は ZoomPosition(0x9159)、座標=センサー実寸 8192×5464（`ZoomPosMax`、~8000,5000 で端クランプ）。`setLiveviewMagnifyPos(x,y)` は正規化 [0,1]。倍率の現在値はイベントに乗らないので last-set キャッシュ。Preview の **Shift+クリックで「その点を拡大」**（通常クリック=AF は従来通り）。
 - **カメラ名**: USB descriptor の productName は "Canon Digital Camera" — `TethrPTPUSB.name` は **PTP DeviceInfo.model（"Canon EOS R5"）優先**に。`getDeviceInfo()` はメモ化＋`open()` で先読み。
 - **標準 PTP の文字列プロパティ書き込みはコピペバグだった**: `setDevicePropValue` の String ケースが `writeBigUint64`（"Cannot convert raw to a BigInt" で即死）→ `PTPDataView.writeUTF16StringNT` を新設して修正。あわせて **set 前に `isDevicePropSupported` を確認**（unsupported は無言 no-op）＋ `Tethr.importConfigs` は per-config try/catch（**異機種の保存設定を流し込むのは通常運転**なので、1個の失敗で接続セットアップ全体を殺さない）。
+
+**ロールバック済み実験（2026-07-23、クリックAFフローがフリーズ → 実機不在で撤収。再挑戦用の当時の知見）:**
+- **TouchAfPosition(`0x915b`)**: パラメータ `[3, x, y]`、座標は ZoomPosition と同じセンサー空間（8192×5464）。**単体実行は実機で成功**（AF枠が移動）。julianschroden の PTP/IP 解析が出典。
+- **FocusInfoEx(`0xd1d3`)**: 実 AF 枠矩形の在処。レイアウト仮説（gphoto2 `ptp_unpack_EOS_FocusInfoEx`）: `[u32 size][u16 subsize][u16 version][u16 pointsInStruct][u16 pointsInUse][u16 sizeX][u16 sizeY][u16 size2X][u16 size2Y]` + **int16 平行配列4本（height, width, y, x — 中心原点、sizeX×sizeY 空間）** + 選択ビットマップ。`RequestDevicePropValue(0x9127)` で能動要求可（単体成功）。**未検証: 配列順・ビットマップ解釈・実機での座標一致**。
+- **フリーズの状況**: 「aim(TouchAF) → rects取得(RequestDevicePropValue+GetEvent) → runAutoFocus(MFならAFホップ+DoAf+800ms+AfCancel) → rects再取得」の複合フローで**クリック時にフリーズ**。TouchAF 単体・Request 単体はどちらも通ることは確認済み＝**組み合わせ/タイミング問題**（原因未特定。次回は各ステップに console.log を挟んで bisect する — 用意したログ付きフローごとロールバックしたので復元要）。
+- **同時に撤収したもの**（動作未検証のため）: 撮影時 MF ガード（AF モードでは NonAF プレスでもワンショットAFのフォーカス優先がレリーズを止める問題への対策 = 撮影の瞬間だけ `d108=3`→復元）/ runAutoFocus の MF→AF ホップ（MF 中のクリックAF）/ DoAf→800ms→AfCancel のロック待ち（即 Cancel は AF を途中で切る疑い）/ Preview の AF 実枠オーバーレイ（camera-truth only 方針）/ LV magnify の矢印シフト UI＋右下ミニマップ（`canSetLiveviewMagnifyPos` capability + store 側 `liveviewMagnifyPos` 正規化追跡）。**方針自体は妥当**なので、実機が戻ったらフリーズ原因の bisect から再開。
 
 ### LV パフォーマンス（2026-07-22 実測で確立。R5 21.7fps / fp 19.3fps 到達）
 `lvProbe()` / `sigmaStatusProbe()`（`stores/camera.ts` の TEMP デバッグ、`window.cam` 前提）で計測しながら詰めた。**教訓: 推測で直さず、トランザクション毎の (label, 所要, resCode) と worstGaps を見る。**
