@@ -4,7 +4,12 @@ import {computed} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 
-import {SEQUENCE_STEP_LABELS, SEQUENCE_STEPS, type SequenceStep} from '../projectData'
+import {
+	REPLAY_STEPS,
+	SEQUENCE_STEP_LABELS,
+	SEQUENCE_STEPS,
+	type SequenceStep,
+} from '../projectData'
 import {useMillStore, useRigStore} from '../stores/machines'
 import {usePrevizStore} from '../stores/previz'
 import {useSequenceStore} from '../stores/sequence'
@@ -30,17 +35,25 @@ const statusText = computed(() => {
 	if (!p) return 'Idle'
 	switch (p.status) {
 		case 'done':
-			return `Frame ${p.frame} done`
+			return p.mode === 'replay' ? 'Replay done' : `Frame ${p.frame} done`
 		case 'stopped':
 			return `Stopped at ${SEQUENCE_STEP_LABELS[p.step]} (frame ${p.frame})`
 		case 'error':
 			return `Error at ${SEQUENCE_STEP_LABELS[p.step]}: ${p.error ?? ''}`
 		case 'paused':
 			return `Paused (frame ${p.frame})`
+		case 'running':
+			return p.mode === 'replay'
+				? `Replaying ${p.frame} of ${p.range?.[0]}–${p.range?.[1]}`
+				: `Frame ${p.frame}: ${SEQUENCE_STEP_LABELS[p.step]}`
 		default:
 			return `Interrupted at ${SEQUENCE_STEP_LABELS[p.step]} (frame ${p.frame})`
 	}
 })
+
+const activeSteps = computed(() =>
+	progress.value?.mode === 'replay' ? REPLAY_STEPS : SEQUENCE_STEPS
+)
 
 const canResume = computed(
 	() => !sequence.running && !!progress.value && progress.value.status !== 'done'
@@ -82,6 +95,17 @@ function setParkFromRig() {
 			</button>
 		</template>
 
+		<li class="estop-row">
+			<button
+				class="estop"
+				title="Emergency stop: feed-hold the mill and the Box Rig together, stop the spindle"
+				@click="sequence.estop()"
+			>
+				<Tq.Icon icon="mdi:octagon" />
+				ESTOP
+			</button>
+		</li>
+
 		<Tq.Parameter label="Status" icon="mdi:information-outline">
 			<span class="status" :class="progress?.status">{{ statusText }}</span>
 		</Tq.Parameter>
@@ -104,7 +128,7 @@ function setParkFromRig() {
 		</Tq.Parameter>
 
 		<li class="steps">
-			<span v-for="step in SEQUENCE_STEPS" :key="step" class="step" :class="stepState(step)">
+			<span v-for="step in activeSteps" :key="step" class="step" :class="stepState(step)">
 				<Tq.Icon
 					:icon="
 						stepState(step) === 'done'
@@ -136,6 +160,14 @@ function setParkFromRig() {
 				/>
 			</div>
 		</Tq.Parameter>
+		<Tq.Parameter label="Replay" icon="mdi:replay" hint="Re-shoot the preview range (in → out) at the current k_base into a replay layer">
+			<Tq.InputButton
+				:label="`In → Out (${project.previewRange[0]}–${project.previewRange[1]})`"
+				icon="mdi:replay"
+				:disabled="sequence.running"
+				@click="sequence.startReplay()"
+			/>
+		</Tq.Parameter>
 		<Tq.Parameter label="Control" icon="mdi:stop">
 			<div class="buttons">
 				<Tq.InputButton
@@ -157,8 +189,8 @@ function setParkFromRig() {
 			<div class="buttons">
 				<Tq.InputDropdown
 					v-model="resumeStep"
-					:options="[...SEQUENCE_STEPS]"
-					:labels="SEQUENCE_STEPS.map(s => SEQUENCE_STEP_LABELS[s])"
+					:options="[...activeSteps]"
+					:labels="activeSteps.map(s => SEQUENCE_STEP_LABELS[s])"
 				/>
 				<Tq.InputButton label="Resume" icon="mdi:restart" @click="sequence.resume(resumeStep)" />
 				<Tq.InputButton icon="mdi:close" subtle narrow tooltip="Discard progress" @click="sequence.clearProgress()" />
@@ -188,9 +220,6 @@ function setParkFromRig() {
 					<Tq.InputButton icon="mdi:crosshairs-gps" subtle narrow tooltip="Set from current mill position" :disabled="!mill.connected" @click="setShootFromMill" />
 				</div>
 			</Tq.Parameter>
-			<Tq.Parameter label="Safe Z" icon="mdi:axis-z-arrow" hint="Head must be at/above this before extending">
-				<Tq.InputNumber v-model="project.addsub.millSafeZ" :precision="3" />
-			</Tq.Parameter>
 			<Tq.Parameter label="Feed" icon="mdi:speedometer" hint="Extend/retract feed (mm/min)">
 				<Tq.InputNumber v-model="project.addsub.millFeed" :min="1" :max="5000" />
 			</Tq.Parameter>
@@ -214,10 +243,6 @@ function setParkFromRig() {
 			<Tq.Parameter label="Park shot" icon="mdi:camera-outline" hint="Take a park reference shot every frame">
 				<Tq.InputSwitch v-model="project.addsub.takeParkShot" />
 			</Tq.Parameter>
-			<Tq.Parameter label="Park layer" icon="mdi:layers-outline">
-				<Tq.InputNumber v-model="project.addsub.parkLayer" :min="1" :max="9" :step="1" :precision="0" />
-			</Tq.Parameter>
-
 			<Tq.ParameterHeading>Calibration</Tq.ParameterHeading>
 			<Tq.Parameter label="Pupil d" icon="mdi:eye" hint="Entrance pupil offset from the head's rotation centre (mm)">
 				<Tq.InputNumber v-model="project.addsub.calibration.pupilOffset" :precision="2" />
@@ -239,6 +264,33 @@ function setParkFromRig() {
 </template>
 
 <style lang="stylus" scoped>
+.estop-row
+	grid-column 1 / 3
+	list-style none
+	padding 0 0 var(--tq-gap-group) 0
+
+.estop
+	width 100%
+	height calc(var(--tq-input-height) * 1.6)
+	display flex
+	align-items center
+	justify-content center
+	gap 0.4em
+	font-weight 700
+	font-size 1.05em
+	letter-spacing 0.08em
+	color #fff
+	background #c62828
+	border 2px solid #ff5252
+	border-radius var(--tq-radius-input)
+	cursor pointer
+
+	&:hover
+		background #e53935
+
+	&:active
+		background #8e0000
+
 .toggle
 	background var(--tq-color-input)
 	height var(--tq-input-height)

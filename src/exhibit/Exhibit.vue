@@ -153,7 +153,8 @@ body {
 	margin: 0;
 	background: #000;
 	color: #fff;
-	font-family: 'Inter', system-ui, sans-serif;
+	font-family: 'Fira Code', ui-monospace, 'SF Mono', Menlo, monospace;
+	font-variant-ligatures: none;
 	overflow: hidden;
 	cursor: none;
 }
@@ -206,7 +207,10 @@ kbd,
 }
 
 .setup-box h1 {
-	font-size: 1.2rem;
+	font-size: 1rem;
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: 0.2em;
 	margin: 0 0 1rem;
 }
 
@@ -219,8 +223,10 @@ kbd,
 
 button {
 	font: inherit;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
 	color: #fff;
-	background: #222;
+	background: #000;
 	border: 1px solid #555;
 	padding: 0.4em 1em;
 	cursor: pointer;

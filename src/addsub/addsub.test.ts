@@ -17,7 +17,7 @@ import {
 	rotationCentre,
 	rotationToAngles,
 } from './kinematics'
-import {buildLedLayout, faceToWorld} from './led/layout'
+import {buildLedLayout, faceToWorld, ledLayoutFromSet} from './led/layout'
 import {sampleLedFrame} from './led/sampler'
 
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps
@@ -146,6 +146,28 @@ describe('led layout', () => {
 		const line1 = layout.pixels.filter(p => p.line === 1)
 		expect(line1[0].face).toBe('L')
 		expect(line1[0].y).toBe(DEFAULT_LED_LAYOUT.topY - 10 * 100)
+	})
+
+	it('u is global across the unwrapped image', () => {
+		const b1 = layout.pixels.find(p => p.line === 2)!
+		expect(near(b1.u, 1500 + 50 + layout.pitch / 2)).toBe(true)
+		expect(layout.imageWidth).toBe(6000)
+	})
+
+	it('imports a Houdini set.json placement', () => {
+		const set = ledLayoutFromSet({
+			layoutVersion: 3,
+			imageWidth: 5000,
+			lines: [
+				{name: 'L1', pixels: [[-700, 1000, 600, 10], [-700, 1000, 560, 50]]},
+				{name: 'L2', pixels: [[-700, 900, 600, 10]]},
+			],
+		})
+		expect(set.source).toBe('set')
+		expect(set.version).toBe(3)
+		expect(set.lineCounts).toEqual([2, 1])
+		expect(set.pixels[1]).toMatchObject({line: 0, index: 1, world: [-700, 1000, 560], u: 50, y: 1000})
+		expect(set.pixels[2]).toMatchObject({line: 1, index: 0})
 	})
 
 	it('walks around the inside: L→B→R→F share edges', () => {

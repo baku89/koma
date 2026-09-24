@@ -66,6 +66,12 @@ const powerText = computed(() => {
 			</div>
 		</Tq.Parameter>
 
+		<Tq.Parameter label="Work light" icon="mdi:ceiling-light" hint="Temporary all-white; the frame's lighting comes back when off">
+			<Tq.InputSwitch :modelValue="led.workLight" @update:modelValue="led.setWorkLight($event)" />
+		</Tq.Parameter>
+		<Tq.Parameter label="Follow" icon="mdi:auto-fix" hint="Show each capture frame's lighting automatically">
+			<Tq.InputSwitch v-model="led.followCapture" />
+		</Tq.Parameter>
 		<Tq.Parameter label="Shown" icon="mdi:image-check">
 			<span class="mute">
 				{{ led.shown?.file ?? '—' }}
@@ -78,7 +84,13 @@ const powerText = computed(() => {
 			<Tq.InputNumber v-model="project.addsub.led.brightnessCap" :min="0" :max="1" :step="0.05" :bar="true" />
 		</Tq.Parameter>
 
-		<template v-if="showSettings">
+		<Tq.Parameter label="Layout" icon="mdi:map-marker-path" hint="LED placement map in use">
+			<span class="mute">
+				{{ led.layout.source === 'set' ? 'previz/set.json' : 'built-in (no set.json)' }}
+				· v{{ led.layout.version }} · {{ led.layout.pixels.length }} px
+			</span>
+		</Tq.Parameter>
+		<template v-if="showSettings && led.layout.source === 'builtin'">
 			<Tq.Parameter label="Gain" icon="mdi:contrast" hint="Multiplier when sampling the image">
 				<Tq.InputNumber v-model="project.addsub.led.gain" :min="0" :max="2" :step="0.05" />
 			</Tq.Parameter>

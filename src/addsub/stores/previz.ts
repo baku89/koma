@@ -33,9 +33,36 @@ import {computed, readonly, ref, shallowRef, watch} from 'vue'
 import {useProjectStore} from '@/stores/project'
 
 import {anglesToRotation, type CameraPose, type HeadAngles} from '../kinematics'
+import type {LedSetData} from '../led/layout'
+
+/**
+ * previz/set.json — the physical set as built, exported from Houdini:
+ *   {
+ *     "version": 1,
+ *     "led": {LedSetData},                      // per-pixel [x, y, z, u]
+ *     "geometry": [                             // display only (glTF, mm)
+ *       {"name": "rig", "file": "geo/rig.glb", "wireframe": true, "color": "#888888"}
+ *     ]
+ *   }
+ */
+export interface SetGeometry {
+	name?: string
+	/** Path relative to previz/, a .glb/.gltf exported from Houdini in mm. */
+	file: string
+	wireframe?: boolean
+	color?: string
+	opacity?: number
+}
+
+export interface SetFile {
+	version: number
+	led?: LedSetData
+	geometry?: SetGeometry[]
+}
 
 export const PREVIZ_DIR = 'previz'
 const FRAMES_FILE = 'frames.json'
+const SET_FILE = 'set.json'
 const POLL_MS = 3000
 
 export interface PrevizFrameRaw {
@@ -112,6 +139,8 @@ export const usePrevizStore = defineStore('addsub:previz', () => {
 	const file = ref<PrevizFile | null>(null)
 	const frames = ref(new Map<number, PrevizFrame>())
 	const lastModified = ref<number | null>(null)
+	const set = shallowRef<SetFile | null>(null)
+	const setModified = ref<number | null>(null)
 	const error = ref<string | null>(null)
 	const loading = ref(false)
 
@@ -145,11 +174,15 @@ export const usePrevizStore = defineStore('addsub:previz', () => {
 			return
 		}
 		await reload()
+		await reloadSet()
 
 		const FSO = (globalThis as any).FileSystemObserver
 		if (typeof FSO === 'function') {
 			try {
-				const obs = new FSO(() => void reload())
+				const obs = new FSO(() => {
+					void reload()
+					void reloadSet()
+				})
 				await obs.observe(dir.value, {recursive: false})
 				observer = obs
 			} catch {
@@ -157,7 +190,10 @@ export const usePrevizStore = defineStore('addsub:previz', () => {
 			}
 		}
 		if (!observer) {
-			pollTimer = setInterval(() => void reloadIfChanged(), POLL_MS)
+			pollTimer = setInterval(() => {
+				void reloadIfChanged()
+				void reloadSet()
+			}, POLL_MS)
 		}
 	}
 
@@ -230,6 +266,32 @@ export const usePrevizStore = defineStore('addsub:previz', () => {
 		}
 	}
 
+	async function reloadSet() {
+		if (!dir.value) return
+		let f: File
+		try {
+			f = await (await dir.value.getFileHandle(SET_FILE)).getFile()
+		} catch {
+			if (set.value) {
+				set.value = null
+				setModified.value = null
+			}
+			return
+		}
+		if (f.lastModified === setModified.value) return
+		for (let attempt = 0; attempt < 5; attempt++) {
+			try {
+				const parsed = JSON.parse(await f.text()) as SetFile
+				set.value = parsed
+				setModified.value = f.lastModified
+				return
+			} catch {
+				await new Promise(r => setTimeout(r, 400))
+				f = await (await dir.value.getFileHandle(SET_FILE)).getFile()
+			}
+		}
+	}
+
 	//--------------------------------------------------------------------------
 	// Access
 
@@ -278,6 +340,11 @@ export const usePrevizStore = defineStore('addsub:previz', () => {
 		error: readonly(error),
 		loading: readonly(loading),
 		ledTopFilmY: computed(() => file.value?.ledTopFilmY ?? null),
+		/** previz/set.json (LED placement + display geometry), or null. */
+		set: readonly(set),
+		setLed: computed(() => set.value?.led ?? null),
+		setGeometry: computed(() => set.value?.geometry ?? []),
+		setModified: readonly(setModified),
 		frameFor,
 		readBlob,
 		readText,

@@ -29,8 +29,8 @@ const shown = store.shown
 const shownKind = computed(() => {
 	const f = shown.value
 	if (!f) return '—'
-	const park = store.project.value?.addsub?.parkLayer ?? 1
-	return f.layer === park ? 'park reference' : 'main'
+	const layer = store.project.value?.layers?.[f.layer]
+	return layer?.kind ?? (f.layer === 0 ? 'main' : 'test')
 })
 
 const shownDate = computed(() => {
@@ -59,7 +59,6 @@ const captureFrame = computed(() => store.project.value?.captureShot?.frame ?? n
 
 const STEPS = [
 	'cut',
-	'spindleOff',
 	'extend',
 	'rig',
 	'led',
@@ -202,6 +201,8 @@ watch(
 dt {
 	color: #777;
 	font-size: 0.8rem;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
 }
 
 dd {

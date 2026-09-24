@@ -17,7 +17,6 @@ import {
 /** One step of the per-frame sequence, in order. §2 */
 export const SEQUENCE_STEPS = [
 	'cut',
-	'spindleOff',
 	'extend',
 	'rig',
 	'led',
@@ -31,7 +30,6 @@ export type SequenceStep = (typeof SEQUENCE_STEPS)[number]
 
 export const SEQUENCE_STEP_LABELS: Record<SequenceStep, string> = {
 	cut: 'Cut (G-code)',
-	spindleOff: 'Spindle off / retract',
 	extend: 'Extend table to shoot position',
 	rig: 'Move Box Rig',
 	led: 'Set LEDs',
@@ -45,7 +43,16 @@ export const SEQUENCE_STEP_LABELS: Record<SequenceStep, string> = {
  * Where the sequence was when it last ran, so a helper can resume after a
  * stop, a crash or a reload. Persisted with the project.
  */
+export type SequenceMode = 'shoot' | 'replay'
+
+/** Steps of a replay pass (§7.2): no cutting, no table moves. */
+export const REPLAY_STEPS: readonly SequenceStep[] = ['rig', 'led', 'settle', 'capture']
+
 export interface SequenceProgress {
+	/** 'shoot' (default) = the normal per-frame sequence; 'replay' = §7.2 pass. */
+	mode?: SequenceMode
+	/** Replay: inclusive frame range being re-shot. */
+	range?: [number, number]
 	frame: number
 	/** The step that was running (or about to run) when progress was saved. */
 	step: SequenceStep
@@ -70,12 +77,8 @@ export interface AddsubProjectData {
 	 * was at before extending.
 	 */
 	cutPosition?: {x: number; y?: number}
-	/** Mill Z (machine coords) the head must be at/above before extending. */
-	millSafeZ: number
 	/** Rig axes for the park reference frame (machine coords). null = none. */
 	parkPose: AxesPosition | null
-	/** Layer that park reference shots are written to. */
-	parkLayer: number
 	/** Whether to take a park reference shot every frame. */
 	takeParkShot: boolean
 	/** ms to wait after the rig stops before capturing. §2 step 6 */
@@ -107,9 +110,7 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	previzFrameOffset: 0,
 	shootPosition: {x: 0},
 	cutPosition: undefined,
-	millSafeZ: 0,
 	parkPose: null,
-	parkLayer: 1,
 	takeParkShot: false,
 	settleMs: 2000,
 	rigFeed: 1500,

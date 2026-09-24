@@ -30,13 +30,15 @@ import {
 
 import {BLOCK_HEIGHT} from '../config'
 import {decodeImage} from '../led/decode'
-import {buildLedLayout} from '../led/layout'
+import {buildLedLayout, ledLayoutFromSet} from '../led/layout'
 import {type RgbaImage, sampleLedFrame} from '../led/sampler'
+import {usePrevizStore} from './previz'
 
 const FAMILY_ID = 'ws-fanout'
 
 export const useLedStore = defineStore('addsub:led', () => {
 	const project = useProjectStore()
+	const previz = usePrevizStore()
 
 	const device = shallowRef<WsFanout | null>(null)
 	const connecting = ref(false)
@@ -49,7 +51,12 @@ export const useLedStore = defineStore('addsub:led', () => {
 
 	const connected = computed(() => device.value !== null)
 
-	const layout = computed(() => buildLedLayout(project.addsub.led.layout))
+	/** The real placement from previz/set.json when present, else the fallback. */
+	const layout = computed(() =>
+		previz.setLed
+			? ledLayoutFromSet(previz.setLed)
+			: buildLedLayout(project.addsub.led.layout, project.addsub.led.layoutVersion)
+	)
 
 	/** world Y = film Y + lift, for the current base block. */
 	const lift = computed(
@@ -168,9 +175,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 		power.value = led.estimatePower()
 		try {
 			const result = await led.show()
-			shown.value = ref_
-				? {file: ref_.file, layoutVersion: project.addsub.led.layoutVersion}
-				: null
+			shown.value = ref_ ? {file: ref_.file, layoutVersion: layout.value.version} : null
 			lastError.value = null
 			return result
 		} catch (e) {
@@ -198,6 +203,87 @@ export const useLedStore = defineStore('addsub:led', () => {
 		power.value = led.estimatePower()
 	}
 
+	//--------------------------------------------------------------------------
+	// Follow the capture frame (ADDSUB.md: 撮影コマに移ったら自動的にその照明) with
+	// a temporary all-white work light on top.
+
+	/** Show each capture frame's lighting automatically. */
+	const followCapture = ref(true)
+	/** Temporary all-white for working on the set; restores the frame after. */
+	const workLight = ref(false)
+
+	/** Key of what's on the wall, to skip redundant re-shows. */
+	let shownKey: string | null = null
+	let chain: Promise<unknown> = Promise.resolve()
+
+	function enqueue<T>(fn: () => Promise<T>): Promise<T> {
+		const p = chain.then(fn, fn)
+		chain = p.catch(() => {})
+		return p
+	}
+
+	function frameKey(file: string) {
+		return `${file}|${lift.value}|${project.addsub.led.gain}|${project.addsub.led.topFilmY}`
+	}
+
+	/**
+	 * Make sure `frame`'s lighting is on the wall. Resolves once the firmware
+	 * has latched it (or immediately if it already is). Returns false when the
+	 * frame has no LED image. The sequence awaits this before capturing.
+	 */
+	function ensureFrame(frame: number, opts: {force?: boolean} = {}): Promise<boolean> {
+		return enqueue(async () => {
+			const pf = previz.frameFor(frame)
+			if (!pf?.led || !device.value) return false
+			const key = frameKey(pf.led)
+			if (!opts.force && shownKey === key && !workLight.value) return true
+			const blob = await previz.readBlob(pf.led)
+			await showImageBlob(blob, {file: pf.led})
+			shownKey = key
+			return true
+		})
+	}
+
+	function setWorkLight(on: boolean) {
+		workLight.value = on
+	}
+
+	// Any of these changing re-evaluates what should be on the wall.
+	watch(
+		() =>
+			[
+				connected.value,
+				workLight.value,
+				followCapture.value,
+				project.captureShot.frame,
+				lift.value,
+				project.addsub.led.gain,
+				project.addsub.led.topFilmY,
+				previz.lastModified,
+			] as const,
+		([isConnected, work, follow, frame]) => {
+			if (!isConnected) {
+				shownKey = null
+				return
+			}
+			if (work) {
+				void enqueue(async () => {
+					await fill(255, 255, 255)
+					shownKey = 'work'
+				}).catch(() => {})
+				return
+			}
+			if (follow) void ensureFrame(frame).catch(() => {})
+		},
+		{immediate: true}
+	)
+
+	// Manual fills / blackouts invalidate the key so the next ensureFrame
+	// really re-sends.
+	watch(shown, v => {
+		if (v === null) shownKey = null
+	})
+
 	return {
 		device,
 		connected,
@@ -215,5 +301,9 @@ export const useLedStore = defineStore('addsub:led', () => {
 		showImageBlob,
 		blackout,
 		fill,
+		followCapture,
+		workLight,
+		setWorkLight,
+		ensureFrame,
 	}
 })

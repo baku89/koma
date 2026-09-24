@@ -2,10 +2,10 @@
  * Sample an unwrapped lighting image (film coordinates) into per-line RGB
  * buffers for ws-fanout (ADDSUB.md §8).
  *
- * The image covers the four faces side by side (L B R F), each `faceWidth`
- * mm wide, at a uniform scale of `width / (4·faceWidth)` px per mm. Its top
- * edge is at film Y = `topFilmY`; it extends downward, and is drawn longer
- * than the wall to make room for the stack growing underneath.
+ * The image is the unwrapped wall, `layout.imageWidth` mm wide, at a uniform
+ * scale of `width / imageWidth` px per mm. Its top edge is at film Y =
+ * `topFilmY`; it extends downward, and is drawn longer than the wall to make
+ * room for the stack growing underneath.
  *
  * The LEDs are fixed in world; the film frame rises by BLOCK_HEIGHT·kBase, so
  * each pixel's film Y = world Y − lift. The colour is a box average over a
@@ -46,8 +46,7 @@ export function sampleLedFrame(
 	image: RgbaImage,
 	opts: SampleOptions
 ): Uint8Array[] {
-	const {faceWidth} = layout.params
-	const scale = image.width / (4 * faceWidth) // px per mm
+	const scale = image.width / layout.imageWidth // px per mm
 	const box = Math.max(0, (opts.boxSize ?? layout.pitch) * scale)
 	const half = box / 2
 	const gain = opts.gain ?? 1
@@ -56,8 +55,8 @@ export function sampleLedFrame(
 	const {width, height, data} = image
 
 	for (const px of layout.pixels) {
-		const cx = (px.faceIndex * faceWidth + px.u) * scale
-		const filmY = px.y - opts.lift
+		const cx = px.u * scale
+		const filmY = px.world[1] - opts.lift
 		const cy = (opts.topFilmY - filmY) * scale
 
 		let r = 0

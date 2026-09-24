@@ -368,7 +368,14 @@ function placeShotAndAdvance(newShot: Shot) {
 // shot goes to the park layer of the frame just shot without moving the cursor.
 sequence.registerCapture(async (req: CaptureRequest) => {
 	if (req.cameraConfigs && camera.tethr) {
-		await camera.tethr.importConfigs(req.cameraConfigs as any)
+		// Only the exposure-related subset (same rule as "apply exposure from").
+		const configs = req.cameraConfigs as Record<string, unknown>
+		const subset = Object.fromEntries(
+			exposureConfigNames
+				.filter(name => configs[name] !== undefined)
+				.map(name => [name, configs[name]])
+		)
+		if (Object.keys(subset).length) await camera.tethr.importConfigs(subset as any)
 	}
 	if (req.kind === 'park') {
 		const saved = {...project.captureShot}
@@ -812,6 +819,13 @@ Tq.actions.register([
 		order: 75,
 		icon: 'mdi:cube-outline',
 		children: [
+			{
+				id: 'estop',
+				label: 'EMERGENCY STOP (mill + rig)',
+				icon: 'mdi:octagon',
+				bind: 'shift+escape',
+				perform: () => sequence.estop(),
+			},
 			{
 				id: 'sequence_run_frame',
 				label: 'Sequence: Run One Frame',

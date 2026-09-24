@@ -1,15 +1,18 @@
 /**
- * LED placement map (ADDSUB.md §8): where every pixel of the wall sits, as a
- * point on the unwrapped 4-face image (face, u, y) and in world space.
+ * LED placement map (ADDSUB.md §8): where every pixel of the wall sits in
+ * world space, and where it samples the unwrapped lighting image.
  *
- * Strips are horizontal, stacked at `stripSpacing` from `topY` downward; each
- * face has two data lines, line 1 the upper `stripsPerLine` strips and line 2
- * the lower ones; within a line the strips snake (zigzag), the first strip
- * starting from `startSide`. Data line order is the ws-fanout order
- * L1 L2 B1 B2 R1 R2 F1 F2.
+ * Two sources:
+ * - `ledLayoutFromSet()`: the real placement, exported from Houdini into
+ *   previz/set.json as per-pixel `[x, y, z, u]` (world mm + horizontal mm on
+ *   the unwrapped image) in data-line order. This is the one used on site.
+ * - `buildLedLayout()`: a parametric fallback (4 faces L B R F side by side,
+ *   horizontal strips snaking downward from `topY`, two lines per face) for
+ *   when no set.json exists.
  *
- * "u" runs left → right as seen from the *inside* of the wall facing the
- * face, so laying L B R F side by side gives a continuous walk around.
+ * In both, the vertical sample position is derived from the pixel's world Y
+ * minus the current film lift (the wall is fixed; the film frame rises with
+ * every appended block), so the map never changes with k_base.
  */
 
 import type {vec3} from 'linearly'
@@ -21,22 +24,65 @@ export interface LedPixel {
 	line: number
 	/** Index within the line. */
 	index: number
-	face: LedFace
-	faceIndex: number
-	/** Horizontal position on the face (mm from the left edge, inside view). */
-	u: number
-	/** World Y (mm). Fixed — the *film* Y is this minus the current lift. */
-	y: number
-	/** World position of the pixel. */
+	/** World position of the pixel (mm). */
 	world: vec3
+	/** Horizontal position on the unwrapped image (mm from its left edge). */
+	u: number
+	/** Fallback layout only: which face this pixel is on. */
+	face?: LedFace
+	faceIndex?: number
+	/** World Y (mm), same as world[1]. */
+	y: number
 }
 
 export interface LedLayout {
-	params: LedLayoutParams
+	source: 'set' | 'builtin'
+	/** Bumped when the physical placement changes; stored with each shot. */
+	version: number
 	pixels: LedPixel[]
 	/** Pixel count per line, in line order. */
 	lineCounts: number[]
+	/** LED pitch (mm), the default sampling box size. */
 	pitch: number
+	/** Width of the unwrapped image in mm (u runs 0 … imageWidth). */
+	imageWidth: number
+	/** Fallback layout only. */
+	params?: LedLayoutParams
+}
+
+/** `led` section of previz/set.json, as Houdini writes it. */
+export interface LedSetData {
+	/** Bump when the placement changes. Default 1. */
+	layoutVersion?: number
+	/** Width of the unwrapped image in mm. */
+	imageWidth: number
+	/** LED pitch in mm (default 1400 / 42). */
+	pitch?: number
+	/** In ws-fanout data-line order (L1 L2 B1 B2 R1 R2 F1 F2). */
+	lines: {
+		name?: string
+		/** `[x, y, z, u]` per pixel: world mm and horizontal image mm. */
+		pixels: [number, number, number, number][]
+	}[]
+}
+
+export function ledLayoutFromSet(data: LedSetData): LedLayout {
+	const pixels: LedPixel[] = []
+	const lineCounts: number[] = []
+	data.lines.forEach((ln, line) => {
+		ln.pixels.forEach(([x, y, z, u], index) => {
+			pixels.push({line, index, world: [x, y, z], u, y})
+		})
+		lineCounts.push(ln.pixels.length)
+	})
+	return {
+		source: 'set',
+		version: data.layoutVersion ?? 1,
+		pixels,
+		lineCounts,
+		pitch: data.pitch ?? 1400 / 42,
+		imageWidth: data.imageWidth,
+	}
 }
 
 /** World position for a point on a face (inside view, u from the left). */
@@ -54,7 +100,10 @@ export function faceToWorld(face: LedFace, u: number, y: number, faceWidth: numb
 	}
 }
 
-export function buildLedLayout(params: LedLayoutParams): LedLayout {
+export function buildLedLayout(
+	params: LedLayoutParams,
+	version = 1
+): LedLayout {
 	const pitch = params.stripLength / params.pixelsPerStrip
 	const margin = (params.faceWidth - params.stripLength) / 2
 	const pixels: LedPixel[] = []
@@ -70,15 +119,15 @@ export function buildLedLayout(params: LedLayoutParams): LedLayout {
 				const forward = (s % 2 === 0) === (params.startSide === 'left')
 				for (let p = 0; p < params.pixelsPerStrip; p++) {
 					const k = forward ? p : params.pixelsPerStrip - 1 - p
-					const u = margin + (k + 0.5) * pitch
+					const uFace = margin + (k + 0.5) * pitch
 					pixels.push({
 						line,
 						index: index++,
 						face,
 						faceIndex,
-						u,
+						u: faceIndex * params.faceWidth + uFace,
 						y,
-						world: faceToWorld(face, u, y, params.faceWidth),
+						world: faceToWorld(face, uFace, y, params.faceWidth),
 					})
 				}
 			}
@@ -86,7 +135,15 @@ export function buildLedLayout(params: LedLayoutParams): LedLayout {
 		}
 	})
 
-	return {params, pixels, lineCounts, pitch}
+	return {
+		source: 'builtin',
+		version,
+		params,
+		pixels,
+		lineCounts,
+		pitch,
+		imageWidth: 4 * params.faceWidth,
+	}
 }
 
 /** Vertical extent of the wall (world Y of the lowest strip). */

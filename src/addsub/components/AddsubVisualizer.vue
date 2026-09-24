@@ -11,6 +11,7 @@ import {useElementSize} from '@vueuse/core'
 import {mat4, quat, vec3} from 'linearly'
 import * as THREE from 'three'
 import type {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
+import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js'
 import {
 	AmbientLight,
 	BasicMaterial,
@@ -143,8 +144,56 @@ function onRendererReady(trois: any) {
 	const guide: THREE.Group = $guide.value.group
 	guide.add(new THREE.GridHelper(4, 40, 0x555555, 0x333333))
 	guide.add(new THREE.AxesHelper(0.5))
-	guide.add(wallOutline())
+	guide.add(outline)
 }
+
+//------------------------------------------------------------------------------
+// Set geometry from previz/set.json (glTF exported by Houdini, mm). While
+// none is loaded, the parametric wall outline stands in.
+
+const outline = new THREE.Group()
+const setGroup = new THREE.Group()
+setGroup.scale.setScalar(S)
+
+onMounted(() => {
+	$lines.value?.add(setGroup)
+	outline.add(wallOutline())
+})
+
+const gltfLoader = new GLTFLoader()
+let geometrySeq = 0
+
+watch(
+	() => [previz.setGeometry, previz.setModified] as const,
+	async ([list]) => {
+		const seq = ++geometrySeq
+		setGroup.clear()
+		outline.visible = list.length === 0
+		for (const g of list) {
+			try {
+				const blob = await previz.readBlob(g.file)
+				const gltf = await gltfLoader.parseAsync(await blob.arrayBuffer(), '')
+				if (seq !== geometrySeq) return
+				const color = new THREE.Color(g.color ?? '#888888')
+				gltf.scene.traverse(obj => {
+					const mesh = obj as THREE.Mesh
+					if (!mesh.isMesh) return
+					mesh.material = new THREE.MeshBasicMaterial({
+						color,
+						wireframe: g.wireframe ?? true,
+						transparent: true,
+						opacity: g.opacity ?? 0.6,
+					})
+				})
+				setGroup.add(gltf.scene)
+			} catch (e) {
+				// eslint-disable-next-line no-console
+				console.warn('[set.json] failed to load geometry', g.file, e)
+			}
+		}
+	},
+	{immediate: true}
+)
 
 function wallOutline() {
 	const {top, bottom, h} = wall.value
@@ -400,20 +449,37 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 <template>
 	<div ref="$root" class="AddsubVisualizer">
 		<div class="info tq-font-numeric">
-			<div class="row">
-				<span class="label">Rig</span>
-				X {{ fmt(rig.mpos.x) }} Y {{ fmt(rig.mpos.y) }} Z {{ fmt(rig.mpos.z) }}
-				A {{ fmt(rig.mpos.a, 2) }} B {{ fmt(rig.mpos.b, 2) }} C {{ fmt(rig.mpos.c, 2) }}
-				<span class="state">{{ rig.state ?? 'offline' }}</span>
+			<div class="block">
+				<div class="head">
+					<span class="name">Box Rig</span>
+					<span class="state" :class="{off: !rig.connected}">{{ rig.state ?? 'offline' }}</span>
+				</div>
+				<div class="axes">
+					<span v-for="ax in ['x', 'y', 'z'] as const" :key="ax" class="axis">
+						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rig.mpos[ax]) }}
+					</span>
+					<span v-for="ax in ['a', 'b', 'c'] as const" :key="ax" class="axis">
+						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rig.mpos[ax], 2) }}°
+					</span>
+				</div>
 			</div>
-			<div class="row">
-				<span class="label">Mill</span>
-				X {{ fmt(mill.mpos.x) }} Y {{ fmt(mill.mpos.y) }} Z {{ fmt(mill.mpos.z) }}
-				<span class="state">{{ mill.state ?? 'offline' }}</span>
+			<div class="block">
+				<div class="head">
+					<span class="name">Mill</span>
+					<span class="state" :class="{off: !mill.connected}">{{ mill.state ?? 'offline' }}</span>
+				</div>
+				<div class="axes">
+					<span v-for="ax in ['x', 'y', 'z'] as const" :key="ax" class="axis">
+						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(mill.mpos[ax]) }}
+					</span>
+				</div>
 			</div>
-			<div class="row">
-				<span class="label">k</span>{{ kBase }}
-				<span class="label">Seq</span>{{ sequence.currentStep ?? (sequence.message ?? 'idle') }}
+			<div class="block">
+				<div class="head">
+					<span class="name">Sequence</span>
+					<span class="state">k_base {{ kBase }}</span>
+				</div>
+				<div class="seq">{{ sequence.currentStep ?? (sequence.message ?? 'idle') }}</div>
 			</div>
 		</div>
 		<Renderer
@@ -517,22 +583,59 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 
 .info
 	position absolute
-	top 0
-	left 0
-	padding var(--tq-gap-control)
-	font-size 0.8em
-	line-height 1.5
+	top var(--tq-gap-control)
+	left var(--tq-gap-control)
+	display flex
+	flex-direction column
+	gap var(--tq-gap-group)
 	pointer-events none
 	z-index 1
+	font-size 1em
+	line-height 1.4
 
-.row
+.block
+	min-width 15em
+	padding var(--tq-gap-group) var(--tq-gap-control)
+	background unquote('color-mix(in srgb, var(--tq-color-background) 75%, transparent)')
+	backdrop-filter blur(6px)
+	border 1px solid unquote('var(--tq-color-border, rgba(128, 128, 128, 0.35))')
+	border-radius var(--tq-radius-input)
+
+.head
 	display flex
-	gap 0.5em
-	white-space nowrap
+	justify-content space-between
+	align-items baseline
+	gap 1em
+	margin-bottom 0.15em
 
-.label
-	color var(--tq-color-text-mute)
+.name
+	font-weight 700
+	letter-spacing 0.03em
 
 .state
 	color var(--tq-color-accent)
+	font-weight 600
+
+	&.off
+		color var(--tq-color-text-mute)
+
+.axes
+	display grid
+	grid-template-columns repeat(3, auto)
+	gap 0.1em 1em
+	font-variant-numeric tabular-nums
+
+.axis
+	white-space nowrap
+
+.label
+	display inline-block
+	min-width 1.3em
+	color var(--tq-color-text-mute)
+
+.seq
+	white-space nowrap
+	overflow hidden
+	text-overflow ellipsis
+	max-width 22em
 </style>

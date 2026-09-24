@@ -37,6 +37,7 @@ interface RawProject {
 	komas: ({shots: (RawShot | null)[]} | null)[]
 	previewRange?: [number, number]
 	captureShot?: {frame: number; layer: number}
+	layers?: {kind?: string; label?: string}[]
 	addsub?: {
 		kBase?: number
 		parkLayer?: number

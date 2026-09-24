@@ -514,10 +514,13 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - koma 側は timeline frame + `project.addsub.previzFrameOffset` = previz `frame`。`FileSystemObserver` があれば監視、無ければ 3 秒ポーリング。parse 失敗は書きかけとみなし再試行。
 
 ### シーケンス（§2）
-- `src/addsub/stores/sequence.ts`。ステップ: `cut → spindleOff → extend → rig → led → settle → capture → park → retract`。各ステップ完了ごとに `project.addsub.sequence` に進行を保存（frame / step / done / status / returnPosition）。パネルの「Resume」でステップを選んで再開。
+- `src/addsub/stores/sequence.ts`。ステップ: `cut → extend → (rig ∥ led) → settle → capture → park → retract`（主軸停止・退避は CAM の G-code に含まれるので `cut` の一部。rig 移動と LED は別機器なので並列）。各ステップ完了ごとに `project.addsub.sequence` に進行を保存（frame / step / done / status / returnPosition）。パネルの「Resume」でステップを選んで再開。
 - `cut` は先に `G10 L2 P1` で G54 原点を `filmOriginMill(kBase)` に合わせてから G-code を流す。`extend` 前の table 位置を `returnPosition` に保存し `retract` で戻す。
-- `stop()` = abort + 両機に feed hold。復帰（`~`/`$X`/reset）は機械パネルから。
-- Sigma fp の撮影は App.vue の `shoot()` をそのまま使う（`sequence.registerCapture`）。park 参照ショットは `parkLayer`（既定 1）に入る。
+- `stop()` = abort + 両機に feed hold。**ESTOP**（パネルの赤ボタン / コマンド `estop` / `shift+escape`）= シーケンス実行中でなくても両機を同時に feed hold + 主軸停止（0x9E）。復帰（`~`/`$X`/reset）は機械パネルから。
+- Sigma fp の撮影は App.vue の `shoot()` をそのまま使う（`sequence.registerCapture`）。park 参照ショットは kind `park` のレイヤー（無ければ作る）に入る。
+- **再演パス（§7.2）**: `startReplay(range)`。記録済みショットの rig 軸を `60·Δk_base` だけ持ち上げ、LED 画像を現在の lift で再サンプル、露出を再適用して kind `replay`・ラベル `replay k<n>` のレイヤーに撮り直す（rig ∥ led → settle → capture）。
+- **レイヤー種別（§14.1）**: `project.layers[i].kind` = main / test / import / replay / park（Timeline の左端で切替）。§14.2 のフォルダ分けと移行は未実装。
+- **LED 追従**: LED ストアは撮影コマ（`captureShot.frame`）に合わせて自動でその照明を出す（`followCapture`）。`workLight` で一時的に全白、戻すとコマの照明に復帰。シーケンスの `led` ステップは「出ていることを確認して ACK を待つ」だけ。
 - 揺れ判定はまだ固定待ち（`settleMs`）。ライブビュー差分は未実装。
 
 ### 座標・運動学（§3.0, §7.1, §10）
@@ -525,9 +528,30 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - **実機で要確認の仮定**: 回転軸の符号（`calibration.rotarySigns`）、film 原点の world 位置（`filmOriginWorld`）、`rigOffset`、`millOffset`、フライス盤は X/Y ともテーブル移動（AST200）として `tableShiftWorld` で扱っている。
 - 校正ウィザード（§12）は未実装。値は Shot Sequence パネルの Settings で手入力。
 
-### LED（§8）
-- 配置マップは `led/layout.ts` がパラメータから生成（面幅 1500・ストリップ 1400・42 粒・10 本/ライン・100 mm 間隔・上端 `topY`・各ライン左始まり）。**面幅・上端 Y・ジグザグの開始側・ライン 1/2 の上下は仮定**。firmware の INFO と粒数が食い違うとパネルにエラーを出す。
-- 展開図は L B R F を横に並べた 1 枚（内側から見て左→右）。`topFilmY` が画像上端の film Y。粒ごとにピッチ幅のボックス平均でサンプル。
+### LED 配置と Box Rig の見た目（§8、Houdini から書き出す）
+`previz/set.json`（koma は読むだけ。frames.json と同じ監視）:
+```json
+{
+  "version": 1,
+  "led": {
+    "layoutVersion": 1,
+    "imageWidth": 6000,
+    "pitch": 33.333,
+    "lines": [
+      {"name": "L1", "pixels": [[x, y, z, u], ...]},
+      {"name": "L2", "pixels": [...]}, ... 8 本（ws-fanout のライン順 L1 L2 B1 B2 R1 R2 F1 F2）
+    ]
+  },
+  "geometry": [
+    {"name": "rig",  "file": "geo/rig.glb",  "wireframe": true, "color": "#888888", "opacity": 0.6},
+    {"name": "walls", "file": "geo/walls.glb"}
+  ]
+}
+```
+- `pixels` は粒ごとに **world 座標 [x, y, z]（mm）と展開図上の横位置 u（mm, 左端から）**。縦は koma が粒の world Y から film lift（60·k_base + film 原点 Y）を引いて展開図の `topFilmY` 基準に変換するので、`set.json` は k_base に依存しない。`imageWidth` は展開図の幅（mm）で、画像の px スケールはこれから決まる。
+- `geometry` は表示専用の glTF（Houdini の ROP glTF、mm 単位）。リグ・壁・フライス盤など任意。無い間はパラメータ生成の立方体外形を出す。
+- `set.json` が無いときだけ `led/layout.ts` の生成器（面幅 1500・ストリップ 1400・42 粒・10 本/ライン・100 mm 間隔・上端 `topY`）にフォールバック。
+- 粒ごとにピッチ幅のボックス平均でサンプル。firmware の INFO と粒数が食い違うと LED パネルにエラーを出す。
 
 ### 展示画面（§15）
 - `/exhibit.html`。`?screen=a`（ループ再生、BroadcastChannel で再生位置を配信）/ `?screen=b`（グリッド）/ 無指定で並列表示。フォルダハンドルは IndexedDB、`project.json` を 4 秒ポーリング、`_lv` を再生位置の前後だけ読む。
