@@ -141,6 +141,8 @@ function onRendererReady(trois: any) {
 		cameraControlTarget.value = cameraControl.target.toArray() as vec3
 	})
 
+	trois.onAfterRender(placeLabels)
+
 	const guide: THREE.Group = $guide.value.group
 	guide.add(new THREE.GridHelper(4, 40, 0x555555, 0x333333))
 	guide.add(new THREE.AxesHelper(0.5))
@@ -430,44 +432,6 @@ const showArrows = computed(() => !viewport.isPlaying)
 // Gizmo decorations: text labels (billboard sprites) on every arrow and a ring
 // per rotation axis, so the jog affordances read at a glance (§11.2).
 
-const labelCache = new Map<string, THREE.Texture>()
-
-function labelTexture(text: string, color: string) {
-	const key = `${text}|${color}`
-	let tex = labelCache.get(key)
-	if (tex) return tex
-	const canvas = document.createElement('canvas')
-	canvas.width = 256
-	canvas.height = 96
-	const ctx = canvas.getContext('2d')!
-	ctx.font = '700 44px Inter, system-ui, sans-serif'
-	ctx.textAlign = 'center'
-	ctx.textBaseline = 'middle'
-	ctx.lineWidth = 8
-	ctx.strokeStyle = 'rgba(0,0,0,0.85)'
-	ctx.lineJoin = 'round'
-	ctx.strokeText(text, 128, 48)
-	ctx.fillStyle = color
-	ctx.fillText(text, 128, 48)
-	tex = new THREE.CanvasTexture(canvas)
-	tex.colorSpace = THREE.SRGBColorSpace
-	labelCache.set(key, tex)
-	return tex
-}
-
-function makeLabel(text: string, color: string, size = 0.13) {
-	const sprite = new THREE.Sprite(
-		new THREE.SpriteMaterial({
-			map: labelTexture(text, color),
-			transparent: true,
-			depthTest: false,
-		})
-	)
-	sprite.scale.set(size, size * 0.375, 1)
-	sprite.renderOrder = 10
-	return sprite
-}
-
 function makeRing(centre: vec3, rotation: quat, radius: number, color: string) {
 	const pts: THREE.Vector3[] = []
 	const N = 64
@@ -499,27 +463,77 @@ onMounted(() => {
 	$lines.value?.add(decorations)
 })
 
+interface GizmoLabel {
+	key: string
+	text: string
+	color: string
+	/** Scene-unit position. */
+	position: vec3
+}
+
+/**
+ * Labels are HTML (same monospace font/size as the rest of the UI), projected
+ * onto the canvas every frame, so they never scale with distance.
+ */
+const gizmoLabels = computed<GizmoLabel[]>(() => {
+	if (!showArrows.value) return []
+	const cam = vec3.scale(cameraPoseWorld.value.position, S)
+	const tool = vec3.scale(toolTipWorld.value, S)
+	const sign = (n: number) => (n > 0 ? '+' : '−')
+	const out: GizmoLabel[] = []
+	for (const a of rigArrows) {
+		out.push({
+			key: arrowKey(a),
+			text: `${sign(a.sign)}${AXIS_LABELS[a.axis]}`,
+			color: a.color,
+			position: vec3.add(cam, vec3.scale(a.dir, ARROW_DIST + ARROW_LEN * 1.1)),
+		})
+	}
+	for (const a of millArrows) {
+		out.push({
+			key: arrowKey(a),
+			text: `${sign(a.sign)}${AXIS_LABELS[a.axis]}`,
+			color: a.color,
+			position: vec3.add(tool, vec3.scale(a.dir, ARROW_DIST + ARROW_LEN * 0.9)),
+		})
+	}
+	for (const a of rotArrows.value) {
+		const outward = vec3.normalize(vec3.sub(a.position, cam))
+		out.push({
+			key: rotArrowKey(a),
+			text: `${sign(a.sign)}${AXIS_LABELS[a.axis]}`,
+			color: a.color,
+			position: vec3.add(a.position, vec3.scale(outward, 0.05)),
+		})
+	}
+	return out
+})
+
+const $labels = shallowRef<HTMLElement[]>([])
+const projected = new THREE.Vector3()
+
+/** Runs after every render: place each label over its projected point. */
+function placeLabels() {
+	if (!camera || !$root.value) return
+	const w = rootSize.width.value
+	const h = rootSize.height.value
+	const labels = gizmoLabels.value
+	$labels.value.forEach((el, i) => {
+		const l = labels[i]
+		if (!l) return
+		projected.set(...l.position).project(camera)
+		const behind = projected.z > 1
+		el.style.transform = `translate(${((projected.x + 1) / 2) * w}px, ${((1 - projected.y) / 2) * h}px) translate(-50%, -50%)`
+		el.style.visibility = behind ? 'hidden' : 'visible'
+	})
+}
+
 function rebuildDecorations() {
 	decorations.clear()
 	if (!showArrows.value) return
 
 	const cam = vec3.scale(cameraPoseWorld.value.position, S)
 	const R = cameraPoseWorld.value.rotation
-	const tool = vec3.scale(toolTipWorld.value, S)
-
-	// Linear arrows: "+X" / "−X" just past each cone tip.
-	for (const a of rigArrows) {
-		const p = vec3.add(cam, vec3.scale(a.dir, ARROW_DIST + ARROW_LEN * 0.9))
-		const l = makeLabel(`${a.sign > 0 ? '+' : '−'}${AXIS_LABELS[a.axis]}`, a.color)
-		l.position.set(...p)
-		decorations.add(l)
-	}
-	for (const a of millArrows) {
-		const p = vec3.add(tool, vec3.scale(a.dir, ARROW_DIST + ARROW_LEN * 0.7))
-		const l = makeLabel(`${a.sign > 0 ? '+' : '−'}${AXIS_LABELS[a.axis]}`, a.color, 0.09)
-		l.position.set(...p)
-		decorations.add(l)
-	}
 
 	// Rotation rings: pan about world Y (ring in XZ), tilt about camera X (ring
 	// in local YZ), roll about camera Z (ring in local XY).
@@ -528,15 +542,6 @@ function rebuildDecorations() {
 	decorations.add(makeRing(cam, ringY, RING_R, '#ff66ff'))
 	decorations.add(makeRing(cam, quat.mul(R, ringX), RING_R, '#ffaa33'))
 	decorations.add(makeRing(cam, R, RING_R, '#66ffff'))
-
-	// "+Pan" / "−Tilt" … at each rotation cone, a little outward from the ring.
-	for (const a of rotArrows.value) {
-		const out = vec3.normalize(vec3.sub(a.position, cam))
-		const p = vec3.add(a.position, vec3.scale(out, 0.07))
-		const l = makeLabel(`${a.sign > 0 ? '+' : '−'}${AXIS_LABELS[a.axis]}`, a.color, 0.16)
-		l.position.set(...p)
-		decorations.add(l)
-	}
 }
 
 watch(
@@ -600,6 +605,17 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 				</div>
 				<div class="seq">{{ sequence.currentStep ?? (sequence.message ?? 'idle') }}</div>
 			</div>
+		</div>
+		<div class="labels" aria-hidden="true">
+			<span
+				v-for="l in gizmoLabels"
+				:key="l.key"
+				ref="$labels"
+				class="gizmo-label tq-font-numeric"
+				:style="{color: l.color}"
+			>
+				{{ l.text }}
+			</span>
 		</div>
 		<Renderer
 			resize="true"
@@ -711,6 +727,25 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 	z-index 1
 	font-size 1em
 	line-height 1.4
+
+.labels
+	position absolute
+	inset 0
+	pointer-events none
+	z-index 1
+	overflow hidden
+
+.gizmo-label
+	position absolute
+	top 0
+	left 0
+	white-space nowrap
+	font-size 1em
+	line-height 1
+	padding 1px 3px
+	border-radius 3px
+	background unquote('color-mix(in srgb, var(--tq-color-background) 70%, transparent)')
+	will-change transform
 
 .block
 	min-width 15em
