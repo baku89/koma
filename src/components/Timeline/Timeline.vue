@@ -4,7 +4,7 @@ import {range as _range} from 'lodash-es'
 import * as Tq from 'tweeq'
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
 
-import {MixBlendModeValues, useProjectStore} from '@/stores/project'
+import {LayerKindValues, MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
@@ -167,6 +167,12 @@ const visualizersStyles = computed(() => {
 	>
 		<aside class="aside">
 			<div v-for="(layer, i) in layers" :key="i" class="layer-control">
+				<Tq.InputDropdown
+					:modelValue="project.layerKind(i)"
+					:options="LayerKindValues"
+					:tooltip="layer.label"
+					@update:modelValue="project.layers[i].kind = $event"
+				/>
 				<Tq.InputDropdown
 					:modelValue="layer.mixBlendMode"
 					:options="MixBlendModeValues"

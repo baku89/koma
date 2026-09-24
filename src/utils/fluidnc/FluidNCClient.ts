@@ -34,6 +34,8 @@ export const Realtime = {
 	softReset: 0x18, // Ctrl-X
 	safetyDoor: 0x84,
 	jogCancel: 0x85,
+	/** Toggles the spindle while in feed hold (Grbl 1.1 / FluidNC). */
+	spindleStopToggle: 0x9e,
 	feedOverrideReset: 0x90,
 	rapidOverrideReset: 0x95,
 	spindleOverrideReset: 0x99,
@@ -468,6 +470,11 @@ export class FluidNCClient extends EventEmitter<Events> {
 
 	jogCancel() {
 		return this.realtime(Realtime.jogCancel)
+	}
+
+	/** Stop the spindle during a feed hold (toggle; only acts while held). */
+	spindleStopToggle() {
+		return this.realtime(Realtime.spindleStopToggle)
 	}
 
 	/** Ctrl-X. Clears queued lines; the controller re-emits its banner. */

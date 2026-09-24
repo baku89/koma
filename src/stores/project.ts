@@ -55,6 +55,33 @@ export const MixBlendModeValues: MixBlendMode[] = [
 type MixBlendMode = 'normal' | 'lighten' | 'darken' | 'difference'
 
 /**
+ * What a layer is for (ADDSUB.md §14.1). Drives where the shot sequence puts
+ * its frames and what the exhibition screen shows.
+ * - main: the film
+ * - test: test shots
+ * - import: images brought in from outside (previz, onionskin references)
+ * - replay: a re-shoot pass (e.g. after appending a block, one layer per pass)
+ * - park: park-frame reference shots
+ */
+export type LayerKind = 'main' | 'test' | 'import' | 'replay' | 'park'
+
+export const LayerKindValues: LayerKind[] = [
+	'main',
+	'test',
+	'import',
+	'replay',
+	'park',
+]
+
+export interface Layer {
+	opacity: number
+	mixBlendMode: MixBlendMode
+	kind?: LayerKind
+	/** Free label, e.g. "replay k2". */
+	label?: string
+}
+
+/**
  * Identity of the camera last used to shoot this project, persisted so the app
  * can auto-reconnect to the same device on reopen. This is Tethr's own
  * descriptor (USB serial pins the exact body; webcams can't be told apart).
@@ -95,10 +122,7 @@ interface Project {
 		overlay: SVGString
 		zoom: number
 	}
-	layers: {
-		opacity: number
-		mixBlendMode: MixBlendMode
-	}[]
+	layers: Layer[]
 	audio: {
 		src?: Blob
 		startFrame: number
@@ -225,8 +249,8 @@ const emptyProject: Project = {
 		zoom: 1.3,
 	},
 	layers: [
-		{opacity: 1, mixBlendMode: 'normal'},
-		{opacity: 1, mixBlendMode: 'difference'},
+		{opacity: 1, mixBlendMode: 'normal', kind: 'main'},
+		{opacity: 1, mixBlendMode: 'difference', kind: 'test'},
 	],
 	audio: {
 		startFrame: 0,
@@ -1026,6 +1050,30 @@ export const useProjectStore = defineStore('project', () => {
 		return project.layers[layer]
 	}
 
+	/** Kind of a layer; layer 0 defaults to main, others to test. */
+	function layerKind(index: number): LayerKind {
+		return project.layers[index]?.kind ?? (index === 0 ? 'main' : 'test')
+	}
+
+	/**
+	 * Index of the first layer of `kind` (and `label`, when given). With
+	 * `create`, appends one when none exists. Returns -1 otherwise.
+	 */
+	function layerOfKind(
+		kind: LayerKind,
+		label?: string,
+		opts: {create?: boolean} = {}
+	): number {
+		const i = project.layers.findIndex(
+			(l, idx) =>
+				(l.kind ?? (idx === 0 ? 'main' : 'test')) === kind &&
+				(label === undefined || l.label === label)
+		)
+		if (i !== -1 || !opts.create) return i
+		project.layers.push({opacity: 1, mixBlendMode: 'normal', kind, label})
+		return project.layers.length - 1
+	}
+
 	function layerCount(frame: number) {
 		return allKomas.value[frame]?.shots?.length ?? 0
 	}
@@ -1206,6 +1254,8 @@ export const useProjectStore = defineStore('project', () => {
 		ensureLv,
 		setShot,
 		layer,
+		layerKind,
+		layerOfKind,
 		layerCount,
 		duration,
 		setDuration,

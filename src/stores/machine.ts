@@ -357,6 +357,11 @@ export function defineMachineStore(def: MachineDefinition) {
 			return requireClient().feedHold()
 		}
 
+		/** Spindle stop while held (0x9E). Only meaningful right after feedHold. */
+		function spindleStop() {
+			return requireClient().spindleStopToggle()
+		}
+
 		function resume() {
 			return requireClient().cycleStart()
 		}
@@ -407,6 +412,7 @@ export function defineMachineStore(def: MachineDefinition) {
 			unlock,
 			reset,
 			feedHold,
+			spindleStop,
 			resume,
 			waitIdle,
 			moveTo,
