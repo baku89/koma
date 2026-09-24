@@ -83,6 +83,17 @@ async function sendConsole() {
 
 const recentLog = computed(() => props.machine.log.slice(-12))
 
+async function setWorkValue(axis: Axis) {
+	const current = props.machine.wpos[axis] ?? 0
+	const result = await Tq.modal.prompt(
+		{value: current},
+		{value: {type: 'number', precision: 3}},
+		{title: `Set work ${axis.toUpperCase()} (current position becomes this value)`}
+	)
+	if (!result) return
+	await props.machine.setWorkPosition({[axis]: result.value}).catch(() => {})
+}
+
 const canJog = computed(
 	() =>
 		props.machine.connected &&
@@ -176,7 +187,15 @@ const canJog = computed(
 			<Tq.InputNumber v-model="jogFeed" :min="1" :max="20000" :step="10" />
 		</Tq.Parameter>
 
-		<!-- Axes -->
+		<!-- Axes: jog ± around the machine position, then the work position
+		     with "zero here" / "set value" (G10 L20) -->
+		<li class="axes-head">
+			<span></span>
+			<span class="col-label">machine</span>
+			<span></span>
+			<span class="col-label">work</span>
+			<span></span>
+		</li>
 		<Tq.Parameter
 			v-for="axis in machine.def.axes"
 			:key="axis"
@@ -189,10 +208,7 @@ const canJog = computed(
 					:disabled="!canJog"
 					@click="jog(axis, -1)"
 				/>
-				<span
-					class="pos tq-font-numeric"
-					:title="`WPos ${fmt(machine.wpos[axis], axis)}`"
-				>
+				<span class="pos tq-font-numeric" title="Machine position (MPos)">
 					{{ fmt(machine.mpos[axis], axis) }}
 				</span>
 				<Tq.InputButton
@@ -200,6 +216,51 @@ const canJog = computed(
 					narrow
 					:disabled="!canJog"
 					@click="jog(axis, 1)"
+				/>
+				<span class="pos work tq-font-numeric" title="Work position (WPos)">
+					{{ fmt(machine.wpos[axis], axis) }}
+				</span>
+				<span class="work-tools">
+					<Tq.InputButton
+						icon="mdi:numeric-0-circle-outline"
+						narrow
+						subtle
+						:tooltip="`Zero work ${axis.toUpperCase()} here (G10 L20)`"
+						:disabled="!machine.connected"
+						@click="machine.zeroWork([axis])"
+					/>
+					<Tq.InputButton
+						icon="mdi:pencil-outline"
+						narrow
+						subtle
+						:tooltip="`Set work ${axis.toUpperCase()} to a value here`"
+						:disabled="!machine.connected"
+						@click="setWorkValue(axis)"
+					/>
+					<Tq.InputButton
+						icon="mdi:target"
+						narrow
+						subtle
+						:tooltip="`Go to work ${axis.toUpperCase()} = 0`"
+						:disabled="!canJog"
+						@click="machine.goToWork([axis])"
+					/>
+				</span>
+			</div>
+		</Tq.Parameter>
+		<Tq.Parameter label="Work" icon="mdi:axis-arrow" hint="Work coordinate system (G54): zero all axes here, or go to its origin">
+			<div class="controls">
+				<Tq.InputButton
+					label="Zero all here"
+					icon="mdi:numeric-0-circle-outline"
+					:disabled="!machine.connected"
+					@click="machine.zeroWork()"
+				/>
+				<Tq.InputButton
+					label="Go to 0"
+					icon="mdi:target"
+					:disabled="!canJog"
+					@click="machine.goToWork()"
 				/>
 			</div>
 		</Tq.Parameter>
@@ -327,9 +388,24 @@ const canJog = computed(
 	text-overflow ellipsis
 	white-space nowrap
 
+.axes-head
+	grid-column 2 / 3
+	list-style none
+	display grid
+	grid-template-columns auto 1fr auto 1fr auto
+	gap var(--tq-gap-group)
+	font-size 0.7em
+	letter-spacing 0.05em
+	text-transform uppercase
+	color var(--tq-color-text-mute)
+
+.col-label
+	text-align right
+	padding-right 0.5em
+
 .axis
 	display grid
-	grid-template-columns auto 1fr auto
+	grid-template-columns auto 1fr auto 1fr auto
 	align-items center
 	gap var(--tq-gap-group)
 
@@ -337,6 +413,12 @@ const canJog = computed(
 	text-align right
 	padding-right 0.5em
 	font-variant-numeric tabular-nums
+
+	&.work
+		color var(--tq-color-text-mute)
+
+.work-tools
+	display flex
 
 .controls
 	display flex

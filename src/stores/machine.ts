@@ -18,6 +18,7 @@ import {computed, readonly, ref, shallowRef, watch} from 'vue'
 
 import {
 	type AxesPosition,
+	axesWords,
 	type Axis,
 	type BuildInfo,
 	FluidNCClient,
@@ -353,6 +354,41 @@ export function defineMachineStore(def: MachineDefinition) {
 			streamProgress.value = null
 		}
 
+		/**
+		 * Make the current position read as `axes` in the work coordinate
+		 * system (`G10 L20 P<slot>`): the CNC-panel "zero X here" / "set X to
+		 * value" — only the offset changes, nothing moves.
+		 */
+		function setWorkPosition(
+			axes: AxesPosition,
+			slot: 1 | 2 | 3 | 4 | 5 | 6 = 1
+		) {
+			const words = axesWords(axes)
+			if (!words) return Promise.resolve([] as string[])
+			return send(`G10 L20 P${slot} ${words}`)
+		}
+
+		/** Zero the given axes (default: all of this machine's) here. */
+		function zeroWork(axes: readonly Axis[] = def.axes) {
+			const target: AxesPosition = {}
+			for (const a of axes) target[a] = 0
+			return setWorkPosition(target)
+		}
+
+		/** Rapid to work-coordinate positions (default: 0 on the given axes). */
+		async function goToWork(
+			axes: readonly Axis[] = def.axes,
+			values: AxesPosition = {},
+			opts: {signal?: AbortSignal} = {}
+		) {
+			const target: AxesPosition = {}
+			for (const a of axes) target[a] = values[a] ?? 0
+			const words = axesWords(target)
+			if (!words) return
+			await send(`G90 G0 ${words}`)
+			await waitIdle({signal: opts.signal})
+		}
+
 		function feedHold() {
 			return requireClient().feedHold()
 		}
@@ -416,6 +452,9 @@ export function defineMachineStore(def: MachineDefinition) {
 			resume,
 			waitIdle,
 			moveTo,
+			setWorkPosition,
+			zeroWork,
+			goToWork,
 		}
 	})
 }
