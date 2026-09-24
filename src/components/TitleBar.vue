@@ -1,10 +1,9 @@
 <script lang="ts" setup>
 import * as Bndr from 'bndr-js'
 import * as Tq from 'tweeq'
-import {computed, nextTick, onUnmounted, ref, watch} from 'vue'
+import {computed, onUnmounted, ref} from 'vue'
 
-import {useAuxDevicesStore} from '@/stores/auxDevices'
-import {useCncStore} from '@/stores/cnc'
+import {useMillStore, useRigStore} from '@/addsub/stores/machines'
 import {useDmxStore} from '@/stores/dmx'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
@@ -12,60 +11,18 @@ import {useViewportStore} from '@/stores/viewport'
 import {toTime} from '@/utils'
 
 import TitleBarCameraConnection from './TitleBarCameraConnection.vue'
+import TitleBarMachineConnection from './TitleBarMachineConnection.vue'
 
 const {actions} = Tq.useTweeq()
 
 const viewport = useViewportStore()
 const project = useProjectStore()
 const timer = useTimerStore()
-const aux = useAuxDevicesStore()
-const cnc = useCncStore()
+const mill = useMillStore()
+const rig = useRigStore()
 const dmx = useDmxStore()
 
 const gamepads = ref<string[]>([])
-
-const gcode = ref('')
-
-const logEl = ref<HTMLPreElement | null>(null)
-
-// Scroll the log to the bottom whenever a new response arrives.
-watch(
-	() => cnc.log,
-	async () => {
-		await nextTick()
-		if (logEl.value) {
-			logEl.value.scrollTop = logEl.value.scrollHeight
-		}
-	}
-)
-
-async function sendGcode() {
-	const line = gcode.value.trim()
-	if (!line) return
-	await cnc.send(line)
-	gcode.value = ''
-}
-
-// CNC control dropdown. Mirrors the camera connection popup: a native Tq.Popover
-// with the same click-toggle + light-dismiss guard + drag-region focus trick
-// (the title bar swallows background clicks unless something in it is focused).
-const cncOpen = ref(false)
-const cncTrigger = ref<HTMLElement>()
-let lastCncDismissAt = 0
-
-function onCncTriggerClick() {
-	if (performance.now() - lastCncDismissAt < 200) return
-	cncOpen.value = !cncOpen.value
-}
-
-function onCncUpdateOpen(value: boolean) {
-	if (!value) lastCncDismissAt = performance.now()
-	cncOpen.value = value
-}
-
-watch(cncOpen, isOpen => {
-	if (isOpen) cncTrigger.value?.focus()
-})
 
 const destroyBndr = Bndr.createScope(() => {
 	Bndr.gamepad()
@@ -97,7 +54,7 @@ const saveStatus = computed(() => {
 </script>
 
 <template>
-	<Tq.TitleBar name="Koma" icon="favicon.svg">
+	<Tq.TitleBar name="Koma / Milling" icon="favicon.svg">
 		<template #left>
 			<div class="project-name"><span>{{ project.name }}</span></div>
 			<Tq.IconIndicator
@@ -192,57 +149,8 @@ const saveStatus = computed(() => {
 				:active="gamepads.length > 0"
 				icon="solar:gamepad-bold"
 			/>
-			<Tq.IconIndicator
-				v-tooltip="
-					aux.tracker.enabled ? 'Tracker Connected' : 'No Tracker Available'
-				"
-				icon="tabler:gizmo"
-				:active="aux.tracker.enabled"
-			/>
-			<button ref="cncTrigger" class="cnc-trigger" @click="onCncTriggerClick">
-				<Tq.IconIndicator
-					icon="game-icons:mechanical-arm"
-					:active="cnc.connected"
-				/>
-			</button>
-			<Tq.Popover
-				:reference="cncTrigger ?? null"
-				:open="cncOpen"
-				placement="bottom-end"
-				arrow
-				exit-transition
-				@update:open="onCncUpdateOpen"
-			>
-				<div class="cnc-menu">
-					<Tq.InputGroup>
-						<Tq.InputButton
-							label="Status"
-							icon="mdi:information-outline"
-							:disabled="!cnc.connected"
-							@click="cnc.send('$$')"
-						/>
-						<Tq.InputButton
-							:label="cnc.connected ? 'Disconnect' : 'Connect'"
-							:icon="cnc.connected ? 'mdi:link-off' : 'mdi:link'"
-							@click="cnc.connected ? cnc.disconnect() : cnc.connect()"
-						/>
-					</Tq.InputGroup>
-					<Tq.InputGroup>
-						<Tq.InputString
-							v-model="gcode"
-							font="numeric"
-							:disabled="!cnc.connected"
-							@confirm="sendGcode"
-						/>
-						<Tq.InputButton
-							label="Send"
-							:disabled="!cnc.connected"
-							@click="sendGcode"
-						/>
-					</Tq.InputGroup>
-					<pre ref="logEl">{{ cnc.log }}</pre>
-				</div>
-			</Tq.Popover>
+			<TitleBarMachineConnection :machine="mill" icon="mdi:saw-blade" />
+			<TitleBarMachineConnection :machine="rig" icon="game-icons:mechanical-arm" />
 		</template>
 	</Tq.TitleBar>
 </template>
@@ -255,7 +163,7 @@ const saveStatus = computed(() => {
 	display flex
 	align-items center
 	align-self stretch
-	// A bit more breathing room after the "Koma" app name.
+	// A bit more breathing room after the app name.
 	margin-left var(--tq-gap-section)
 
 	span
@@ -265,23 +173,4 @@ const saveStatus = computed(() => {
 		white-space nowrap
 		font-weight bold
 
-.cnc-trigger
-	display flex
-	align-items center
-	cursor pointer
-
-// Chrome (surface/border/blur/shadow/padding) comes from the Popover's Balloon;
-// the menu only sizes and lays out its rows.
-.cnc-menu
-	width 15rem
-	display flex
-	flex-direction column
-	gap 0.5em
-
-	pre
-		white-space pre-wrap
-		overflow-wrap anywhere
-		margin 0
-		max-height 20lh
-		overflow-y auto
 </style>

@@ -7,7 +7,6 @@ import {computed, ref, shallowRef, watch} from 'vue'
 import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
-import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
 import {useZUI} from '@/use/useZUI'
 import {Rect} from '@/utils/Rect'
@@ -19,7 +18,6 @@ const Tq = useTweeq()
 const project = useProjectStore()
 const camera = useCameraStore()
 const viewport = useViewportStore()
-const tracker = useTrackerStore()
 const shootAlerts = useShootAlertsStore()
 
 // Two top-right overlay panes (viewport settings / shoot alerts). Settings is
@@ -218,23 +216,7 @@ async function onDblclick(e: MouseEvent) {
 							suffix="F"
 						/>
 					</Tq.Parameter>
-					<Tq.Parameter
-						label="Trajectory Smoothing"
-						icon="ooui:map-trail"
-						:hint="{
-							title: 'Trajectory averaging',
-							description:
-								'Number of tracker samples to smooth the camera path',
-						}"
-					>
-						<Tq.InputNumber
-							v-model="tracker.averageSamples"
-							:min="0"
-							:max="3"
-							:step="1"
-						/>
-					</Tq.Parameter>
-					<Tq.Parameter
+										<Tq.Parameter
 						label="Preview Zoom"
 						icon="material-symbols:zoom-in"
 						hint="Magnify the preview"

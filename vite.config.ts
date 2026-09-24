@@ -32,7 +32,7 @@ export default defineConfig({
 				enabled: false,
 			},
 			manifest: {
-				name: 'Koma',
+				name: 'Koma / Milling',
 				short_name: 'Koma',
 				display: 'standalone',
 				display_override: ['window-controls-overlay', 'standalone'],

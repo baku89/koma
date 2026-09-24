@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import {useEventListener, whenever} from '@vueuse/core'
 import * as Bndr from 'bndr-js'
-import {scalar, vec2, vec3, vec4} from 'linearly'
+import {scalar, vec2, vec3} from 'linearly'
 import sleep from 'p-sleep'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
@@ -9,6 +9,13 @@ import saferEval from 'safer-eval'
 import {initTweeq, useTweeq} from 'tweeq'
 import {markRaw, watch, watchEffect} from 'vue'
 
+import AddsubVisualizer from '@/addsub/components/AddsubVisualizer.vue'
+import LedPanel from '@/addsub/components/LedPanel.vue'
+import SequencePanel from '@/addsub/components/SequencePanel.vue'
+import {useLedStore} from '@/addsub/stores/led'
+import {useMillStore, useRigStore} from '@/addsub/stores/machines'
+import {usePrevizStore} from '@/addsub/stores/previz'
+import {type CaptureRequest, useSequenceStore} from '@/addsub/stores/sequence'
 import {useCameraStore} from '@/stores/camera'
 import {useCncStore} from '@/stores/cnc'
 import {useDmxStore} from '@/stores/dmx'
@@ -29,9 +36,9 @@ import {
 } from '@/utils'
 
 import CameraControl from './CameraControl.vue'
-import CameraTrajectoryVisualizer from './CameraTrajectoryVisualizer'
 import DmxControl from './DmxControl.vue'
 import InAppProjectsPanel from './InAppProjectsPanel.vue'
+import MachinePanel from './MachinePanel.vue'
 import MarkerSettings from './MarkerSettings.vue'
 import Preview from './Preview'
 import Timeline from './Timeline'
@@ -53,6 +60,11 @@ const dmx = useDmxStore()
 const timer = useTimerStore()
 const tracker = useTrackerStore()
 const shootAlerts = useShootAlertsStore()
+const mill = useMillStore()
+const rig = useRigStore()
+const led = useLedStore()
+const previz = usePrevizStore()
+const sequence = useSequenceStore()
 
 // Warn before unload if a save is in flight (e.g. re-sequencing files on disk
 // after a frame edit) or there are still-unsaved changes — interrupting a
@@ -84,6 +96,11 @@ type PreShootFn = (context: {
 	viewport: ReturnType<typeof useViewportStore>
 	camera: ReturnType<typeof useCameraStore>
 	tracker: ReturnType<typeof useTrackerStore>
+	mill: ReturnType<typeof useMillStore>
+	rig: ReturnType<typeof useRigStore>
+	led: ReturnType<typeof useLedStore>
+	previz: ReturnType<typeof usePrevizStore>
+	sequence: ReturnType<typeof useSequenceStore>
 	sleep: (ms: number) => Promise<void>
 	readProjectFile: (filename: string) => Promise<string>
 	queueMicrotask: typeof queueMicrotask
@@ -106,6 +123,11 @@ function makeScriptContext() {
 		viewport,
 		camera,
 		tracker,
+		mill,
+		rig,
+		led,
+		previz,
+		sequence,
 		sleep,
 		readProjectFile: project.readProjectFile,
 		queueMicrotask,
@@ -297,6 +319,12 @@ const {fn: shoot} = preventConcurrentExecution(
 				captureDate,
 				tracker: trackerData,
 				dmx: dmxData,
+				// addsub: what the machines and the wall were doing (§13).
+				rig: rig.connected ? {...rig.mpos} : undefined,
+				mill: mill.connected ? {...mill.mpos} : undefined,
+				kBase: project.addsub.kBase,
+				led: led.shown ? {...led.shown} : undefined,
+				previzFrame: frame + project.addsub.previzFrameOffset,
 			}
 		} finally {
 			viewport.popup = null
@@ -334,6 +362,37 @@ function placeShotAndAdvance(newShot: Shot) {
 	viewport.setCurrentFrame(project.captureShot.frame)
 	viewport.setCurrentLayer(project.captureShot.layer)
 }
+
+// The shot sequence (addsub) drives the shutter through this. A main capture
+// lands at the capture slot and advances like a manual shot; a park reference
+// shot goes to the park layer of the frame just shot without moving the cursor.
+sequence.registerCapture(async (req: CaptureRequest) => {
+	if (req.cameraConfigs && camera.tethr) {
+		await camera.tethr.importConfigs(req.cameraConfigs as any)
+	}
+	if (req.kind === 'park') {
+		const saved = {...project.captureShot}
+		project.$patch({captureShot: {frame: req.frame, layer: req.layer}})
+		viewport.setCurrentFrame(req.frame)
+		viewport.setCurrentLayer(req.layer)
+		try {
+			const shot = await shoot()
+			project.setShot(req.frame, req.layer, shot)
+		} finally {
+			project.$patch({captureShot: saved})
+			viewport.setCurrentFrame(saved.frame)
+			viewport.setCurrentLayer(saved.layer)
+		}
+		return
+	}
+	if (project.captureShot.frame !== req.frame || project.captureShot.layer !== req.layer) {
+		project.$patch({captureShot: {frame: req.frame, layer: req.layer}})
+	}
+	viewport.setCurrentFrame(req.frame)
+	viewport.setCurrentLayer(req.layer)
+	const shot = await shoot()
+	placeShotAndAdvance(shot)
+})
 
 const oscIn = osc.receivers({
 	shoot: {address: '/shoot', type: 'b', default: 0},
@@ -748,6 +807,69 @@ Tq.actions.register([
 		],
 	},
 	{
+		id: 'addsub',
+		label: 'Addsub',
+		order: 75,
+		icon: 'mdi:cube-outline',
+		children: [
+			{
+				id: 'sequence_run_frame',
+				label: 'Sequence: Run One Frame',
+				icon: 'mdi:play',
+				perform: () => sequence.start({frame: project.captureShot.frame}),
+			},
+			{
+				id: 'sequence_run_continuous',
+				label: 'Sequence: Run Continuously',
+				icon: 'mdi:play-circle',
+				perform: () =>
+					sequence.start({frame: project.captureShot.frame, continuous: true}),
+			},
+			{
+				id: 'sequence_stop',
+				label: 'Sequence: Stop',
+				icon: 'mdi:stop',
+				perform: () => sequence.stop(),
+			},
+			{
+				id: 'sequence_resume',
+				label: 'Sequence: Resume',
+				icon: 'mdi:restart',
+				perform: () => sequence.resume(),
+			},
+			{
+				id: 'connect_mill',
+				label: 'Connect Mill…',
+				icon: 'mdi:usb-port',
+				perform: () => mill.connect(),
+			},
+			{
+				id: 'connect_rig',
+				label: 'Connect Box Rig…',
+				icon: 'mdi:usb-port',
+				perform: () => rig.connect(),
+			},
+			{
+				id: 'connect_led',
+				label: 'Connect LED Wall…',
+				icon: 'mdi:led-strip-variant',
+				perform: () => led.connect(),
+			},
+			{
+				id: 'led_blackout',
+				label: 'LED: Blackout',
+				icon: 'mdi:lightbulb-off-outline',
+				perform: () => led.blackout(),
+			},
+			{
+				id: 'previz_reload',
+				label: 'Reload previz/',
+				icon: 'mdi:refresh',
+				perform: () => previz.reload(),
+			},
+		],
+	},
+	{
 		id: 'edit',
 		order: 20,
 		icon: 'material-symbols:edit',
@@ -835,70 +957,6 @@ Tq.actions.register([
 				bind: 'n',
 				perform() {
 					project.setOutPoint(viewport.currentFrame)
-				},
-			},
-			{
-				id: 'export_tracker_targets',
-				icon: 'ooui:map-trail',
-				perform() {
-					const trackers = project.previewKomas.flatMap((koma, frame) => {
-						const tracker = koma.shots[0]?.tracker
-
-						frame += project.previewRange[0]
-
-						if (tracker) return tracker ? [{frame, ...tracker}] : []
-					})
-
-					const blob = new Blob([JSON.stringify(trackers, null, 2)], {
-						type: 'application/json',
-					})
-
-					const url = URL.createObjectURL(blob)
-					const link = document.createElement('a')
-					link.download = 'tracker_targets.json'
-					link.href = url
-					link.click()
-				},
-			},
-			{
-				id: 'clear_tracker_targets',
-				icon: 'ooui:map-trail',
-				perform() {
-					project.$patch(draft => {
-						for (const koma of draft.komas) {
-							if (koma) {
-								koma.target = {...(koma.target ?? {}), tracker: undefined}
-							}
-						}
-					})
-				},
-			},
-			{
-				id: 'import_tracker_targets',
-				icon: 'ooui:map-trail',
-				async perform() {
-					const [fileHandle] = await window.showOpenFilePicker()
-
-					// ファイルを読み取る
-					const file = await fileHandle.getFile()
-					const content = await file.text()
-
-					// JSONをパース
-					const data: {frame: number; position: vec3; rotation: vec4}[] =
-						JSON.parse(content)
-
-					project.$patch(draft => {
-						for (const {frame, position, rotation} of data) {
-							let koma = draft.komas[frame]
-							if (!koma) {
-								koma = {shots: []}
-							}
-							koma.target = {
-								...(koma.target ?? {}),
-								tracker: {position, rotation},
-							}
-						}
-					})
 				},
 			},
 		],
@@ -1007,7 +1065,7 @@ watchEffect(() => {
 							<Preview class="preview" />
 						</template>
 						<template #second>
-							<CameraTrajectoryVisualizer />
+							<AddsubVisualizer />
 						</template>
 					</Tq.PaneSplit>
 				</template>
@@ -1033,6 +1091,10 @@ watchEffect(() => {
 											]"
 										/>
 									</Tq.Parameter>
+									<SequencePanel />
+									<MachinePanel :machine="rig" />
+									<MachinePanel :machine="mill" />
+									<LedPanel />
 									<CameraControl />
 									<DmxControl />
 									<MarkerSettings />
