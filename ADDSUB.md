@@ -524,6 +524,9 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - **LED 追従**: LED ストアは撮影コマ（`captureShot.frame`）に合わせて自動でその照明を出す（`followCapture`）。`workLight` で一時的に全白、戻すとコマの照明に復帰。シーケンスの `led` ステップは「出ていることを確認して ACK を待つ」だけ。
 - 揺れ判定はまだ固定待ち（`settleMs`）。ライブビュー差分は未実装。
 
+### 切削パスの 3D 表示
+- `src/utils/fluidnc/toolpath.ts`（G0–G3・平面・G90/91・G20/21、円弧は折れ線化、行番号つき、vitest あり）。3D ビューは撮影コマの `previz/gcode/*.nc` をブロック上に描く（ラピッド = 薄灰、切削 = 白、送出済み区間 = アクセント色。WCS = film 原点、mill (x,y,z) → film (y,z,x)）。1 コマ分（数千セグメント）はリアルタイムで問題ない。全履歴を重ねたくなったら、過去コマ分は 1 本の静的バッファに間引いてマージする（画像のプリレンダは不要）。
+
 ### 座標・運動学（§3.0, §7.1, §10）
 - `src/addsub/coords.ts`, `kinematics.ts`。R = Ry(pan)·Rz(roll)·Rx(tilt)、分解は `rotationToAngles`（ロール ±90° でジンバルロック）。IK/FK は vitest で往復確認済み。
 - **実機で要確認の仮定**: 回転軸の符号（`calibration.rotarySigns`）、film 原点の world 位置（`filmOriginWorld`）、`rigOffset`、`millOffset`、フライス盤は X/Y ともテーブル移動（AST200）として `tableShiftWorld` で扱っている。
@@ -561,6 +564,8 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 ### テストデータ: 2021 年の VICE 撮影（Dragonframe）の取り込み
 - `scripts/import-dragonframe.mjs <dgn-root> <dest> --name …` で Dragonframe の `.dgn` を koma プロジェクトに変換（テイクごとに名前付きレイヤー、フレーム 0 始まり。EDL から外れたコマは `_trash` に「撮影されたフレーム」つきで入る。EXIF + take.xml のメタデータ、meta.txt の FIRST FRAME でカメラ時計を補正。jpg は 3000px に縮小、lv は 1920px、RAW はコピーせず名前だけ）。
 - 生成済み: `~/Dropbox/Works/2024/10_addsub/capture/vice-tests-2021`（"VICE tests 2021"、14 テイク = 440 コマ + 破棄 145、1.2 GB）。プリセット "All takes" / "Main only"。
+- `scripts/import-sequence.mjs <dir> <project> --name …` で画像連番をレイヤーとして追加（`Previz (shapes)` = `prj/render/2024_10_addsub_shapes.viewport_preview1_cache` の 840 枚を取り込み済み）。
+- 展示は **"Exhibit" という名前のプリセット**があればそのレイヤーだけを対象にする（previz 等の参照レイヤーを外すため）。vice-tests-2021 では "Exhibit" = 撮影テイク 14 レイヤー（previz 除外）。
 - 展示ページの確認用に `exhibit.html?opfs=<name>&seed=<url>` を追加（フォルダピッカー無しで、URL から project.json と lv を OPFS に流し込んで読む）。dev では `public/_dev-*` のシンボリックリンク（gitignore 済み）で実フォルダを配信。
 
 ### 手元で試す（ハード無しの確認）
