@@ -167,7 +167,11 @@ function shutterString(sec) {
 	return `1/${Math.round(1 / s)}`
 }
 
+// EXIF WhiteBalance comes back numeric with -n (0 = Auto, 1 = Manual);
+// Panasonic's descriptive "Kelvin" etc. appear without -n.
 const WB = {
+	0: 'auto',
+	1: 'manual',
 	Kelvin: 'manual',
 	Auto: 'auto',
 	Daylight: 'daylight',
