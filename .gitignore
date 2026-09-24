@@ -26,3 +26,6 @@ dist-ssr
 # ViteJS PWA
 dev-dist
 dist-electron
+
+# Playwright MCP screenshots/snapshots
+.playwright-mcp/
