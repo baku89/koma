@@ -1050,6 +1050,20 @@ export const useProjectStore = defineStore('project', () => {
 		return project.layers[layer]
 	}
 
+	/**
+	 * Put a trashed shot (a deleted or re-shot take) back on the timeline at
+	 * `frame`/`layer` (default: where it was displaced from). If that cell is
+	 * occupied, the current shot is displaced into the trash by syncTrash — a
+	 * swap, never a loss. Undoable like any setShot.
+	 */
+	function restoreTrashed(
+		t: TrashedShot,
+		frame: number = t.frame,
+		layer: number = t.layer
+	) {
+		setShot(frame, layer, cloneDeep(toRaw(t.shot)))
+	}
+
 	/** Kind of a layer; layer 0 defaults to main, others to test. */
 	function layerKind(index: number): LayerKind {
 		return project.layers[index]?.kind ?? (index === 0 ? 'main' : 'test')
@@ -1256,6 +1270,7 @@ export const useProjectStore = defineStore('project', () => {
 		layer,
 		layerKind,
 		layerOfKind,
+		restoreTrashed,
 		layerCount,
 		duration,
 		setDuration,
