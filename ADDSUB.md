@@ -17,7 +17,7 @@ koma 全体のプロジェクト知識（Tethr、アセット保存、Preview、
 - 撮り方: straight-ahead（頭から順に、1本の連続ショット）。最終的に短編映像に圧縮する
 - 尺の目安: 2.5〜3分 @ **18fps** → おおよそ 2,700〜3,240コマ
 - 音楽: Max Cooper。124 BPM。構成は冒頭 ~40秒がアンビエント、その後リズムが立ち上がる。撮影を進めながら映像を共有し、音と往復して詰めていく
-- 作品ページ（devlog）: https://baku89.com/ja/assembling-anew
+- 作品ページ（devlog）: https://baku89.com/assembling-anew
 
 ### 運用条件（ソフトの設計に効くもの）
 
@@ -441,7 +441,7 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
   - いまフライス盤に送っている G-code（実行中の行がわかるように）
   - Box Rig とフライス盤の 3D（11章の 3D ビューを表示専用で使う）
   - 現在のカメラ入力（ライブビュー）
-  - devlog（https://baku89.com/ja/assembling-anew）の QR コード
+  - devlog（https://baku89.com/assembling-anew）の QR コード
 
 ### 15.2 実装
 

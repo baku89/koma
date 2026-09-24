@@ -13,7 +13,7 @@ import {useExhibitStore} from './store'
 const props = defineProps<{kind: PaneKind}>()
 
 const store = useExhibitStore()
-const DEVLOG_URL = 'https://baku89.com/ja/assembling-anew'
+const DEVLOG_URL = 'https://baku89.com/assembling-anew'
 
 const titles: Record<PaneKind, string> = {
 	meta: 'FRAME',
@@ -167,7 +167,7 @@ watch(
 		<!-- QR -->
 		<div v-else-if="kind === 'qr'" class="qr">
 			<canvas ref="$qr" />
-			<div class="mono small dim">baku89.com/ja/assembling-anew</div>
+			<div class="mono small dim">baku89.com/assembling-anew</div>
 		</div>
 	</div>
 </template>
