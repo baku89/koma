@@ -12,6 +12,7 @@ import {
 	DEFAULT_LED_LAYOUT,
 	LED_LAYOUT_VERSION,
 	type LedLayoutParams,
+	RIG_TRAVEL,
 } from './config'
 
 /** One step of the per-frame sequence, in order. §2 */
@@ -127,7 +128,7 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	settleMs: 2000,
 	rigFeed: 1500,
 	millFeed: 1000,
-	rigLimits: {},
+	rigLimits: {x: [0, RIG_TRAVEL.x], y: [-RIG_TRAVEL.y, 0], z: [0, RIG_TRAVEL.z]},
 	ledOptional: true,
 	calibration: DEFAULT_CALIBRATION,
 	led: {

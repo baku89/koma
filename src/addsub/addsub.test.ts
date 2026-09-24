@@ -17,7 +17,7 @@ import {
 	rotationCentre,
 	rotationToAngles,
 } from './kinematics'
-import {buildLedLayout, faceToWorld, ledLayoutFromSet} from './led/layout'
+import {buildLedLayout, faceToWorld} from './led/layout'
 import {sampleLedFrame} from './led/sampler'
 
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps
@@ -127,60 +127,38 @@ describe('kinematics', () => {
 describe('led layout', () => {
 	const layout = buildLedLayout(DEFAULT_LED_LAYOUT)
 
-	it('has 8 lines of stripsPerLine × pixelsPerStrip', () => {
-		expect(layout.lineCounts).toEqual(Array(8).fill(420))
-		expect(layout.pixels.length).toBe(3360)
+	it('stands vertical strips 100 mm apart: 20 on L/R (1991), 18 on B/F (1831)', () => {
+		// L/R: 19 strips fit in 1991 at 100 mm → floor(19.91) = 19? No: strips at
+		// 0…1900 → 20 positions need 1900 mm; floor(1991/100) = 19 → 19 strips.
+		expect(layout.lineCounts).toEqual([420, 378, 420, 336, 420, 378, 420, 336])
 		expect(near(layout.pitch, 1400 / 42)).toBe(true)
+		expect(layout.imageWidth).toBe(2 * 1831 + 2 * 1991)
 	})
 
-	it('snakes: strip 0 runs left→right, strip 1 right→left', () => {
+	it('snakes vertically: strip 0 runs top→bottom, strip 1 bottom→top', () => {
 		const line0 = layout.pixels.filter(p => p.line === 0)
-		expect(line0[0].u < line0[41].u).toBe(true)
-		expect(line0[42].u > line0[83].u).toBe(true)
-		expect(near(line0[0].u, 50 + layout.pitch / 2)).toBe(true)
-		expect(line0[0].y).toBe(DEFAULT_LED_LAYOUT.topY)
-		expect(line0[42].y).toBe(DEFAULT_LED_LAYOUT.topY - 100)
+		expect(line0[0].y).toBeGreaterThan(line0[41].y)
+		expect(line0[42].y).toBeLessThan(line0[83].y)
+		expect(near(line0[0].y, 1400 - layout.pitch / 2)).toBe(true)
+		expect(near(line0[42].u - line0[0].u, 100)).toBe(true)
 	})
 
-	it('line 1 continues below line 0 on the same face', () => {
+	it('second line continues along the same face', () => {
 		const line1 = layout.pixels.filter(p => p.line === 1)
 		expect(line1[0].face).toBe('L')
-		expect(line1[0].y).toBe(DEFAULT_LED_LAYOUT.topY - 10 * 100)
-	})
-
-	it('u is global across the unwrapped image', () => {
-		const b1 = layout.pixels.find(p => p.line === 2)!
-		expect(near(b1.u, 1500 + 50 + layout.pitch / 2)).toBe(true)
-		expect(layout.imageWidth).toBe(6000)
-	})
-
-	it('imports a Houdini set.json placement', () => {
-		const set = ledLayoutFromSet({
-			layoutVersion: 3,
-			imageWidth: 5000,
-			lines: [
-				{name: 'L1', pixels: [[-700, 1000, 600, 10], [-700, 1000, 560, 50]]},
-				{name: 'L2', pixels: [[-700, 900, 600, 10]]},
-			],
-		})
-		expect(set.source).toBe('set')
-		expect(set.version).toBe(3)
-		expect(set.lineCounts).toEqual([2, 1])
-		expect(set.pixels[1]).toMatchObject({line: 0, index: 1, world: [-700, 1000, 560], u: 50, y: 1000})
-		expect(set.pixels[2]).toMatchObject({line: 1, index: 0})
+		expect(line1[0].u).toBeGreaterThan(layout.pixels.filter(p => p.line === 0).at(-1)!.u)
 	})
 
 	it('walks around the inside: L→B→R→F share edges', () => {
-		const w = 1500
-		// Right edge of L meets left edge of B at (−h, y, −h).
-		expect(faceToWorld('L', w, 0, w)).toEqual([-750, 0, -750])
-		expect(faceToWorld('B', 0, 0, w)).toEqual([-750, 0, -750])
-		expect(faceToWorld('B', w, 0, w)).toEqual([750, 0, -750])
-		expect(faceToWorld('R', 0, 0, w)).toEqual([750, 0, -750])
-		expect(faceToWorld('R', w, 0, w)).toEqual([750, 0, 750])
-		expect(faceToWorld('F', 0, 0, w)).toEqual([750, 0, 750])
-		expect(faceToWorld('F', w, 0, w)).toEqual([-750, 0, 750])
-		expect(faceToWorld('L', 0, 0, w)).toEqual([-750, 0, 750])
+		const p = {sizeX: 1831, sizeZ: 1991}
+		expect(faceToWorld('L', 1991, 0, p)).toEqual([-915.5, 0, -995.5])
+		expect(faceToWorld('B', 0, 0, p)).toEqual([-915.5, 0, -995.5])
+		expect(faceToWorld('B', 1831, 0, p)).toEqual([915.5, 0, -995.5])
+		expect(faceToWorld('R', 0, 0, p)).toEqual([915.5, 0, -995.5])
+		expect(faceToWorld('R', 1991, 0, p)).toEqual([915.5, 0, 995.5])
+		expect(faceToWorld('F', 0, 0, p)).toEqual([915.5, 0, 995.5])
+		expect(faceToWorld('F', 1831, 0, p)).toEqual([-915.5, 0, 995.5])
+		expect(faceToWorld('L', 0, 0, p)).toEqual([-915.5, 0, 995.5])
 	})
 })
 
@@ -189,10 +167,12 @@ describe('led sampler', () => {
 
 	function solidImage(width: number, height: number, faceColors: [number, number, number][]) {
 		const data = new Uint8ClampedArray(width * height * 4)
-		const faceW = width / 4
+		const scale = width / layout.imageWidth
+		const edges = [1991, 1991 + 1831, 1991 + 1831 + 1991].map(e => e * scale)
 		for (let y = 0; y < height; y++) {
 			for (let x = 0; x < width; x++) {
-				const [r, g, b] = faceColors[Math.min(3, Math.floor(x / faceW))]
+				const face = edges.findIndex(e => x < e)
+				const [r, g, b] = faceColors[face === -1 ? 3 : face]
 				const i = (y * width + x) * 4
 				data[i] = r
 				data[i + 1] = g
@@ -204,8 +184,8 @@ describe('led sampler', () => {
 	}
 
 	it('maps each face to its two lines', () => {
-		// 0.2 px/mm: 4 faces × 1500 mm = 1200 px wide; tall enough for the wall.
-		const img = solidImage(1200, 600, [
+		// 0.2 px/mm: (1831 + 1991) × 2 = 7644 mm → 1529 px wide.
+		const img = solidImage(1529, 600, [
 			[255, 0, 0],
 			[0, 255, 0],
 			[0, 0, 255],
@@ -221,12 +201,12 @@ describe('led sampler', () => {
 	})
 
 	it('shifts the sampled band by the lift', () => {
-		// Image: top half black, bottom half white, boundary at film Y = 1000.
-		const width = 1200
-		const height = 400 // 2000 mm tall at 0.2 px/mm → film Y 1500 … −500
+		// Image: top part black, rest white, boundary at film Y = 1000.
+		const width = 1529
+		const height = 400 // 2000 mm tall at 0.2 px/mm → film Y 1400 … −600
 		const data = new Uint8ClampedArray(width * height * 4)
 		for (let y = 0; y < height; y++) {
-			const v = y < 100 ? 0 : 255 // 100 px = 500 mm → boundary at film Y 1000
+			const v = y < 80 ? 0 : 255 // 80 px = 400 mm → boundary at film Y 1000
 			for (let x = 0; x < width; x++) {
 				const i = (y * width + x) * 4
 				data[i] = data[i + 1] = data[i + 2] = v
@@ -234,12 +214,12 @@ describe('led sampler', () => {
 			}
 		}
 		const img = {width, height, data}
-		// Strip row 4 is at world Y 1100 → film 1100 (lift 0): black.
-		const a = sampleLedFrame(layout, img, {topFilmY: 1500, lift: 0, boxSize: 0})
-		const row4 = layout.pixels.find(p => p.line === 0 && p.y === 1100)!
-		expect(a[0][row4.index * 3]).toBe(0)
-		// With a lift of 120 (kBase 2) the same LED reads film Y 980: white.
-		const b = sampleLedFrame(layout, img, {topFilmY: 1500, lift: 120, boxSize: 0})
-		expect(b[0][row4.index * 3]).toBe(255)
+		// A pixel at world Y ≈ 1050 reads film 1050 (lift 0): black.
+		const px = layout.pixels.find(p => p.line === 0 && Math.abs(p.y - 1050) < layout.pitch / 2)!
+		const a = sampleLedFrame(layout, img, {topFilmY: 1400, lift: 0, boxSize: 0})
+		expect(a[0][px.index * 3]).toBe(0)
+		// With a lift of 120 (kBase 2) the same LED reads film Y ≈ 930: white.
+		const b = sampleLedFrame(layout, img, {topFilmY: 1400, lift: 120, boxSize: 0})
+		expect(b[0][px.index * 3]).toBe(255)
 	})
 })

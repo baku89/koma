@@ -100,8 +100,14 @@ const powerText = computed(() => {
 			<Tq.Parameter label="Wall top" icon="mdi:arrow-collapse-up" hint="World Y of the topmost strip (mm)">
 				<Tq.InputNumber v-model="project.addsub.led.layout.topY" :precision="1" />
 			</Tq.Parameter>
-			<Tq.Parameter label="Face W" icon="mdi:arrow-expand-horizontal" hint="Face width (mm)">
-				<Tq.InputNumber v-model="project.addsub.led.layout.faceWidth" :precision="1" />
+			<Tq.Parameter label="Size X" icon="mdi:arrow-expand-horizontal" hint="Wall size along X (mm)">
+				<Tq.InputNumber v-model="project.addsub.led.layout.sizeX" :precision="1" />
+			</Tq.Parameter>
+			<Tq.Parameter label="Size Z" icon="mdi:arrow-expand-horizontal" hint="Wall size along Z (mm)">
+				<Tq.InputNumber v-model="project.addsub.led.layout.sizeZ" :precision="1" />
+			</Tq.Parameter>
+			<Tq.Parameter label="Height" icon="mdi:arrow-expand-vertical" hint="Strip length = wall height (mm)">
+				<Tq.InputNumber v-model="project.addsub.led.layout.height" :precision="1" />
 			</Tq.Parameter>
 			<Tq.Parameter label="Spacing" icon="mdi:format-line-spacing" hint="Strip spacing (mm)">
 				<Tq.InputNumber v-model="project.addsub.led.layout.stripSpacing" :precision="1" />

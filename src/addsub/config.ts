@@ -59,37 +59,44 @@ export const LED_FACES = ['L', 'B', 'R', 'F'] as const
 export type LedFace = (typeof LED_FACES)[number]
 
 export interface LedLayoutParams {
-	/** Width of one face of the wall (mm). (assumed = rig cube) */
-	faceWidth: number
-	/** Length of one strip (mm). */
-	stripLength: number
+	/** Inner size of the wall along world X (B/F faces run this long), mm. */
+	sizeX: number
+	/** Inner size along world Z (L/R faces run this long), mm. */
+	sizeZ: number
+	/** Wall height = strip length (the 1400 mm strips stand vertically), mm. */
+	height: number
 	/** Pixels on one strip. */
 	pixelsPerStrip: number
-	/** Strips per data line (max 10). */
+	/** Strips per data line (firmware max 10). */
 	stripsPerLine: number
-	/** Vertical distance between strips (mm). */
+	/** Horizontal distance between strips (mm). */
 	stripSpacing: number
-	/**
-	 * World Y (mm) of the topmost strip. Two lines per face stack downward
-	 * from here. (assumed — measure on site)
-	 */
+	/** World Y of the top of the strips. */
 	topY: number
 	/**
-	 * Which end the first strip of every line starts from, as seen from the
-	 * inside of the wall facing that face. (assumed)
+	 * Which end each face's first strip stands at, as seen from the inside
+	 * facing that face; strips snake left↔right from there. (assumed)
 	 */
 	startSide: 'left' | 'right'
 }
 
+/** Measured 2026-09-25: LED wall 1831 (X) × 1400 (Y) × 1991 (Z). */
 export const DEFAULT_LED_LAYOUT: LedLayoutParams = {
-	faceWidth: 1500,
-	stripLength: 1400,
+	sizeX: 1831,
+	sizeZ: 1991,
+	height: 1400,
 	pixelsPerStrip: 42,
 	stripsPerLine: 10,
 	stripSpacing: 100,
-	topY: 1500,
+	topY: 1400,
 	startSide: 'left',
 }
+
+//------------------------------------------------------------------------------
+// Box Rig travel (2026-09-25): X and Z 1200 mm, Y 900 mm homed at the top and
+// travelling negative; with Y fully down the head sits ~400 mm high (tentative).
+export const RIG_TRAVEL = {x: 1200, y: 900, z: 1200} as const
+export const RIG_Y_DOWN_HEIGHT = 400
 
 /** Bump when the physical placement changes so saved frames can be re-sampled. */
 export const LED_LAYOUT_VERSION = 1
@@ -126,7 +133,10 @@ export interface AddsubCalibration {
 export const DEFAULT_CALIBRATION: AddsubCalibration = {
 	pupilOffset: 0,
 	filmOriginWorld: [0, 0, 0],
-	rigOffset: [0, 0, 0],
+	// rig = world + offset. X/Z: travel centre assumed at world origin. Y: at
+	// machine Y = −900 (fully down) the head is RIG_Y_DOWN_HEIGHT high:
+	// −900 = 400 + offsetY.
+	rigOffset: [-RIG_TRAVEL.x / 2, -RIG_TRAVEL.y - RIG_Y_DOWN_HEIGHT, -RIG_TRAVEL.z / 2],
 	millOffset: [0, 0, 0],
 	rotarySigns: {a: 1, b: 1, c: 1},
 }

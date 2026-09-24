@@ -98,8 +98,7 @@ const wall = computed(() => {
 	const p = project.addsub.led.layout
 	const top = p.topY * S
 	const bottom = ledBottomY(p) * S
-	const h = (p.faceWidth / 2) * S
-	return {top, bottom, h}
+	return {top, bottom, hx: (p.sizeX / 2) * S, hz: (p.sizeZ / 2) * S}
 })
 
 //------------------------------------------------------------------------------
@@ -198,25 +197,25 @@ watch(
 )
 
 function wallOutline() {
-	const {top, bottom, h} = wall.value
+	const {top, bottom, hx, hz} = wall.value
 	const pts: THREE.Vector3[] = []
 	for (const y of [top, bottom]) {
 		const ring = [
-			[-h, y, h],
-			[-h, y, -h],
-			[h, y, -h],
-			[h, y, h],
-			[-h, y, h],
+			[-hx, y, hz],
+			[-hx, y, -hz],
+			[hx, y, -hz],
+			[hx, y, hz],
+			[-hx, y, hz],
 		]
 		for (let i = 0; i < ring.length - 1; i++) {
 			pts.push(new THREE.Vector3(...ring[i]), new THREE.Vector3(...ring[i + 1]))
 		}
 	}
 	for (const [x, z] of [
-		[-h, h],
-		[-h, -h],
-		[h, -h],
-		[h, h],
+		[-hx, hz],
+		[-hx, -hz],
+		[hx, -hz],
+		[hx, hz],
 	]) {
 		pts.push(new THREE.Vector3(x, top, z), new THREE.Vector3(x, bottom, z))
 	}

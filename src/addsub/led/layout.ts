@@ -85,54 +85,78 @@ export function ledLayoutFromSet(data: LedSetData): LedLayout {
 	}
 }
 
+/** Length of a face along the wall (L/R run along Z, B/F along X). */
+export function faceWidth(face: LedFace, params: Pick<LedLayoutParams, 'sizeX' | 'sizeZ'>) {
+	return face === 'L' || face === 'R' ? params.sizeZ : params.sizeX
+}
+
 /** World position for a point on a face (inside view, u from the left). */
-export function faceToWorld(face: LedFace, u: number, y: number, faceWidth: number): vec3 {
-	const h = faceWidth / 2
+export function faceToWorld(
+	face: LedFace,
+	u: number,
+	y: number,
+	params: Pick<LedLayoutParams, 'sizeX' | 'sizeZ'>
+): vec3 {
+	const hx = params.sizeX / 2
+	const hz = params.sizeZ / 2
 	switch (face) {
-		case 'L': // x = −h, left (u=0) is +Z
-			return [-h, y, h - u]
-		case 'B': // z = −h, left is −X
-			return [-h + u, y, -h]
-		case 'R': // x = +h, left is −Z
-			return [h, y, -h + u]
-		case 'F': // z = +h, left is +X
-			return [h - u, y, h]
+		case 'L': // x = −hx, left (u=0) is +Z
+			return [-hx, y, hz - u]
+		case 'B': // z = −hz, left is −X
+			return [-hx + u, y, -hz]
+		case 'R': // x = +hx, left is −Z
+			return [hx, y, -hz + u]
+		case 'F': // z = +hz, left is +X
+			return [hx - u, y, hz]
 	}
 }
 
+/**
+ * Fallback placement: on every face, vertical strips (`height` long, the
+ * pixels running down from `topY`) stand `stripSpacing` apart along the
+ * face, centred; the first `stripsPerLine` from `startSide` belong to the
+ * face's first data line, the rest to its second. Within a line the strips
+ * snake: even strips run top→bottom, odd ones bottom→top.
+ */
 export function buildLedLayout(
 	params: LedLayoutParams,
 	version = 1
 ): LedLayout {
-	const pitch = params.stripLength / params.pixelsPerStrip
-	const margin = (params.faceWidth - params.stripLength) / 2
+	const pitch = params.height / params.pixelsPerStrip
 	const pixels: LedPixel[] = []
 	const lineCounts: number[] = []
+	let uOffset = 0
 
 	LED_FACES.forEach((face, faceIndex) => {
+		const width = faceWidth(face, params)
+		const stripCount = Math.min(2 * params.stripsPerLine, Math.floor(width / params.stripSpacing))
+		const margin = (width - (stripCount - 1) * params.stripSpacing) / 2
 		for (let half = 0; half < 2; half++) {
 			const line = faceIndex * 2 + half
 			let index = 0
-			for (let s = 0; s < params.stripsPerLine; s++) {
-				const stripRow = half * params.stripsPerLine + s
-				const y = params.topY - stripRow * params.stripSpacing
-				const forward = (s % 2 === 0) === (params.startSide === 'left')
+			const first = half * params.stripsPerLine
+			const last = Math.min(stripCount, first + params.stripsPerLine)
+			for (let s = first; s < last; s++) {
+				const k = params.startSide === 'left' ? s : stripCount - 1 - s
+				const uFace = margin + k * params.stripSpacing
+				const downward = (s - first) % 2 === 0
 				for (let p = 0; p < params.pixelsPerStrip; p++) {
-					const k = forward ? p : params.pixelsPerStrip - 1 - p
-					const uFace = margin + (k + 0.5) * pitch
+					const q = downward ? p : params.pixelsPerStrip - 1 - p
+					const y = params.topY - (q + 0.5) * pitch
 					pixels.push({
 						line,
 						index: index++,
 						face,
 						faceIndex,
-						u: faceIndex * params.faceWidth + uFace,
+						u: uOffset + uFace,
 						y,
-						world: faceToWorld(face, uFace, y, params.faceWidth),
+						world: faceToWorld(face, uFace, y, params),
 					})
 				}
 			}
 			lineCounts.push(index)
 		}
+		uOffset += width
 	})
 
 	return {
@@ -142,11 +166,11 @@ export function buildLedLayout(
 		pixels,
 		lineCounts,
 		pitch,
-		imageWidth: 4 * params.faceWidth,
+		imageWidth: uOffset,
 	}
 }
 
-/** Vertical extent of the wall (world Y of the lowest strip). */
+/** Vertical extent of the wall (world Y of the bottom of the strips). */
 export function ledBottomY(params: LedLayoutParams) {
-	return params.topY - (2 * params.stripsPerLine - 1) * params.stripSpacing
+	return params.topY - params.height
 }
