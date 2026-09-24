@@ -767,7 +767,13 @@ export const useProjectStore = defineStore('project', () => {
 
 			// In case the latest project format has more properties than the saved one,
 			// merge the saved state with the default state
-			const mergedProject = deepMergeExceptArray(unflatProject, emptyProject)
+			// cloneDeep: defu copies only the top level, so a section missing from
+			// the file would otherwise alias the shared default object and edits
+			// would leak into every project created afterwards.
+			const mergedProject = deepMergeExceptArray(
+				unflatProject,
+				cloneDeep(emptyProject)
+			)
 
 			autoSave.pause()
 			assignReactive(project, mergedProject)
