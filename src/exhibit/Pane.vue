@@ -11,7 +11,7 @@ import {parseToolpath, prepareGCode} from '@/utils/fluidnc'
 
 import type {PaneKind} from './SplitNode.vue'
 import {useExhibitStore} from './store'
-import {drawToolpath, type ToolpathScene} from './toolpathView'
+import {ToolpathRenderer, type ToolpathScene} from './toolpathView'
 
 const props = defineProps<{kind: PaneKind}>()
 
@@ -84,6 +84,7 @@ function stepState(step: string) {
 // G-CODE: the cut of the frame being shown, from previz/gcode next to the
 // project, drawn as an annotated wireframe.
 const $gcode = ref<HTMLCanvasElement | null>(null)
+const $gcodeLabels = ref<HTMLCanvasElement | null>(null)
 const gcodeScene = ref<ToolpathScene | null>(null)
 const gcodePath = computed(() =>
 	shown.value
@@ -108,7 +109,7 @@ watch(
 			} else {
 				scene = null
 			}
-			if (sceneCache.size > 20) sceneCache.clear()
+			if (sceneCache.size > 40) sceneCache.clear()
 			sceneCache.set(rel, scene)
 		}
 		if (gcodePath.value === rel) gcodeScene.value = scene
@@ -116,22 +117,36 @@ watch(
 	{immediate: true}
 )
 
+let renderer: ToolpathRenderer | null = null
 let raf = 0
 const t0 = performance.now()
-function tickGcode() {
-	raf = requestAnimationFrame(tickGcode)
-	const canvas = $gcode.value
-	const scene = gcodeScene.value
-	if (!canvas || !scene) return
-	drawToolpath(canvas, scene, (performance.now() - t0) / 1000, {
+
+function ensureRenderer() {
+	if (renderer || !$gcode.value || !$gcodeLabels.value) return renderer
+	renderer = new ToolpathRenderer($gcode.value, $gcodeLabels.value, {
 		font: "'Fira Code', ui-monospace, monospace",
-		color: '#e8e8e8',
-		dim: '#5a5a5a',
+		color: '#ffffff',
+		dim: '#707070',
 		accent: '#ffffff',
 	})
+	return renderer
+}
+
+watch(gcodeScene, scene => {
+	ensureRenderer()?.setScene(scene)
+})
+
+function tickGcode() {
+	raf = requestAnimationFrame(tickGcode)
+	const r = ensureRenderer()
+	if (!r || !gcodeScene.value) return
+	r.render((performance.now() - t0) / 1000)
 }
 if (props.kind === 'gcode') raf = requestAnimationFrame(tickGcode)
-onUnmounted(() => cancelAnimationFrame(raf))
+onUnmounted(() => {
+	cancelAnimationFrame(raf)
+	renderer?.dispose()
+})
 
 const $qr = ref<HTMLCanvasElement | null>(null)
 watch(
@@ -201,7 +216,10 @@ watch(
 
 		<!-- G-CODE: this frame's cut, from previz/gcode -->
 		<div v-else-if="kind === 'gcode'" class="gcode">
-			<canvas v-show="gcodeScene" ref="$gcode" class="gcode-canvas" />
+			<div v-show="gcodeScene" class="gcode-view">
+				<canvas ref="$gcode" class="gcode-canvas" />
+				<canvas ref="$gcodeLabels" class="gcode-canvas" />
+			</div>
 			<div v-if="!gcodeScene" class="placeholder mono">
 				<div class="dim">{{ gcodePath ? 'loading…' : 'no cut on this frame' }}</div>
 			</div>
@@ -240,9 +258,12 @@ watch(
 	width: 100%;
 	height: 100%;
 	box-sizing: border-box;
-	border: 1px solid #444;
-	margin: -0.5px;
-	padding: 0.7rem 0.9rem;
+	/* Only top + left: neighbours share one line, never two. The grid pulls
+	   the outermost top/left lines off-screen. */
+	border: 0;
+	border-top: 1px solid #fff;
+	border-left: 1px solid #fff;
+	padding: 0.7rem 1rem;
 	position: relative;
 	overflow: hidden;
 	display: flex;
@@ -253,7 +274,7 @@ watch(
 .title {
 	font-size: 0.7rem;
 	letter-spacing: 0.2em;
-	color: #777;
+	color: #fff;
 }
 
 .rows {
@@ -265,7 +286,7 @@ watch(
 }
 
 dt {
-	color: #777;
+	color: rgba(255, 255, 255, 0.55);
 	font-size: 0.8rem;
 	text-transform: uppercase;
 	letter-spacing: 0.1em;
@@ -284,7 +305,7 @@ dd {
 }
 
 .dim {
-	color: #777;
+	color: rgba(255, 255, 255, 0.55);
 }
 
 .sequence {
@@ -304,7 +325,7 @@ dd {
 }
 
 .steps li {
-	color: #555;
+	color: rgba(255, 255, 255, 0.4);
 }
 
 .steps li::before {
@@ -312,7 +333,7 @@ dd {
 }
 
 .steps li.done {
-	color: #bbb;
+	color: #fff;
 }
 
 .steps li.done::before {
@@ -365,10 +386,17 @@ dd {
 	gap: 0.4rem;
 }
 
-.gcode-canvas {
+.gcode-view {
 	flex: 1 1 0;
 	min-height: 0;
+	position: relative;
+}
+
+.gcode-canvas {
+	position: absolute;
+	inset: 0;
 	width: 100%;
+	height: 100%;
 }
 
 .caption {

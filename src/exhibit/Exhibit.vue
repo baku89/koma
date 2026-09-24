@@ -223,7 +223,7 @@ kbd,
 }
 
 .screen-ab .pane + .pane {
-	border-left: 1px solid #333;
+	border-left: 1px solid #fff;
 }
 
 .setup {
@@ -239,7 +239,7 @@ kbd,
 .setup-box {
 	max-width: 40rem;
 	padding: 2rem;
-	border: 1px solid #444;
+	border: 1px solid #fff;
 	line-height: 1.6;
 }
 
@@ -248,7 +248,7 @@ kbd,
 	font-weight: 500;
 	text-transform: uppercase;
 	letter-spacing: 0.2em;
-	color: #888;
+	color: rgba(255, 255, 255, 0.6);
 	margin: 1.2rem 0 0.4rem;
 }
 
@@ -287,13 +287,13 @@ button {
 	letter-spacing: 0.1em;
 	color: #fff;
 	background: #000;
-	border: 1px solid #555;
+	border: 1px solid #fff;
 	padding: 0.4em 1em;
 	cursor: pointer;
 }
 
 button:hover {
-	background: #333;
+	background: #222;
 }
 
 .error {
@@ -301,7 +301,7 @@ button:hover {
 }
 
 .hint {
-	color: #888;
+	color: rgba(255, 255, 255, 0.6);
 	font-size: 0.85rem;
 }
 </style>

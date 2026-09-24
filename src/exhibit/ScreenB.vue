@@ -77,10 +77,9 @@ const clockTimer = setInterval(() => (clock.value = new Date()), 1000)
 	display: flex;
 	flex-direction: column;
 	background: #000;
-	color: #ddd;
-	padding: 1.2rem;
+	color: #fff;
 	box-sizing: border-box;
-	gap: 1rem;
+	overflow: hidden;
 }
 
 .head {
@@ -88,15 +87,19 @@ const clockTimer = setInterval(() => (clock.value = new Date()), 1000)
 	justify-content: space-between;
 	font-size: 0.85rem;
 	letter-spacing: 0.15em;
-	color: #888;
-	border-bottom: 1px solid #444;
-	padding-bottom: 0.6rem;
+	color: #fff;
+	border-bottom: 1px solid #fff;
+	padding: 0.7rem 1rem;
 }
 
+/* Pane borders (top + left of each pane) are the only lines: shift the grid
+   up/left by one so the outermost lines fall on the header's rule and the
+   screen edge (no surrounding frame). */
 .grid {
 	flex: 1 1 0;
 	min-height: 0;
 	display: flex;
+	margin: -1px 0 0 -1px;
 }
 
 .grid > :deep(.SplitNode) {
