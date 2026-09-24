@@ -201,13 +201,25 @@ const canJog = computed(
 					:disabled="!canJog"
 					@click="jog(axis, 1)"
 				/>
+			</div>
+		</Tq.Parameter>
+
+		<!-- Homing: one button per axis -->
+		<Tq.Parameter label="Home" icon="mdi:home">
+			<div class="controls">
 				<Tq.InputButton
-					icon="mdi:home-outline"
-					narrow
-					subtle
-					:tooltip="`Home ${axis.toUpperCase()}`"
+					v-for="axis in machine.def.axes"
+					:key="axis"
+					:label="axis.toUpperCase()"
 					:disabled="!machine.connected || machine.busy"
 					@click="machine.home([axis])"
+				/>
+				<Tq.InputButton
+					label="All"
+					icon="mdi:home"
+					subtle
+					:disabled="!machine.connected || machine.busy"
+					@click="machine.home()"
 				/>
 			</div>
 		</Tq.Parameter>
@@ -215,12 +227,6 @@ const canJog = computed(
 		<!-- Controls -->
 		<Tq.Parameter label="Control" icon="mdi:gamepad-variant">
 			<div class="controls">
-				<Tq.InputButton
-					label="Home All"
-					icon="mdi:home"
-					:disabled="!machine.connected || machine.busy"
-					@click="machine.home()"
-				/>
 				<Tq.InputButton
 					icon="mdi:pause"
 					tooltip="Feed hold (!)"
@@ -323,7 +329,7 @@ const canJog = computed(
 
 .axis
 	display grid
-	grid-template-columns auto 1fr auto auto
+	grid-template-columns auto 1fr auto
 	align-items center
 	gap var(--tq-gap-group)
 
