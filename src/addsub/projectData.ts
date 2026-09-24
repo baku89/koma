@@ -53,12 +53,16 @@ export interface SequenceProgress {
 	done: SequenceStep[]
 	status: 'running' | 'paused' | 'stopped' | 'error' | 'done'
 	error?: string
+	/** Mill table position before it was extended, to return to. */
+	returnPosition?: {x: number; y?: number}
 	updatedAt: number
 }
 
 export interface AddsubProjectData {
 	/** Index of the lowest block on the mill (0 = block A). §7.1 */
 	kBase: number
+	/** previz frame number = timeline frame + this offset. */
+	previzFrameOffset: number
 	/** Mill table position (machine coords) for shooting. `y` optional. §2 */
 	shootPosition: {x: number; y?: number}
 	/**
@@ -100,6 +104,7 @@ export interface AddsubProjectData {
 
 export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	kBase: 0,
+	previzFrameOffset: 0,
 	shootPosition: {x: 0},
 	cutPosition: undefined,
 	millSafeZ: 0,
