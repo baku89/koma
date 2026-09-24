@@ -524,10 +524,14 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - **LED 追従**: LED ストアは撮影コマ（`captureShot.frame`）に合わせて自動でその照明を出す（`followCapture`）。`workLight` で一時的に全白、戻すとコマの照明に復帰。シーケンスの `led` ステップは「出ていることを確認して ACK を待つ」だけ。
 - 揺れ判定はまだ固定待ち（`settleMs`）。ライブビュー差分は未実装。
 
+### 作業座標（cncjs 風）
+- MachinePanel は軸ごとに **Machine（MPos）と Work（WPos）** を並べ、Work 側に「ここをゼロ」「値を指定」（どちらも `G10 L20 P1`、動かずにオフセットだけ変わる）と「Work 0 へ移動」。「Zero all here」「Go to 0」も。リグは撮影で機械座標しか使わないので作業座標はジョグの目安用。フライス盤の G54 はシーケンスが毎コマ `G10 L2 P1` で film 原点に合わせ直すので、手でゼロを切ってもコマ撮り時には上書きされる。
+- 校正の近道: Shot Sequence 設定「Mill offset」の照準ボタン = 工具先端が film 原点（ブロック A の底面角、テーブルは撮影位置）にある状態で押すと `millOffset = filmOriginWorld + [0, 60·k, 0] − cycle(mpos)` を確定。
+
 ### 切削パス（G-code）の表示
 - パーサ `src/utils/fluidnc/toolpath.ts`（G0–G3・平面・G90/91・G20/21・G53 はスキップ、円弧は折れ線化、行番号つき、vitest あり）。
 - **exhibit の G-CODE 区画**（図録の `gcode-viz.psd` の作法）: いま映っているコマの NC を、細線（切削 = 白 45%、ラピッド = 灰 25%）＋各行の G-code 文字を移動終点に添えて、ゆっくり回る透視投影で 2D canvas に描く。ヘッダ行（G90 G94 … M3）は始点に積む。文字数は区画面積に応じて間引き。NC の解決: 本編／previz コマは `previz/frames.json`、他レイヤーのテイクは `project.addsub.layerGcode[layerId]`（`%04d` = そのレイヤーのフレーム）。vice-tests-2021 では 2021 年の `render/<scene>/<scene>_nc/<scene>.NNN_T?.nc`（フレーム NNN = 1 始まり、T は最大のもの）を `previz/gcode/<scene>/%04d.nc` に取り込み済み（pole / natori / bevel / arcwave / scifi / logo。arc2 と VICE_001 は該当無し）。
-- koma 本体の 3D ビューにも同じパーサで撮影コマの NC をブロック上に描く（送出済み区間はアクセント色、G-code 文字は右上のトグル）。1 コマ分はリアルタイムで問題なく、全履歴が要るなら過去分を静的バッファにマージする（画像のプリレンダは不要）。
+- koma 本体の 3D プレビューには G-code を出さない（ユーザー判断）。exhibit 側の線は WebGL（three.js LineSegments）で描き、14k 行のファイルでも 60fps。文字は 200 行に 1 つ。
 
 ### 座標・運動学（§3.0, §7.1, §10）
 - `src/addsub/coords.ts`, `kinematics.ts`。R = Ry(pan)·Rz(roll)·Rx(tilt)、分解は `rotationToAngles`（ロール ±90° でジンバルロック）。IK/FK は vitest で往復確認済み。
