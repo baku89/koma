@@ -148,7 +148,93 @@ const shown = computed<ExhibitFrame | null>(() => frames.value[shownIndex.value]
 //------------------------------------------------------------------------------
 // Folder
 
+/**
+ * Dev / kiosk aid: `?opfs=<name>` reads the project from that folder in the
+ * browser's own storage (OPFS) instead of a picked folder, and
+ * `?seed=<url>` first copies `project.json` and every preview it references
+ * from that URL into it. Lets a project be checked without a picker (e.g.
+ * from a test runner, or served by a dev server).
+ */
+async function restoreFromQuery(): Promise<boolean> {
+	const params = new URLSearchParams(location.search)
+	const name = params.get('opfs')
+	if (!name) return false
+	const root = await navigator.storage.getDirectory()
+	const h = await root.getDirectoryHandle(name, {create: true})
+	const seed = params.get('seed')
+	if (seed) {
+		try {
+			await seedFromUrl(h, seed)
+		} catch (e) {
+			error.value = `seed failed: ${e instanceof Error ? e.message : String(e)}`
+		}
+	}
+	dir.value = h
+	permission.value = 'granted'
+	startPolling()
+	return true
+}
+
+async function seedFromUrl(h: FileSystemDirectoryHandle, base: string) {
+	const url = (rel: string) => new URL(rel, new URL(base, location.href)).toString()
+	const res = await fetch(url('project.json'), {cache: 'no-store'})
+	if (!res.ok) throw new Error(`project.json ${res.status}`)
+	const text = await res.text()
+	const p = JSON.parse(text) as RawProject
+	const files = new Set<string>()
+	for (const koma of p.komas) {
+		for (const shot of koma?.shots ?? []) {
+			const f = refFilename(shot?.lv)
+			if (f) files.add(f)
+		}
+	}
+	for (const t of p.trash ?? []) {
+		const f = refFilename(t?.shot?.lv)
+		if (f) files.add(`_trash/${f}`)
+	}
+	await writeInto(h, 'project.json', new Blob([text]))
+	let n = 0
+	const list = [...files]
+	const CONCURRENCY = 8
+	await Promise.all(
+		Array.from({length: CONCURRENCY}, async () => {
+			for (;;) {
+				const rel = list.shift()
+				if (!rel) return
+				// Skip files already present (re-runs are cheap).
+				if (await exists(h, rel)) continue
+				const r = await fetch(url(rel), {cache: 'no-store'})
+				if (!r.ok) continue
+				await writeInto(h, rel, await r.blob())
+				n++
+			}
+		})
+	)
+	// eslint-disable-next-line no-console
+	console.info(`[exhibit] seeded ${n} files into OPFS/${h.name}`)
+}
+
+async function exists(root: FileSystemDirectoryHandle, rel: string) {
+	try {
+		await getFileHandle(root, rel)
+		return true
+	} catch {
+		return false
+	}
+}
+
+async function writeInto(root: FileSystemDirectoryHandle, rel: string, blob: Blob) {
+	const parts = rel.split('/').filter(Boolean)
+	let d = root
+	for (const part of parts.slice(0, -1)) d = await d.getDirectoryHandle(part, {create: true})
+	const fh = await d.getFileHandle(parts[parts.length - 1], {create: true})
+	const w = await fh.createWritable()
+	await w.write(blob)
+	await w.close()
+}
+
 async function restore() {
+	if (await restoreFromQuery().catch(() => false)) return
 	try {
 		const h = (await get(HANDLE_KEY)) as FileSystemDirectoryHandle | undefined
 		if (!h) return

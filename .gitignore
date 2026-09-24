@@ -29,3 +29,6 @@ dist-electron
 
 # Playwright MCP screenshots/snapshots
 .playwright-mcp/
+
+# Local dev symlinks to projects (served by Vite for the exhibit ?seed= path)
+public/_dev-*
