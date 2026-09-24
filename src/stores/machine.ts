@@ -8,12 +8,13 @@
  * `fluidncName` matches the controller's `name:` (from its config.yaml). This
  * runs at startup and whenever a port is (re)plugged, so a reload or a PC
  * sleep recovers without a picker (`navigator.serial.getPorts()` needs no
- * user gesture; `requestPort()` does).
+ * user gesture; `requestPort()` does). Port ownership across device families
+ * (e.g. an LED driver on the same chip) is arbitrated by utils/serialDiscovery.
  */
 
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
-import {computed, readonly, ref, shallowRef} from 'vue'
+import {computed, readonly, ref, shallowRef, watch} from 'vue'
 
 import {
 	type AxesPosition,
@@ -28,6 +29,15 @@ import {
 	type StreamOptions,
 	type WaitOptions,
 } from '@/utils/fluidnc'
+import {
+	claimSerialPort,
+	discoverSerialPorts,
+	registerSerialFamily,
+	releaseSerialPort,
+	requestSerialPortFor,
+	resetRejections,
+	type SerialFamily,
+} from '@/utils/serialDiscovery'
 
 export interface AxisInfo {
 	unit: 'mm' | 'deg'
@@ -54,7 +64,9 @@ export interface MachineDefinition {
 const LOG_LIMIT = 500
 
 //------------------------------------------------------------------------------
-// Port discovery, shared across all machine stores
+// Port discovery: all FluidNC machines form one "family" (utils/serialDiscovery)
+// so a port is identified with $I once and handed to whichever machine claims
+// that name — never re-opened per machine (opening a port can reset the board).
 
 interface Registration {
 	def: MachineDefinition
@@ -65,12 +77,6 @@ interface Registration {
 }
 
 const registrations = new Map<string, Registration>()
-/** Ports currently owned by a machine. */
-const claimed = new Map<SerialPort, string>()
-/** Ports we already opened and found not to belong to anyone (or not FluidNC). */
-const rejected = new WeakSet<SerialPort>()
-
-let discovery: Promise<void> | null = null
 
 function findOwner(info: BuildInfo, preferred?: string): Registration | null {
 	const name = info.machineName
@@ -100,55 +106,53 @@ async function identify(
 	}
 }
 
+const FAMILY_ID = 'fluidnc'
+
 /**
- * Open every paired-but-unclaimed port, identify it and hand it to its
- * machine. Serialised so two stores never fight over the same port.
+ * Probe a port as FluidNC and hand it to the matching machine. `preferred`
+ * breaks ties when the user picked the port from that machine's panel.
  */
-function discoverPorts(): Promise<void> {
-	if (discovery) return discovery
-	discovery = (async () => {
-		if (!('serial' in navigator)) return
-		let ports: SerialPort[]
-		try {
-			ports = await navigator.serial.getPorts()
-		} catch {
-			return
-		}
-		for (const port of ports) {
-			if (claimed.has(port) || rejected.has(port)) continue
-			// Nobody left to adopt anything → stop opening ports.
-			const wanting = [...registrations.values()].filter(r => !r.hasClient())
-			if (wanting.length === 0) break
-			try {
-				const {client, info} = await identify(port, {
-					baudRate: wanting[0].def.baudRate,
-					statusInterval: wanting[0].def.statusInterval,
-				})
-				const owner = findOwner(info)
-				if (owner && !owner.hasClient()) {
-					claimed.set(port, owner.def.id)
-					owner.adopt(client, info)
-				} else {
-					rejected.add(port)
-					await client.close()
-				}
-			} catch {
-				// Not FluidNC, busy, or unplugged. Try again on the next 'connect'.
-				rejected.add(port)
-			}
-		}
-	})().finally(() => {
-		discovery = null
-	})
-	return discovery
+async function probe(port: SerialPort, preferred?: string): Promise<boolean> {
+	const wanting = [...registrations.values()].filter(r => !r.hasClient())
+	if (wanting.length === 0) return false
+	const first = wanting.find(r => r.def.id === preferred) ?? wanting[0]
+	let client: FluidNCClient
+	let info: BuildInfo
+	try {
+		;({client, info} = await identify(port, {
+			baudRate: first.def.baudRate,
+			statusInterval: first.def.statusInterval,
+		}))
+	} catch {
+		return false
+	}
+	const owner = findOwner(info, preferred)
+	if (owner && !owner.hasClient()) {
+		owner.adopt(client, info)
+		lastProbe = {name: info.machineName, ownerId: owner.def.id}
+		return true
+	}
+	lastProbe = {name: info.machineName, ownerId: null}
+	await client.close()
+	return false
 }
 
-if (typeof navigator !== 'undefined' && 'serial' in navigator) {
-	navigator.serial.addEventListener('connect', () => {
-		// A freshly plugged port is a new SerialPort object, never in `rejected`.
-		void discoverPorts()
-	})
+/** What the most recent probe found — for the panel's error message. */
+let lastProbe: {name: string | undefined; ownerId: string | null} | null = null
+
+// Read through a function so TS doesn't narrow the module-level `let` to null
+// across the awaits in connect().
+function getLastProbe() {
+	return lastProbe
 }
+
+const family: SerialFamily = {
+	id: FAMILY_ID,
+	wants: () => [...registrations.values()].some(r => !r.hasClient()),
+	probe: port => probe(port),
+}
+
+registerSerialFamily(family)
 
 //------------------------------------------------------------------------------
 
@@ -184,6 +188,7 @@ export function defineMachineStore(def: MachineDefinition) {
 		}
 
 		function adopt(c: FluidNCClient, info: BuildInfo) {
+			claimSerialPort(c.port, FAMILY_ID)
 			client.value = c
 			buildInfo.value = info
 			status.value = c.status
@@ -206,7 +211,7 @@ export function defineMachineStore(def: MachineDefinition) {
 			c.on('reset', () => pushLog('sys', 'Controller reset'))
 			c.on('disconnect', () => {
 				if (client.value !== c) return
-				claimed.delete(c.port)
+				releaseSerialPort(c.port)
 				client.value = null
 				status.value = null
 				busy.value = false
@@ -223,7 +228,13 @@ export function defineMachineStore(def: MachineDefinition) {
 		})
 
 		// Silent reconnect on startup (no user gesture needed for paired ports).
-		void discoverPorts()
+		void discoverSerialPorts()
+
+		// Editing the expected name may make a previously rejected port match.
+		watch(fluidncName, () => {
+			resetRejections(FAMILY_ID)
+			void discoverSerialPorts()
+		})
 
 		//----------------------------------------------------------------------
 		// Connection
@@ -232,33 +243,30 @@ export function defineMachineStore(def: MachineDefinition) {
 		async function connect() {
 			if (client.value || connecting.value) return
 			connecting.value = true
+			lastProbe = null
 			try {
-				let port: SerialPort
-				try {
-					port = await navigator.serial.requestPort()
-				} catch {
-					return // picker dismissed
-				}
-				if (claimed.has(port)) {
-					lastError.value = `That port is already used by "${claimed.get(port)}"`
-					return
-				}
-				const {client: c, info} = await identify(port, {
-					baudRate: def.baudRate,
-					statusInterval: def.statusInterval,
+				const result = await requestSerialPortFor({
+					...family,
+					probe: port => probe(port, def.id),
 				})
-				const owner = findOwner(info, def.id)
-				if (owner?.def.id === def.id) {
-					claimed.set(port, def.id)
-					adopt(c, info)
-				} else if (owner && !owner.hasClient()) {
-					// It's the other machine — give it to them rather than dropping it.
-					claimed.set(port, owner.def.id)
-					owner.adopt(c, info)
-					lastError.value = `That controller is "${info.machineName}" — connected it as ${owner.def.label}`
-				} else {
-					await c.close()
-					lastError.value = `Controller "${info.machineName ?? '?'}" doesn't match "${fluidncName.value}"`
+				const found = getLastProbe()
+				switch (result) {
+					case 'cancelled':
+						break
+					case 'owned':
+						lastError.value = 'That port is already in use by another device'
+						break
+					case 'rejected':
+						lastError.value = found?.name
+							? `Controller "${found.name}" doesn't match "${fluidncName.value}"`
+							: 'No FluidNC controller answered on that port'
+						break
+					case 'adopted':
+						if (!client.value && found?.ownerId) {
+							const other = registrations.get(found.ownerId)
+							lastError.value = `That controller is "${found.name}" — connected it as ${other?.def.label ?? found.ownerId}`
+						}
+						break
 				}
 			} catch (e) {
 				lastError.value = e instanceof Error ? e.message : String(e)
