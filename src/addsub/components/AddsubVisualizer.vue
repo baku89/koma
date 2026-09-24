@@ -427,6 +427,125 @@ function onArrowClick(a: Arrow) {
 const showArrows = computed(() => !viewport.isPlaying)
 
 //------------------------------------------------------------------------------
+// Gizmo decorations: text labels (billboard sprites) on every arrow and a ring
+// per rotation axis, so the jog affordances read at a glance (§11.2).
+
+const labelCache = new Map<string, THREE.Texture>()
+
+function labelTexture(text: string, color: string) {
+	const key = `${text}|${color}`
+	let tex = labelCache.get(key)
+	if (tex) return tex
+	const canvas = document.createElement('canvas')
+	canvas.width = 256
+	canvas.height = 96
+	const ctx = canvas.getContext('2d')!
+	ctx.font = '700 44px Inter, system-ui, sans-serif'
+	ctx.textAlign = 'center'
+	ctx.textBaseline = 'middle'
+	ctx.lineWidth = 8
+	ctx.strokeStyle = 'rgba(0,0,0,0.85)'
+	ctx.lineJoin = 'round'
+	ctx.strokeText(text, 128, 48)
+	ctx.fillStyle = color
+	ctx.fillText(text, 128, 48)
+	tex = new THREE.CanvasTexture(canvas)
+	tex.colorSpace = THREE.SRGBColorSpace
+	labelCache.set(key, tex)
+	return tex
+}
+
+function makeLabel(text: string, color: string, size = 0.13) {
+	const sprite = new THREE.Sprite(
+		new THREE.SpriteMaterial({
+			map: labelTexture(text, color),
+			transparent: true,
+			depthTest: false,
+		})
+	)
+	sprite.scale.set(size, size * 0.375, 1)
+	sprite.renderOrder = 10
+	return sprite
+}
+
+function makeRing(centre: vec3, rotation: quat, radius: number, color: string) {
+	const pts: THREE.Vector3[] = []
+	const N = 64
+	for (let i = 0; i <= N; i++) {
+		const t = (i / N) * Math.PI * 2
+		// Ring in the local XY plane (normal = local Z), then rotated into place.
+		const p = vec3.transformQuat([Math.cos(t) * radius, Math.sin(t) * radius, 0], rotation)
+		pts.push(new THREE.Vector3(...vec3.add(centre, p)))
+	}
+	const geo = new THREE.BufferGeometry().setFromPoints(pts)
+	return new THREE.Line(
+		geo,
+		new THREE.LineBasicMaterial({color, transparent: true, opacity: 0.55})
+	)
+}
+
+const AXIS_LABELS: Record<Axis, string> = {
+	x: 'X',
+	y: 'Y',
+	z: 'Z',
+	a: 'Tilt',
+	b: 'Pan',
+	c: 'Roll',
+}
+
+const decorations = new THREE.Group()
+
+onMounted(() => {
+	$lines.value?.add(decorations)
+})
+
+function rebuildDecorations() {
+	decorations.clear()
+	if (!showArrows.value) return
+
+	const cam = vec3.scale(cameraPoseWorld.value.position, S)
+	const R = cameraPoseWorld.value.rotation
+	const tool = vec3.scale(toolTipWorld.value, S)
+
+	// Linear arrows: "+X" / "−X" just past each cone tip.
+	for (const a of rigArrows) {
+		const p = vec3.add(cam, vec3.scale(a.dir, ARROW_DIST + ARROW_LEN * 0.9))
+		const l = makeLabel(`${a.sign > 0 ? '+' : '−'}${AXIS_LABELS[a.axis]}`, a.color)
+		l.position.set(...p)
+		decorations.add(l)
+	}
+	for (const a of millArrows) {
+		const p = vec3.add(tool, vec3.scale(a.dir, ARROW_DIST + ARROW_LEN * 0.7))
+		const l = makeLabel(`${a.sign > 0 ? '+' : '−'}${AXIS_LABELS[a.axis]}`, a.color, 0.09)
+		l.position.set(...p)
+		decorations.add(l)
+	}
+
+	// Rotation rings: pan about world Y (ring in XZ), tilt about camera X (ring
+	// in local YZ), roll about camera Z (ring in local XY).
+	const ringX = quat.fromAxisAngle([0, 1, 0], 90) // local XY → YZ plane
+	const ringY = quat.fromAxisAngle([1, 0, 0], 90) // local XY → XZ plane
+	decorations.add(makeRing(cam, ringY, RING_R, '#ff66ff'))
+	decorations.add(makeRing(cam, quat.mul(R, ringX), RING_R, '#ffaa33'))
+	decorations.add(makeRing(cam, R, RING_R, '#66ffff'))
+
+	// "+Pan" / "−Tilt" … at each rotation cone, a little outward from the ring.
+	for (const a of rotArrows.value) {
+		const out = vec3.normalize(vec3.sub(a.position, cam))
+		const p = vec3.add(a.position, vec3.scale(out, 0.07))
+		const l = makeLabel(`${a.sign > 0 ? '+' : '−'}${AXIS_LABELS[a.axis]}`, a.color, 0.16)
+		l.position.set(...p)
+		decorations.add(l)
+	}
+}
+
+watch(
+	() => [cameraPoseWorld.value, toolTipWorld.value, showArrows.value, rotArrows.value] as const,
+	rebuildDecorations,
+	{immediate: true, deep: false}
+)
+
+//------------------------------------------------------------------------------
 // Linearly → three
 
 const euler = new THREE.Euler()

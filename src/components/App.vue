@@ -42,6 +42,7 @@ import MarkerSettings from './MarkerSettings.vue'
 import Preview from './Preview'
 import Timeline from './Timeline'
 import TitleBar from './TitleBar.vue'
+import TrashPanel from './TrashPanel.vue'
 
 initTweeq('com.baku89.koma', {
 	colorMode: 'dark',
@@ -1150,6 +1151,7 @@ watchEffect(() => {
 									<LedPanel />
 									<CameraControl />
 									<!-- DMX control hidden on the addsub branch (no DMX rig on this set). -->
+									<TrashPanel />
 									<MarkerSettings />
 								</Tq.ParameterGrid>
 							</div>
