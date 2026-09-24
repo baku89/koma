@@ -24,7 +24,7 @@ import {
 	Scene,
 } from 'troisjs'
 import {useTweeq} from 'tweeq'
-import {computed, onMounted, ref, shallowRef, watch} from 'vue'
+import {computed, onMounted, onUnmounted, ref, shallowRef, watch} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
@@ -140,7 +140,6 @@ function onRendererReady(trois: any) {
 		cameraControlTarget.value = cameraControl.target.toArray() as vec3
 	})
 
-	trois.onAfterRender(placeLabels)
 
 	const guide: THREE.Group = $guide.value.group
 	guide.add(new THREE.GridHelper(4, 40, 0x555555, 0x333333))
@@ -512,20 +511,33 @@ const $labels = shallowRef<HTMLElement[]>([])
 const projected = new THREE.Vector3()
 
 /** Runs after every render: place each label over its projected point. */
+// Own rAF loop (not troisjs's after-render hook, which some setups never
+// fire). Elements are matched to labels by key: a v-for template ref array
+// doesn't promise source order.
 function placeLabels() {
 	if (!camera || !$root.value) return
 	const w = rootSize.width.value
 	const h = rootSize.height.value
-	const labels = gizmoLabels.value
-	$labels.value.forEach((el, i) => {
-		const l = labels[i]
-		if (!l) return
+	const byKey = new Map(gizmoLabels.value.map(l => [l.key, l]))
+	for (const el of $labels.value) {
+		const l = byKey.get(el.dataset.key ?? '')
+		if (!l) continue
 		projected.set(...l.position).project(camera)
 		const behind = projected.z > 1
 		el.style.transform = `translate(${((projected.x + 1) / 2) * w}px, ${((1 - projected.y) / 2) * h}px) translate(-50%, -50%)`
 		el.style.visibility = behind ? 'hidden' : 'visible'
-	})
+	}
 }
+
+let labelRaf = 0
+onMounted(() => {
+	const loop = () => {
+		placeLabels()
+		labelRaf = requestAnimationFrame(loop)
+	}
+	labelRaf = requestAnimationFrame(loop)
+})
+onUnmounted(() => cancelAnimationFrame(labelRaf))
 
 function rebuildDecorations() {
 	decorations.clear()
@@ -610,6 +622,7 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 				v-for="l in gizmoLabels"
 				:key="l.key"
 				ref="$labels"
+				:data-key="l.key"
 				class="gizmo-label tq-font-numeric"
 				:style="{color: l.color}"
 			>
