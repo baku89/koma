@@ -78,6 +78,12 @@ export default defineConfig({
 				),
 			},
 			{
+				find: 'ws-fanout',
+				replacement: fileURLToPath(
+					new URL('./dev_modules/ws-fanout/sender/src', import.meta.url)
+				),
+			},
+			{
 				find: '@tethr/vue3',
 				replacement: fileURLToPath(
 					new URL('./dev_modules/tethr/integrations/vue3/src', import.meta.url)

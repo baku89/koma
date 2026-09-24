@@ -4,3 +4,6 @@
 [submodule "dev_modules/tethr"]
 	path = dev_modules/tethr
 	url = https://github.com/baku89/tethr.git
+[submodule "dev_modules/ws-fanout"]
+	path = dev_modules/ws-fanout
+	url = https://github.com/baku89/ws-fanout.git

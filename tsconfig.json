@@ -28,6 +28,7 @@
 			"@/*": ["./src/*"],
 			"tweeq": ["./dev_modules/tweeq/src/index.ts"],
 			"tethr": ["./dev_modules/tethr/core/src/index.ts"],
+			"ws-fanout": ["./dev_modules/ws-fanout/sender/src/index.ts"],
 			"@tethr/vue3": ["./dev_modules/tethr/integrations/vue3/src/index.ts"]
 		},
 		"types": ["w3c-web-serial", "wicg-file-system-access", "w3c-web-usb"]
