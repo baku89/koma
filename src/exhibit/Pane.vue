@@ -29,8 +29,8 @@ const shown = store.shown
 const shownKind = computed(() => {
 	const f = shown.value
 	if (!f) return '—'
-	const layer = store.project.value?.layers?.[f.layer]
-	return layer?.kind ?? (f.layer === 0 ? 'main' : 'test')
+	if (f.take === 'trash') return 'retake (discarded)'
+	return store.project.value?.layers?.[f.layer]?.name ?? (f.layer === 0 ? 'Main' : `Layer ${f.layer}`)
 })
 
 const shownDate = computed(() => {
@@ -106,6 +106,8 @@ watch(
 			<dd class="mono">{{ shownDate }}</dd>
 			<dt>Layer</dt>
 			<dd class="mono">{{ shownKind }}</dd>
+			<dt>Frame</dt>
+			<dd class="mono">{{ shown ? shown.frame + 1 : '—' }}</dd>
 			<dt>Exposure</dt>
 			<dd class="mono">{{ exposure }}</dd>
 			<dt>Block</dt>

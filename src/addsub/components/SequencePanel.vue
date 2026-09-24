@@ -67,6 +67,11 @@ function stepState(step: SequenceStep): 'done' | 'current' | 'todo' {
 	return 'todo'
 }
 
+const parkLayerId = computed<string | null>({
+	get: () => project.addsub.parkLayerId,
+	set: v => (project.addsub.parkLayerId = v),
+})
+
 const resumeStep = computed<SequenceStep>({
 	get: () => progress.value?.step ?? SEQUENCE_STEPS[0],
 	set: v => {
@@ -231,6 +236,13 @@ function setParkFromRig() {
 			</Tq.Parameter>
 			<Tq.Parameter label="Park shot" icon="mdi:camera-outline" hint="Take a park reference shot every frame">
 				<Tq.InputSwitch v-model="project.addsub.takeParkShot" />
+			</Tq.Parameter>
+			<Tq.Parameter label="Park layer" icon="mdi:layers-outline" hint="Layer the park reference shots go to">
+				<Tq.InputDropdown
+					v-model="parkLayerId"
+					:options="[null, ...project.layers.map(l => l.id)]"
+					:labels="['(create “Park”)', ...project.layers.map(l => l.name)]"
+				/>
 			</Tq.Parameter>
 			<Tq.ParameterHeading>Calibration</Tq.ParameterHeading>
 			<Tq.Parameter label="Pupil d" icon="mdi:eye" hint="Entrance pupil offset from the head's rotation centre (mm)">

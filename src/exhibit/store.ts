@@ -31,13 +31,21 @@ interface RawShot {
 	led?: {file: string}
 }
 
+interface RawTrashed {
+	shot: RawShot
+	frame: number
+	layer: number
+	deletedAt: number
+}
+
 interface RawProject {
 	name: string
 	fps: number
 	komas: ({shots: (RawShot | null)[]} | null)[]
+	trash?: RawTrashed[]
 	previewRange?: [number, number]
 	captureShot?: {frame: number; layer: number}
-	layers?: {kind?: string; label?: string}[]
+	layers?: {id?: string; name?: string}[]
 	addsub?: {
 		kBase?: number
 		parkLayer?: number
@@ -55,6 +63,8 @@ interface RawProject {
 export interface ExhibitFrame {
 	frame: number
 	layer: number
+	/** Live on the timeline, or a discarded take kept in _trash. */
+	take: 'live' | 'trash'
 	filename: string
 	captureDate?: number
 	cameraConfigs?: Record<string, unknown>
@@ -81,19 +91,23 @@ const shownIndex = ref(0)
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
-/** All layer-0 frames that have a shot, in timeline order. */
+/**
+ * Every take ever shot — all layers (film, tests, replays, park…) and the
+ * discarded ones in the trash — in the order they were shot. This is what
+ * screen A loops: the whole history of the piece, not just the film.
+ */
 const frames = computed<ExhibitFrame[]>(() => {
 	const p = project.value
 	if (!p) return []
 	const out: ExhibitFrame[] = []
-	p.komas.forEach((koma, frame) => {
-		const shot = koma?.shots?.[0]
-		const filename = refFilename(shot?.lv)
-		if (!shot || !filename) return
+	const push = (shot: RawShot, frame: number, layer: number, take: 'live' | 'trash', dir = '') => {
+		const filename = refFilename(shot.lv)
+		if (!filename) return
 		out.push({
 			frame,
-			layer: 0,
-			filename,
+			layer,
+			take,
+			filename: dir ? `${dir}/${filename}` : filename,
 			captureDate: shot.captureDate,
 			cameraConfigs: shot.cameraConfigs,
 			rig: shot.rig,
@@ -101,8 +115,30 @@ const frames = computed<ExhibitFrame[]>(() => {
 			previzFrame: shot.previzFrame,
 			led: shot.led?.file,
 		})
+	}
+	p.komas.forEach((koma, frame) => {
+		koma?.shots?.forEach((shot, layer) => {
+			if (shot) push(shot, frame, layer, 'live')
+		})
 	})
+	for (const t of p.trash ?? []) {
+		if (t?.shot) push(t.shot, t.frame, t.layer, 'trash', '_trash')
+	}
+	// Chronological; takes without a date go last in timeline order.
 	return out
+		.map((f, i) => ({f, i}))
+		.sort((a, b) => {
+			const da = a.f.captureDate ?? Infinity
+			const db = b.f.captureDate ?? Infinity
+			return da === db ? a.i - b.i : da - db
+		})
+		.map(({f}) => f)
+})
+
+/** Cheap identity of the take list, to know when the video must be rebuilt. */
+const framesSignature = computed(() => {
+	const fs = frames.value
+	return `${fs.length}:${fs[0]?.filename ?? ''}:${fs[fs.length - 1]?.filename ?? ''}:${fs[fs.length - 1]?.captureDate ?? ''}`
 })
 
 const fps = computed(() => project.value?.fps ?? 18)
@@ -216,7 +252,7 @@ async function frameUrl(filename: string): Promise<string | null> {
 		const h = dir.value
 		if (!h) return null
 		try {
-			const fh = await h.getFileHandle(filename)
+			const fh = await getFileHandle(h, filename)
 			const f = await fh.getFile()
 			const blob = new Blob([await f.arrayBuffer()], {type: f.type || 'image/jpeg'})
 			const url = URL.createObjectURL(blob)
@@ -237,12 +273,33 @@ async function frameUrl(filename: string): Promise<string | null> {
 	return p
 }
 
+async function getFileHandle(root: FileSystemDirectoryHandle, rel: string) {
+	const parts = rel.split('/').filter(Boolean)
+	let d = root
+	for (const part of parts.slice(0, -1)) d = await d.getDirectoryHandle(part)
+	return d.getFileHandle(parts[parts.length - 1])
+}
+
+/** Read a take's preview bytes (not cached as a URL). */
+async function frameBlob(filename: string): Promise<Blob | null> {
+	const h = dir.value
+	if (!h) return null
+	try {
+		const fh = await getFileHandle(h, filename)
+		const f = await fh.getFile()
+		return new Blob([await f.arrayBuffer()], {type: f.type || 'image/jpeg'})
+	} catch {
+		return null
+	}
+}
+
 export function useExhibitStore() {
 	return {
 		dir: readonly(dir),
 		permission: readonly(permission),
 		project: readonly(project),
 		frames,
+		framesSignature,
 		fps,
 		shownIndex,
 		shown,
@@ -252,5 +309,6 @@ export function useExhibitStore() {
 		pick,
 		forget,
 		frameUrl,
+		frameBlob,
 	}
 }

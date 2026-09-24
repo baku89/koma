@@ -151,6 +151,8 @@ const saveStatus = computed(() => {
 				:active="gamepads.length > 0"
 				icon="solar:gamepad-bold"
 			/>
+			<TitleBarMachineConnection :machine="mill" icon="mdi:saw-blade" />
+			<TitleBarMachineConnection :machine="rig" icon="game-icons:mechanical-arm" />
 			<button
 				v-tooltip="'Emergency stop: feed-hold the mill and the Box Rig, stop the spindle (shift+esc)'"
 				class="estop"
@@ -159,8 +161,6 @@ const saveStatus = computed(() => {
 				<Tq.Icon icon="mdi:octagon" />
 				ESTOP
 			</button>
-			<TitleBarMachineConnection :machine="mill" icon="mdi:saw-blade" />
-			<TitleBarMachineConnection :machine="rig" icon="game-icons:mechanical-arm" />
 		</template>
 	</Tq.TitleBar>
 </template>
@@ -174,7 +174,7 @@ const saveStatus = computed(() => {
 	gap 0.3em
 	height var(--tq-input-height)
 	padding 0 0.7em
-	margin 0 var(--tq-gap-group)
+	margin-left var(--tq-gap-control)
 	font-weight 700
 	font-size 0.8em
 	letter-spacing 0.08em

@@ -307,12 +307,22 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 				// Whatever layer the capture slot is on: the film (0) or a named
 				// test shot started from any frame.
 				return project.captureShot.layer
-			case 'park':
-				return project.layerOfKind('park', undefined, {create: true})
-			case 'replay':
-				return project.layerOfKind('replay', `replay k${project.addsub.kBase}`, {
-					create: true,
-				})
+			case 'park': {
+				const id = project.addsub.parkLayerId
+				const idx = id ? project.layerIndexOf(id) : -1
+				if (idx !== -1) return idx
+				const created = project.addLayer('Park')
+				project.addsub.parkLayerId = project.layers[created].id
+				return created
+			}
+			case 'replay': {
+				const id = project.addsub.sequence?.replayLayerId
+				const idx = id ? project.layerIndexOf(id) : -1
+				if (idx !== -1) return idx
+				const created = project.addLayer(`Replay k${project.addsub.kBase}`)
+				patchProgress({replayLayerId: project.layers[created].id})
+				return created
+			}
 		}
 	}
 

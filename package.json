@@ -81,6 +81,7 @@
 		"wavesurfer.js": "^7.8.5"
 	},
 	"dependencies": {
-		"bndr-js": "^0.18.7"
+		"bndr-js": "^0.18.7",
+		"mp4-muxer": "^5.2.2"
 	}
 }

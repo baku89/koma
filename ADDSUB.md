@@ -519,7 +519,8 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - `stop()` = abort + 両機に feed hold。**ESTOP**（タイトルバーの赤ボタン / コマンド `estop` / `shift+escape`）= シーケンス実行中でなくても両機を同時に feed hold + 主軸停止（0x9E）。復帰（`~`/`$X`/reset）は機械パネルから。
 - Sigma fp の撮影は App.vue の `shoot()` をそのまま使う（`sequence.registerCapture`）。park 参照ショットは kind `park` のレイヤー（無ければ作る）に入る。
 - **再演パス（§7.2）**: `startReplay(range)`。記録済みショットの rig 軸を `60·Δk_base` だけ持ち上げ、LED 画像を現在の lift で再サンプル、露出を再適用して kind `replay`・ラベル `replay k<n>` のレイヤーに撮り直す（rig ∥ led → settle → capture）。
-- **レイヤー種別（§14.1）**: `project.layers[i].kind` = main / test / import / replay / park（Timeline の左端で切替、ラベルは `label`）。テストショットは共用レイヤーではなく **「New Test Shot…」コマンドで名前付きレイヤーを毎回作る**。撮影スロットがそのレイヤーの現在コマに移り、手動撮影もシーケンスもそのレイヤーに沿って進む（本編とフレーム番号は共有）。「Rename Current Layer…」で改名。§14.2 のフォルダ分けと移行は未実装。
+- **レイヤー（§14.1 の実装）**: レイヤーは「名前付きの独立したタイムライン（本編とフレーム番号を共有）」で、いくつでも作れる（`project.layers[i] = {id, name}`、index = `koma.shots[]` のスロット。追加のみで並べ替え・削除はしない）。機能の割り当ては無く、テストも再演も park もただの名前付きレイヤー。**表示情報はプリセット** `project.layerPresets[]`（`{id, name, layers: [{layerId, opacity, mixBlendMode}]}`、配列順 = 表示順（下→上）、載っていないレイヤーは非表示）で、`activeLayerPreset` で切替。Layers ダイアログ（`command+shift+L` / Timeline 左端のレイヤー名クリック）でプリセットの作成・改名・削除、レイヤーの表示/順序/ブレンド/不透明度、追加、撮影先の指定。タイムライン・プレビューはアクティブなプリセットの順で合成（`compositeLayers`）。**「画像の下をクリックするとレイヤーが増える」挙動は廃止**（↑↓は表示順で移動）。旧ファイルはレイヤーの opacity/blend を "Default" プリセットへ移行。
+- **テストショット**: 「New Test Shot…」で名前付きレイヤーを作り、撮影スロットをそのレイヤーの現在コマに移す。手動撮影もシーケンスもそのレイヤーに沿って進む。park ショットの行き先は Shot Sequence 設定の「Park layer」（未指定なら "Park" を自動作成）、再演パスは `Replay k<n>` を作って進行に id を保存。§14.2 のフォルダ分けと移行は未実装。
 - **LED 追従**: LED ストアは撮影コマ（`captureShot.frame`）に合わせて自動でその照明を出す（`followCapture`）。`workLight` で一時的に全白、戻すとコマの照明に復帰。シーケンスの `led` ステップは「出ていることを確認して ACK を待つ」だけ。
 - 揺れ判定はまだ固定待ち（`settleMs`）。ライブビュー差分は未実装。
 
@@ -554,9 +555,9 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - 粒ごとにピッチ幅のボックス平均でサンプル。firmware の INFO と粒数が食い違うと LED パネルにエラーを出す。
 
 ### 展示画面（§15）
-- `/exhibit.html`。`?screen=a`（ループ再生、BroadcastChannel で再生位置を配信）/ `?screen=b`（グリッド）/ 無指定で並列表示。フォルダハンドルは IndexedDB、`project.json` を 4 秒ポーリング、`_lv` を再生位置の前後だけ読む。
-- ライブビュー・送出中 G-code・リグ現在位置は **aux-manager の WebSocket 中継が未実装**のためプレースホルダ。QR は `qrcode` パッケージでブラウザ内生成。
-
+- `/exhibit.html`。`?screen=a`（ループ再生、BroadcastChannel で再生位置を配信）/ `?screen=b`（グリッド）/ 無指定で並列表示。フォルダハンドルは IndexedDB、`project.json` を 4 秒ポーリング。全体モノスペース（Fira Code）。
+- **画面 A は「全テイク」**: 全レイヤー（本編・テスト・再演・park）のショットと `_trash` のミスコマを **撮影日時順**に並べ、ブラウザ内で **WebCodecs（H.264）+ mp4-muxer で MP4 に変換**して `<video loop>` で滑らかにループ再生する（ffmpeg 相当をネイティブ依存なしで）。動画は OPFS にキャッシュ（テイク一覧の署名がキー）、新しいテイクが増えると 10 分に 1 回を上限にバックグラウンドで作り直す。エンコード中や WebCodecs が無い環境は `_lv` の画像差し替えで再生。再生位置（動画時間 → テイク index）を画面 B に配信。
+- **画面 B**: 分割グリッド（FRAME = 今映っているテイクのメタデータ: 番号・撮影日時・レイヤー名 / 破棄テイク・露出・k・リグ軸、SEQUENCE、DEVLOG の QR、ライブビュー / G-code / 3D はリレー未実装でプレースホルダ）。
 ### 手元で試す（ハード無しの確認）
 - `yarn test`（parse・IK・LED map）。
 - ESP32 dev board に FluidNC を焼き、config.yaml に `name: BoxRig` を書けば、モーター無しでも識別・自動再接続・ジョグ送信・Idle 待ちを確認できる。`name: AST200` にすればフライス盤側。

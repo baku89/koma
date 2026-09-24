@@ -53,6 +53,8 @@ export interface SequenceProgress {
 	mode?: SequenceMode
 	/** Replay: inclusive frame range being re-shot. */
 	range?: [number, number]
+	/** Replay: id of the layer this pass shoots into. */
+	replayLayerId?: string
 	frame: number
 	/** The step that was running (or about to run) when progress was saved. */
 	step: SequenceStep
@@ -79,6 +81,8 @@ export interface AddsubProjectData {
 	cutPosition?: {x: number; y?: number}
 	/** Rig axes for the park reference frame (machine coords). null = none. */
 	parkPose: AxesPosition | null
+	/** Layer (id) park reference shots go to. null = create "Park" on first use. */
+	parkLayerId: string | null
 	/** Whether to take a park reference shot every frame. */
 	takeParkShot: boolean
 	/** ms to wait after the rig stops before capturing. §2 step 6 */
@@ -111,6 +115,7 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	shootPosition: {x: 0},
 	cutPosition: undefined,
 	parkPose: null,
+	parkLayerId: null,
 	takeParkShot: false,
 	settleMs: 2000,
 	rigFeed: 1500,
