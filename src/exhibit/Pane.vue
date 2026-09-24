@@ -307,4 +307,10 @@ dd {
 	max-width: 100%;
 	image-rendering: pixelated;
 }
+
+.qr .small {
+	text-align: center;
+	overflow-wrap: anywhere;
+	padding: 0 0.3rem;
+}
 </style>
