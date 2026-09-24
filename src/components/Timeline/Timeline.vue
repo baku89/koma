@@ -269,6 +269,10 @@ const visualizersStyles = computed(() => {
 	gap 4px
 	justify-content center
 
+	// Separator between layer names only; the frame area stays as it is.
+	& + &
+		border-top 1px solid var(--tq-color-border)
+
 	&.current .layer-name
 		color var(--tq-color-accent)
 
