@@ -46,6 +46,7 @@ interface RawProject {
 	previewRange?: [number, number]
 	captureShot?: {frame: number; layer: number}
 	layers?: {id?: string; name?: string}[]
+	layerPresets?: {id: string; name: string; layers: {layerId: string}[]}[]
 	addsub?: {
 		kBase?: number
 		parkLayer?: number
@@ -92,6 +93,22 @@ const shownIndex = ref(0)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 /**
+ * Which storage layers the exhibition shows: the layers of a preset named
+ * "Exhibit" when the project has one (so previz / reference layers can be
+ * left out from koma's Layers dialog), otherwise every layer.
+ */
+function exhibitLayers(p: RawProject): Set<number> | null {
+	const preset = p.layerPresets?.find(pr => /^exhibit$/i.test(pr.name.trim()))
+	if (!preset || !p.layers) return null
+	const set = new Set<number>()
+	for (const v of preset.layers) {
+		const i = p.layers.findIndex(l => l.id === v.layerId)
+		if (i !== -1) set.add(i)
+	}
+	return set
+}
+
+/**
  * Every take ever shot — all layers (film, tests, replays, park…) and the
  * discarded ones in the trash — in the order they were shot. This is what
  * screen A loops: the whole history of the piece, not just the film.
@@ -99,6 +116,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 const frames = computed<ExhibitFrame[]>(() => {
 	const p = project.value
 	if (!p) return []
+	const allowed = exhibitLayers(p)
 	const out: ExhibitFrame[] = []
 	const push = (shot: RawShot, frame: number, layer: number, take: 'live' | 'trash', dir = '') => {
 		const filename = refFilename(shot.lv)
@@ -118,11 +136,11 @@ const frames = computed<ExhibitFrame[]>(() => {
 	}
 	p.komas.forEach((koma, frame) => {
 		koma?.shots?.forEach((shot, layer) => {
-			if (shot) push(shot, frame, layer, 'live')
+			if (shot && (!allowed || allowed.has(layer))) push(shot, frame, layer, 'live')
 		})
 	})
 	for (const t of p.trash ?? []) {
-		if (t?.shot) push(t.shot, t.frame, t.layer, 'trash', '_trash')
+		if (t?.shot && (!allowed || allowed.has(t.layer))) push(t.shot, t.frame, t.layer, 'trash', '_trash')
 	}
 	// Chronological; takes without a date go last in timeline order.
 	return out

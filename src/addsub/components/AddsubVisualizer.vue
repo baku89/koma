@@ -8,6 +8,7 @@
  * Scene units are metres (world mm / 1000).
  */
 import {useElementSize} from '@vueuse/core'
+import {asyncComputed} from '@vueuse/core'
 import {mat4, quat, vec3} from 'linearly'
 import * as THREE from 'three'
 import type {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
@@ -28,7 +29,7 @@ import {computed, onMounted, ref, shallowRef, watch} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
-import type {Axis} from '@/utils/fluidnc'
+import {type Axis, parseToolpath, prepareGCode} from '@/utils/fluidnc'
 
 import {BLOCK_HEIGHT} from '../config'
 import {filmToWorld, millToWorld, tableShiftWorld} from '../coords'
@@ -323,6 +324,89 @@ watch(
 	},
 	{immediate: true}
 )
+
+//------------------------------------------------------------------------------
+// Toolpath of the capture frame's G-code (ADDSUB.md §11.1), drawn on the
+// block: rapids dim, cuts bright, and — while the mill is streaming it — the
+// part already sent in the accent colour. The file's WCS is the film origin in
+// mill axes, so a point (x, y, z) sits at film (y, z, x).
+
+const captureGcodeLines = asyncComputed<string[] | null>(async () => {
+	const pf = previz.frameFor(project.captureShot.frame)
+	if (!pf?.gcode) return null
+	try {
+		const text = await previz.readText(pf.gcode)
+		return prepareGCode(text).map(l => l.line)
+	} catch {
+		return null
+	}
+}, null)
+
+const toolpath = computed(() =>
+	captureGcodeLines.value ? parseToolpath(captureGcodeLines.value) : null
+)
+
+const rapidLines = new THREE.LineSegments(
+	new THREE.BufferGeometry(),
+	new THREE.LineBasicMaterial({color: 0x777777, transparent: true, opacity: 0.35})
+)
+const cutLines = new THREE.LineSegments(
+	new THREE.BufferGeometry(),
+	new THREE.LineBasicMaterial({color: 0xffffff, transparent: true, opacity: 0.9})
+)
+const doneLines = new THREE.LineSegments(
+	new THREE.BufferGeometry(),
+	new THREE.LineBasicMaterial({color: 0xff5577})
+)
+
+onMounted(() => {
+	$lines.value?.add(rapidLines)
+	$lines.value?.add(cutLines)
+	$lines.value?.add(doneLines)
+})
+
+/** How many prepared lines the mill has accepted for this frame (else 0). */
+const sentLines = computed(() =>
+	sequence.running && mill.busy && mill.streamProgress ? mill.streamProgress.index : 0
+)
+
+watch(
+	() => [toolpath.value, blockOriginWorld.value, kBase.value, sentLines.value] as const,
+	([tp, origin, k, sent]) => {
+		const rapid: number[] = []
+		const cut: number[] = []
+		const done: number[] = []
+		if (tp) {
+			const lift = filmLiftOf(k)
+			const toWorld = (p: [number, number, number]) => {
+				// mill (x, y, z) → film (y, z, x), then onto the block in world.
+				const w = vec3.add(origin, [p[1], p[2] + lift, p[0]])
+				return vec3.scale(w, S)
+			}
+			for (const seg of tp.segments) {
+				const a = toWorld(seg.from)
+				const b = toWorld(seg.to)
+				const target = seg.rapid ? rapid : seg.line < sent ? done : cut
+				target.push(...a, ...b)
+			}
+		}
+		for (const [obj, arr] of [
+			[rapidLines, rapid],
+			[cutLines, cut],
+			[doneLines, done],
+		] as const) {
+			obj.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr), 3))
+			obj.geometry.computeBoundingSphere()
+		}
+	},
+	{immediate: true}
+)
+
+function filmLiftOf(k: number) {
+	// blockOriginWorld already includes the film origin (k = 0); the stack
+	// under the current block is what lifts the film frame.
+	return BLOCK_HEIGHT * k
+}
 
 //------------------------------------------------------------------------------
 // Jog arrows
