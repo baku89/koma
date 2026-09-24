@@ -95,17 +95,6 @@ function setParkFromRig() {
 			</button>
 		</template>
 
-		<li class="estop-row">
-			<button
-				class="estop"
-				title="Emergency stop: feed-hold the mill and the Box Rig together, stop the spindle"
-				@click="sequence.estop()"
-			>
-				<Tq.Icon icon="mdi:octagon" />
-				ESTOP
-			</button>
-		</li>
-
 		<Tq.Parameter label="Status" icon="mdi:information-outline">
 			<span class="status" :class="progress?.status">{{ statusText }}</span>
 		</Tq.Parameter>
@@ -264,33 +253,6 @@ function setParkFromRig() {
 </template>
 
 <style lang="stylus" scoped>
-.estop-row
-	grid-column 1 / 3
-	list-style none
-	padding 0 0 var(--tq-gap-group) 0
-
-.estop
-	width 100%
-	height calc(var(--tq-input-height) * 1.6)
-	display flex
-	align-items center
-	justify-content center
-	gap 0.4em
-	font-weight 700
-	font-size 1.05em
-	letter-spacing 0.08em
-	color #fff
-	background #c62828
-	border 2px solid #ff5252
-	border-radius var(--tq-radius-input)
-	cursor pointer
-
-	&:hover
-		background #e53935
-
-	&:active
-		background #8e0000
-
 .toggle
 	background var(--tq-color-input)
 	height var(--tq-input-height)

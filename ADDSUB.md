@@ -516,10 +516,10 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 ### シーケンス（§2）
 - `src/addsub/stores/sequence.ts`。ステップ: `cut → extend → (rig ∥ led) → settle → capture → park → retract`（主軸停止・退避は CAM の G-code に含まれるので `cut` の一部。rig 移動と LED は別機器なので並列）。各ステップ完了ごとに `project.addsub.sequence` に進行を保存（frame / step / done / status / returnPosition）。パネルの「Resume」でステップを選んで再開。
 - `cut` は先に `G10 L2 P1` で G54 原点を `filmOriginMill(kBase)` に合わせてから G-code を流す。`extend` 前の table 位置を `returnPosition` に保存し `retract` で戻す。
-- `stop()` = abort + 両機に feed hold。**ESTOP**（パネルの赤ボタン / コマンド `estop` / `shift+escape`）= シーケンス実行中でなくても両機を同時に feed hold + 主軸停止（0x9E）。復帰（`~`/`$X`/reset）は機械パネルから。
+- `stop()` = abort + 両機に feed hold。**ESTOP**（タイトルバーの赤ボタン / コマンド `estop` / `shift+escape`）= シーケンス実行中でなくても両機を同時に feed hold + 主軸停止（0x9E）。復帰（`~`/`$X`/reset）は機械パネルから。
 - Sigma fp の撮影は App.vue の `shoot()` をそのまま使う（`sequence.registerCapture`）。park 参照ショットは kind `park` のレイヤー（無ければ作る）に入る。
 - **再演パス（§7.2）**: `startReplay(range)`。記録済みショットの rig 軸を `60·Δk_base` だけ持ち上げ、LED 画像を現在の lift で再サンプル、露出を再適用して kind `replay`・ラベル `replay k<n>` のレイヤーに撮り直す（rig ∥ led → settle → capture）。
-- **レイヤー種別（§14.1）**: `project.layers[i].kind` = main / test / import / replay / park（Timeline の左端で切替）。§14.2 のフォルダ分けと移行は未実装。
+- **レイヤー種別（§14.1）**: `project.layers[i].kind` = main / test / import / replay / park（Timeline の左端で切替、ラベルは `label`）。テストショットは共用レイヤーではなく **「New Test Shot…」コマンドで名前付きレイヤーを毎回作る**。撮影スロットがそのレイヤーの現在コマに移り、手動撮影もシーケンスもそのレイヤーに沿って進む（本編とフレーム番号は共有）。「Rename Current Layer…」で改名。§14.2 のフォルダ分けと移行は未実装。
 - **LED 追従**: LED ストアは撮影コマ（`captureShot.frame`）に合わせて自動でその照明を出す（`followCapture`）。`workLight` で一時的に全白、戻すとコマの照明に復帰。シーケンスの `led` ステップは「出ていることを確認して ACK を待つ」だけ。
 - 揺れ判定はまだ固定待ち（`settleMs`）。ライブビュー差分は未実装。
 

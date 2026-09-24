@@ -4,6 +4,7 @@ import * as Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 
 import {useMillStore, useRigStore} from '@/addsub/stores/machines'
+import {useSequenceStore} from '@/addsub/stores/sequence'
 import {useDmxStore} from '@/stores/dmx'
 import {useProjectStore} from '@/stores/project'
 import {useTimerStore} from '@/stores/timer'
@@ -20,6 +21,7 @@ const project = useProjectStore()
 const timer = useTimerStore()
 const mill = useMillStore()
 const rig = useRigStore()
+const sequence = useSequenceStore()
 const dmx = useDmxStore()
 
 const gamepads = ref<string[]>([])
@@ -149,6 +151,14 @@ const saveStatus = computed(() => {
 				:active="gamepads.length > 0"
 				icon="solar:gamepad-bold"
 			/>
+			<button
+				v-tooltip="'Emergency stop: feed-hold the mill and the Box Rig, stop the spindle (shift+esc)'"
+				class="estop"
+				@click="sequence.estop()"
+			>
+				<Tq.Icon icon="mdi:octagon" />
+				ESTOP
+			</button>
 			<TitleBarMachineConnection :machine="mill" icon="mdi:saw-blade" />
 			<TitleBarMachineConnection :machine="rig" icon="game-icons:mechanical-arm" />
 		</template>
@@ -157,6 +167,29 @@ const saveStatus = computed(() => {
 
 <style lang="stylus" scoped>
 @import '../../dev_modules/tweeq/src/common.styl'
+
+.estop
+	display inline-flex
+	align-items center
+	gap 0.3em
+	height var(--tq-input-height)
+	padding 0 0.7em
+	margin 0 var(--tq-gap-group)
+	font-weight 700
+	font-size 0.8em
+	letter-spacing 0.08em
+	color #fff
+	background #c62828
+	border 1.5px solid #ff5252
+	border-radius var(--tq-radius-input)
+	cursor pointer
+	-webkit-app-region no-drag
+
+	&:hover
+		background #e53935
+
+	&:active
+		background #8e0000
 
 
 .project-name

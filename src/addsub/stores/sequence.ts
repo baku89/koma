@@ -304,7 +304,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	function layerFor(kind: 'main' | 'park' | 'replay'): number {
 		switch (kind) {
 			case 'main':
-				return 0
+				// Whatever layer the capture slot is on: the film (0) or a named
+				// test shot started from any frame.
+				return project.captureShot.layer
 			case 'park':
 				return project.layerOfKind('park', undefined, {create: true})
 			case 'replay':

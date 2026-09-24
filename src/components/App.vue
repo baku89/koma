@@ -36,7 +36,6 @@ import {
 } from '@/utils'
 
 import CameraControl from './CameraControl.vue'
-import DmxControl from './DmxControl.vue'
 import InAppProjectsPanel from './InAppProjectsPanel.vue'
 import MachinePanel from './MachinePanel.vue'
 import MarkerSettings from './MarkerSettings.vue'
@@ -345,9 +344,10 @@ function placeShotAndAdvance(newShot: Shot) {
 		const {frame, layer} = state.captureShot
 		project.setShot(frame, layer, newShot)
 
-		// Next frame without a base-layer shot.
+		// Next frame without a shot on the capture layer (a named test shot
+		// advances along its own layer, the film along layer 0).
 		let next = frame + 1
-		while (next < state.komas.length && state.komas[next]?.shots[0]) {
+		while (next < state.komas.length && state.komas[next]?.shots[layer]) {
 			next++
 		}
 		// We filled the last frame — extend the duration by one.
@@ -355,7 +355,7 @@ function placeShotAndAdvance(newShot: Shot) {
 			state.komas.push({shots: []})
 		}
 
-		state.captureShot = {frame: next, layer: 0}
+		state.captureShot = {frame: next, layer}
 		state.previewRange[1] = state.captureShot.frame
 	})
 
@@ -784,6 +784,45 @@ Tq.actions.register([
 				},
 			},
 			{
+				id: 'new_test_shot',
+				label: 'New Test Shot…',
+				icon: 'mdi:flask-outline',
+				async perform() {
+					// A named layer of its own, starting at the current frame and
+					// sharing the film's frame numbers (ADDSUB.md §14.1).
+					const result = await Tq.modal.prompt(
+						{name: `test ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`},
+						{name: {type: 'string'}},
+						{title: 'New Test Shot'}
+					)
+					if (!result || !result.name.trim()) return
+					project.layers.push({
+						opacity: 1,
+						mixBlendMode: 'normal',
+						kind: 'test',
+						label: result.name.trim(),
+					})
+					const layer = project.layers.length - 1
+					project.$patch({captureShot: {frame: viewport.currentFrame, layer}})
+					viewport.setCurrentLayer(layer)
+				},
+			},
+			{
+				id: 'rename_layer',
+				label: 'Rename Current Layer…',
+				icon: 'mdi:rename',
+				async perform() {
+					const layer = project.layer(viewport.currentLayer)
+					const result = await Tq.modal.prompt(
+						{name: layer.label ?? ''},
+						{name: {type: 'string'}},
+						{title: 'Rename Layer'}
+					)
+					if (!result) return
+					layer.label = result.name.trim() || undefined
+				},
+			},
+			{
 				id: 'set_capture_frame',
 				icon: 'mdi:camera',
 				bind: ['a', 'gamepad:zr'],
@@ -1110,7 +1149,7 @@ watchEffect(() => {
 									<MachinePanel :machine="mill" />
 									<LedPanel />
 									<CameraControl />
-									<DmxControl />
+									<!-- DMX control hidden on the addsub branch (no DMX rig on this set). -->
 									<MarkerSettings />
 								</Tq.ParameterGrid>
 							</div>

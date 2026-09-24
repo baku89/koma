@@ -170,6 +170,11 @@ const visualizersStyles = computed(() => {
 				<Tq.InputDropdown
 					:modelValue="project.layerKind(i)"
 					:options="LayerKindValues"
+					:labels="
+						LayerKindValues.map(k =>
+							k === project.layerKind(i) && layer.label ? `${k} · ${layer.label}` : k
+						)
+					"
 					:tooltip="layer.label"
 					@update:modelValue="project.layers[i].kind = $event"
 				/>
