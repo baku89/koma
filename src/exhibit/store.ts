@@ -15,6 +15,7 @@ import {computed, reactive, readonly, ref, shallowRef} from 'vue'
 
 const HANDLE_KEY = 'com.baku89.koma.exhibit.projectDir'
 const POLL_MS = 4000
+const PREVIZ_FRAMES = 'previz/frames.json'
 
 type BlobRef = {$type: 'blob'; filename: string} | string
 
@@ -88,6 +89,15 @@ const dir = shallowRef<FileSystemDirectoryHandle | null>(null)
 const permission = ref<'granted' | 'prompt' | 'denied' | 'none'>('none')
 const project = shallowRef<RawProject | null>(null)
 const lastModified = ref<number | null>(null)
+
+/** previz/frames.json (what Houdini wrote next to the project), if present. */
+interface PrevizFile {
+	paths?: {gcode?: string}
+	frames: {frame: number; gcode?: string; cut?: boolean}[]
+}
+const previzFile = shallowRef<PrevizFile | null>(null)
+const previzModified = ref<number | null>(null)
+const textCache = new Map<string, Promise<string | null>>()
 const error = ref<string | null>(null)
 const state = reactive({polling: false})
 
@@ -278,6 +288,34 @@ async function seedFromUrl(h: FileSystemDirectoryHandle, base: string) {
 		if (f) files.add(`_trash/${f}`)
 	}
 	await writeInto(h, 'project.json', new Blob([text]))
+	// previz/frames.json and the G-code it references (for the G-CODE pane).
+	try {
+		const pr = await fetch(url(PREVIZ_FRAMES), {cache: 'no-store'})
+		if (pr.ok) {
+			const ptext = await pr.text()
+			await writeInto(h, PREVIZ_FRAMES, new Blob([ptext]))
+			const pf = JSON.parse(ptext) as PrevizFile
+			const pattern = pf.paths?.gcode ?? 'gcode/%04d.nc'
+			for (const fr of pf.frames) {
+				if (fr.cut === false) continue
+				const rel =
+					fr.gcode ??
+					pattern.replace(/%0?(\d*)d/, (_, w) => String(fr.frame).padStart(Number(w || 0), '0'))
+				files.add(`previz/${rel}`)
+			}
+		}
+	} catch {
+		// no previz — fine
+	}
+	const layerGcode = (p.addsub as any)?.layerGcode as Record<string, string> | undefined
+	if (layerGcode && p.layers) {
+		p.komas.forEach((koma, frame) => {
+			koma?.shots?.forEach((shot, layer) => {
+				const id = p.layers?.[layer]?.id
+				if (shot && id && layerGcode[id]) files.add(expand(layerGcode[id], frame))
+			})
+		})
+	}
 	let n = 0
 	const list = [...files]
 	const CONCURRENCY = 8
@@ -373,10 +411,71 @@ function stopPolling() {
 	pollTimer = null
 }
 
+async function pollPreviz(h: FileSystemDirectoryHandle) {
+	try {
+		const fh = await getFileHandle(h, PREVIZ_FRAMES)
+		const f = await fh.getFile()
+		if (f.lastModified === previzModified.value) return
+		previzFile.value = JSON.parse(await f.text()) as PrevizFile
+		previzModified.value = f.lastModified
+		textCache.clear()
+	} catch {
+		if (previzFile.value) {
+			previzFile.value = null
+			previzModified.value = null
+		}
+	}
+}
+
+function expand(pattern: string, n: number) {
+	return pattern.replace(/%0?(\d*)d/, (_, w) => String(n).padStart(Number(w || 0), '0'))
+}
+
+/**
+ * Path (relative to the project folder) of the G-code behind a shown frame:
+ * a take on another layer uses that layer's own files (addsub.layerGcode),
+ * the film (and its previz stand-ins) the cut planned in previz/frames.json.
+ */
+function gcodePathFor(timelineFrame: number, layer = 0): string | null {
+	const p = project.value
+	const layerGcode = (p?.addsub as any)?.layerGcode as Record<string, string> | undefined
+	const layerId = p?.layers?.[layer]?.id
+	if (layer !== 0 && layerId && layerGcode?.[layerId]) {
+		return expand(layerGcode[layerId], timelineFrame)
+	}
+	const pf = previzFile.value
+	if (!pf) return null
+	const offset = (project.value?.addsub as any)?.previzFrameOffset ?? 0
+	const n = timelineFrame + offset
+	const entry = pf.frames.find(f => f.frame === n)
+	if (!entry || entry.cut === false) return null
+	const pattern = pf.paths?.gcode ?? 'gcode/%04d.nc'
+	return `previz/${entry.gcode ?? expand(pattern, n)}`
+}
+
+function readText(rel: string): Promise<string | null> {
+	let p = textCache.get(rel)
+	if (!p) {
+		p = (async () => {
+			const h = dir.value
+			if (!h) return null
+			try {
+				const fh = await getFileHandle(h, rel)
+				return await (await fh.getFile()).text()
+			} catch {
+				return null
+			}
+		})()
+		textCache.set(rel, p)
+	}
+	return p
+}
+
 async function poll() {
 	const h = dir.value
 	if (!h || state.polling) return
 	state.polling = true
+	await pollPreviz(h)
 	try {
 		const fh = await h.getFileHandle('project.json')
 		const f = await fh.getFile()
@@ -482,5 +581,8 @@ export function useExhibitStore() {
 		frameUrl,
 		frameBlob,
 		previzFilenameFor,
+		gcodePathFor,
+		readText,
+		previzModified: readonly(previzModified),
 	}
 }

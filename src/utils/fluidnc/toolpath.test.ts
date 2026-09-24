@@ -36,6 +36,12 @@ describe('parseToolpath', () => {
 		expect(tp.cutLength).toBeCloseTo((Math.PI * 25.4) / 2, 0)
 	})
 
+	it('skips G53 machine-coordinate moves', () => {
+		const tp = parseToolpath(['G53 G0 Z0', 'G0 X5 Y5', 'G1 Z-1'])
+		expect(tp.segments.length).toBe(2)
+		expect(tp.segments[0].from).toEqual([0, 0, 0])
+	})
+
 	it('ignores comments and non-motion lines', () => {
 		const tp = parseToolpath(['(header)', 'M3 S12000', 'G1 X5 ; feed', 'M5'])
 		expect(tp.segments.length).toBe(1)

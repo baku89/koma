@@ -107,6 +107,13 @@ export interface AddsubProjectData {
 		brightnessCap: number
 	}
 	sequence: SequenceProgress | null
+	/**
+	 * Per-layer G-code, for takes that were cut with their own files (e.g.
+	 * imported test shoots): layer id → path pattern relative to the project
+	 * folder, `%04d` = the layer's frame. The film's own cuts come from
+	 * previz/frames.json instead.
+	 */
+	layerGcode?: Record<string, string>
 }
 
 export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {

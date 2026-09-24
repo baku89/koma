@@ -77,6 +77,7 @@ export function parseToolpath(
 		if (!text) return
 		const words: Record<string, number> = {}
 		let hasMotionWord = false
+		let machineCoords = false
 		for (const m of text.matchAll(/([A-Z])\s*([-+]?\d*\.?\d+)/g)) {
 			const letter = m[1]
 			const value = Number(m[2])
@@ -84,7 +85,8 @@ export function parseToolpath(
 				if (value === 0 || value === 1 || value === 2 || value === 3) {
 					motion = value
 					hasMotionWord = true
-				} else if (value === 90) absolute = true
+				} else if (value === 53) machineCoords = true
+				else if (value === 90) absolute = true
 				else if (value === 91) absolute = false
 				else if (value === 20) unitScale = 25.4
 				else if (value === 21) unitScale = 1
@@ -94,6 +96,11 @@ export function parseToolpath(
 			}
 		}
 		void hasMotionWord
+
+		// G53 moves are in machine coordinates (an unknown offset from the work
+		// system): a one-line rapid to a safe spot. Not part of the cut; skip it
+		// without disturbing the tracked position.
+		if (machineCoords) return
 
 		const hasAxis = 'X' in words || 'Y' in words || 'Z' in words
 		if (!hasAxis && !('I' in words || 'J' in words || 'K' in words || 'R' in words)) return

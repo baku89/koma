@@ -524,8 +524,10 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - **LED 追従**: LED ストアは撮影コマ（`captureShot.frame`）に合わせて自動でその照明を出す（`followCapture`）。`workLight` で一時的に全白、戻すとコマの照明に復帰。シーケンスの `led` ステップは「出ていることを確認して ACK を待つ」だけ。
 - 揺れ判定はまだ固定待ち（`settleMs`）。ライブビュー差分は未実装。
 
-### 切削パスの 3D 表示
-- `src/utils/fluidnc/toolpath.ts`（G0–G3・平面・G90/91・G20/21、円弧は折れ線化、行番号つき、vitest あり）。3D ビューは撮影コマの `previz/gcode/*.nc` をブロック上に描く（ラピッド = 薄灰、切削 = 白、送出済み区間 = アクセント色。WCS = film 原点、mill (x,y,z) → film (y,z,x)）。1 コマ分（数千セグメント）はリアルタイムで問題ない。全履歴を重ねたくなったら、過去コマ分は 1 本の静的バッファに間引いてマージする（画像のプリレンダは不要）。
+### 切削パス（G-code）の表示
+- パーサ `src/utils/fluidnc/toolpath.ts`（G0–G3・平面・G90/91・G20/21・G53 はスキップ、円弧は折れ線化、行番号つき、vitest あり）。
+- **exhibit の G-CODE 区画**（図録の `gcode-viz.psd` の作法）: いま映っているコマの NC を、細線（切削 = 白 45%、ラピッド = 灰 25%）＋各行の G-code 文字を移動終点に添えて、ゆっくり回る透視投影で 2D canvas に描く。ヘッダ行（G90 G94 … M3）は始点に積む。文字数は区画面積に応じて間引き。NC の解決: 本編／previz コマは `previz/frames.json`、他レイヤーのテイクは `project.addsub.layerGcode[layerId]`（`%04d` = そのレイヤーのフレーム）。vice-tests-2021 では 2021 年の `render/<scene>/<scene>_nc/<scene>.NNN_T?.nc`（フレーム NNN = 1 始まり、T は最大のもの）を `previz/gcode/<scene>/%04d.nc` に取り込み済み（pole / natori / bevel / arcwave / scifi / logo。arc2 と VICE_001 は該当無し）。
+- koma 本体の 3D ビューにも同じパーサで撮影コマの NC をブロック上に描く（送出済み区間はアクセント色、G-code 文字は右上のトグル）。1 コマ分はリアルタイムで問題なく、全履歴が要るなら過去分を静的バッファにマージする（画像のプリレンダは不要）。
 
 ### 座標・運動学（§3.0, §7.1, §10）
 - `src/addsub/coords.ts`, `kinematics.ts`。R = Ry(pan)·Rz(roll)·Rx(tilt)、分解は `rotationToAngles`（ロール ±90° でジンバルロック）。IK/FK は vitest で往復確認済み。

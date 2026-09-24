@@ -5,10 +5,13 @@
  * placeholder until the relay exists (§15.2).
  */
 import QRCode from 'qrcode'
-import {computed, ref, watch} from 'vue'
+import {computed, onUnmounted, ref, watch} from 'vue'
+
+import {parseToolpath, prepareGCode} from '@/utils/fluidnc'
 
 import type {PaneKind} from './SplitNode.vue'
 import {useExhibitStore} from './store'
+import {drawToolpath, type ToolpathScene} from './toolpathView'
 
 const props = defineProps<{kind: PaneKind}>()
 
@@ -77,6 +80,59 @@ function stepState(step: string) {
 	return 'todo'
 }
 
+//------------------------------------------------------------------------------
+// G-CODE: the cut of the frame being shown, from previz/gcode next to the
+// project, drawn as an annotated wireframe.
+const $gcode = ref<HTMLCanvasElement | null>(null)
+const gcodeScene = ref<ToolpathScene | null>(null)
+const gcodePath = computed(() =>
+	shown.value
+		? store.gcodePathFor(shown.value.frame, shown.value.take === 'previz' ? 0 : shown.value.layer)
+		: null
+)
+const sceneCache = new Map<string, ToolpathScene | null>()
+
+watch(
+	() => [gcodePath.value, store.previzModified.value] as const,
+	async ([rel]) => {
+		if (!rel) {
+			gcodeScene.value = null
+			return
+		}
+		let scene = sceneCache.get(rel)
+		if (scene === undefined) {
+			const text = await store.readText(rel)
+			if (text) {
+				const lines = prepareGCode(text).map(l => l.line)
+				scene = {toolpath: parseToolpath(lines), lines}
+			} else {
+				scene = null
+			}
+			if (sceneCache.size > 20) sceneCache.clear()
+			sceneCache.set(rel, scene)
+		}
+		if (gcodePath.value === rel) gcodeScene.value = scene
+	},
+	{immediate: true}
+)
+
+let raf = 0
+const t0 = performance.now()
+function tickGcode() {
+	raf = requestAnimationFrame(tickGcode)
+	const canvas = $gcode.value
+	const scene = gcodeScene.value
+	if (!canvas || !scene) return
+	drawToolpath(canvas, scene, (performance.now() - t0) / 1000, {
+		font: "'Fira Code', ui-monospace, monospace",
+		color: '#e8e8e8',
+		dim: '#5a5a5a',
+		accent: '#ffffff',
+	})
+}
+if (props.kind === 'gcode') raf = requestAnimationFrame(tickGcode)
+onUnmounted(() => cancelAnimationFrame(raf))
+
 const $qr = ref<HTMLCanvasElement | null>(null)
 watch(
 	$qr,
@@ -143,9 +199,16 @@ watch(
 			</div>
 		</div>
 
-		<!-- G-CODE (needs relay) -->
-		<div v-else-if="kind === 'gcode'" class="placeholder mono">
-			<div class="dim">waiting for the shooting machine…</div>
+		<!-- G-CODE: this frame's cut, from previz/gcode -->
+		<div v-else-if="kind === 'gcode'" class="gcode">
+			<canvas v-show="gcodeScene" ref="$gcode" class="gcode-canvas" />
+			<div v-if="!gcodeScene" class="placeholder mono">
+				<div class="dim">{{ gcodePath ? 'loading…' : 'no cut on this frame' }}</div>
+			</div>
+			<div v-if="gcodeScene && gcodePath" class="mono small dim caption">
+				{{ gcodePath.replace(/^previz\//, '') }} · {{ gcodeScene.lines.length }} lines ·
+				{{ gcodeScene.toolpath.cutLength.toFixed(0) }} mm
+			</div>
 		</div>
 
 		<!-- SCENE (needs relay for live positions; last shot's pose is shown) -->
@@ -292,6 +355,24 @@ dd {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
+}
+
+.gcode {
+	flex: 1 1 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+.gcode-canvas {
+	flex: 1 1 0;
+	min-height: 0;
+	width: 100%;
+}
+
+.caption {
+	flex: 0 0 auto;
 }
 
 .qr {
