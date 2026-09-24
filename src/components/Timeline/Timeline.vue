@@ -257,6 +257,8 @@ const visualizersStyles = computed(() => {
 
 .aside
 	padding-top calc(var(--header-height) + var(--header-margin-bottom))
+	// Thin divider between the layer names and the frames.
+	border-right 1px solid var(--tq-color-border)
 
 .layer-control
 	--tq-input-height 20px
