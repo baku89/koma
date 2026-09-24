@@ -64,8 +64,12 @@ interface RawProject {
 export interface ExhibitFrame {
 	frame: number
 	layer: number
-	/** Live on the timeline, or a discarded take kept in _trash. */
-	take: 'live' | 'trash'
+	/**
+	 * main: the film; previz: a not-yet-shot film frame filled from the previz
+	 * layer; live: a take on another layer (test, replay, park…); trash: a
+	 * discarded take kept in _trash.
+	 */
+	take: 'main' | 'previz' | 'live' | 'trash'
 	filename: string
 	captureDate?: number
 	cameraConfigs?: Record<string, unknown>
@@ -109,16 +113,53 @@ function exhibitLayers(p: RawProject): Set<number> | null {
 }
 
 /**
- * Every take ever shot — all layers (film, tests, replays, park…) and the
- * discarded ones in the trash — in the order they were shot. This is what
- * screen A loops: the whole history of the piece, not just the film.
+ * Previz / reference layers: a preset named "Previz" when present, else any
+ * layer whose name mentions previz. Never part of the loop; screen B shows
+ * the previz frame matching the take being played.
+ */
+function previzLayerIndices(p: RawProject): number[] {
+	const preset = p.layerPresets?.find(pr => /^previz$/i.test(pr.name.trim()))
+	if (preset && p.layers) {
+		return preset.layers
+			.map(v => p.layers!.findIndex(l => l.id === v.layerId))
+			.filter(i => i !== -1)
+	}
+	return (p.layers ?? [])
+		.map((l, i) => (/previz/i.test(l.name ?? '') ? i : -1))
+		.filter(i => i !== -1)
+}
+
+/** Preview filename of the previz image for a timeline frame, or null. */
+function previzFilenameFor(frame: number): string | null {
+	const p = project.value
+	if (!p) return null
+	for (const layer of previzLayerIndices(p)) {
+		const f = refFilename(p.komas[frame]?.shots?.[layer]?.lv)
+		if (f) return f
+	}
+	return null
+}
+
+/**
+ * What screen A loops: first the film as it stands — every frame of the Main
+ * layer, and where a frame hasn't been shot yet, the previz render for it —
+ * then every other take (tests, replays, park references, and the discarded
+ * ones in the trash) in the order they were shot.
  */
 const frames = computed<ExhibitFrame[]>(() => {
 	const p = project.value
 	if (!p) return []
 	const allowed = exhibitLayers(p)
+	const previz = previzLayerIndices(p)
+	const previzSet = new Set(previz)
 	const out: ExhibitFrame[] = []
-	const push = (shot: RawShot, frame: number, layer: number, take: 'live' | 'trash', dir = '') => {
+	const push = (
+		shot: RawShot,
+		frame: number,
+		layer: number,
+		take: ExhibitFrame['take'],
+		dir = ''
+	) => {
 		const filename = refFilename(shot.lv)
 		if (!filename) return
 		out.push({
@@ -134,23 +175,49 @@ const frames = computed<ExhibitFrame[]>(() => {
 			led: shot.led?.file,
 		})
 	}
+
+	// 1. The film: Main (layer 0), previz filling the gaps.
+	p.komas.forEach((koma, frame) => {
+		const main = koma?.shots?.[0]
+		if (main) {
+			push(main, frame, 0, 'main')
+			return
+		}
+		for (const layer of previz) {
+			const pv = koma?.shots?.[layer]
+			if (pv) {
+				push(pv, frame, layer, 'previz')
+				return
+			}
+		}
+	})
+
+	// 2. Every other take, chronologically.
+	const takes: {f: ExhibitFrame; i: number}[] = []
+	const collect = (shot: RawShot, frame: number, layer: number, take: 'live' | 'trash', dir = '') => {
+		const before = out.length
+		push(shot, frame, layer, take, dir)
+		if (out.length > before) takes.push({f: out.pop()!, i: takes.length})
+	}
 	p.komas.forEach((koma, frame) => {
 		koma?.shots?.forEach((shot, layer) => {
-			if (shot && (!allowed || allowed.has(layer))) push(shot, frame, layer, 'live')
+			if (!shot || layer === 0 || previzSet.has(layer)) return
+			if (allowed && !allowed.has(layer)) return
+			collect(shot, frame, layer, 'live')
 		})
 	})
 	for (const t of p.trash ?? []) {
-		if (t?.shot && (!allowed || allowed.has(t.layer))) push(t.shot, t.frame, t.layer, 'trash', '_trash')
+		if (!t?.shot || previzSet.has(t.layer)) continue
+		if (allowed && !allowed.has(t.layer)) continue
+		collect(t.shot, t.frame, t.layer, 'trash', '_trash')
 	}
-	// Chronological; takes without a date go last in timeline order.
+	takes.sort((a, b) => {
+		const da = a.f.captureDate ?? Infinity
+		const db = b.f.captureDate ?? Infinity
+		return da === db ? a.i - b.i : da - db
+	})
+	for (const {f} of takes) out.push(f)
 	return out
-		.map((f, i) => ({f, i}))
-		.sort((a, b) => {
-			const da = a.f.captureDate ?? Infinity
-			const db = b.f.captureDate ?? Infinity
-			return da === db ? a.i - b.i : da - db
-		})
-		.map(({f}) => f)
 })
 
 /** Cheap identity of the take list, to know when the video must be rebuilt. */
@@ -414,5 +481,6 @@ export function useExhibitStore() {
 		forget,
 		frameUrl,
 		frameBlob,
+		previzFilenameFor,
 	}
 }

@@ -20,12 +20,28 @@ const needsGesture = computed(
 	() => !store.dir.value || store.permission.value !== 'granted'
 )
 
-// Setup overlay: shown until a folder is readable; hidden otherwise, with a
-// hidden hotkey (S) to bring it back.
-const showSetup = ref(false)
+// Setup overlay: shown until a folder is readable. Afterwards it's reachable
+// by parking the mouse in the top-left corner (a gear appears), by pressing
+// S, or with `?setup` in the URL.
+const showSetup = ref(params.has('setup'))
+const cornerHover = ref(false)
 
 function onKey(e: KeyboardEvent) {
 	if (e.key === 's' || e.key === 'S') showSetup.value = !showSetup.value
+	if (e.key === 'Escape') showSetup.value = false
+}
+
+function onMouseMove(e: MouseEvent) {
+	cornerHover.value = e.clientX < 80 && e.clientY < 80
+}
+
+/** Re-assign what this window shows (reloads with the new query). */
+function setScreen(which: 'a' | 'b' | 'ab') {
+	const p = new URLSearchParams(location.search)
+	if (which === 'ab') p.delete('screen')
+	else p.set('screen', which)
+	p.delete('setup')
+	location.search = p.toString()
 }
 
 //------------------------------------------------------------------------------
@@ -54,6 +70,7 @@ onMounted(() => {
 	void requestWakeLock()
 	document.addEventListener('visibilitychange', onVisibility)
 	window.addEventListener('keydown', onKey)
+	window.addEventListener('mousemove', onMouseMove)
 	shiftTimer = setInterval(() => {
 		const r = () => Math.round(Math.random() * 6 - 3)
 		shift.value = {x: r(), y: r()}
@@ -63,6 +80,7 @@ onMounted(() => {
 onUnmounted(() => {
 	document.removeEventListener('visibilitychange', onVisibility)
 	window.removeEventListener('keydown', onKey)
+	window.removeEventListener('mousemove', onMouseMove)
 	if (shiftTimer) clearInterval(shiftTimer)
 	wakeLock?.release()
 })
@@ -106,6 +124,15 @@ async function goFullscreen() {
 		<ScreenA v-if="screen !== 'b'" class="pane" :broadcast="screen === 'a'" />
 		<ScreenB v-if="screen !== 'a'" class="pane" :follow="screen === 'b'" />
 
+		<button
+			v-show="cornerHover && !showSetup && !needsGesture"
+			class="corner"
+			title="Setup (S)"
+			@click="showSetup = true"
+		>
+			⚙ SETUP
+		</button>
+
 		<div v-if="needsGesture || showSetup" class="setup">
 			<div class="setup-box">
 				<h1>Milling Stop-Motion — exhibition screens</h1>
@@ -125,6 +152,7 @@ async function goFullscreen() {
 					</span>
 				</p>
 				<p v-if="store.error.value" class="error">{{ store.error.value }}</p>
+				<h2>Project</h2>
 				<div class="buttons">
 					<button
 						v-if="store.dir.value && store.permission.value !== 'granted'"
@@ -133,14 +161,23 @@ async function goFullscreen() {
 						Grant access
 					</button>
 					<button @click="store.pick()">Choose folder…</button>
-					<button v-if="store.dir.value" @click="store.forget()">Forget</button>
-					<button @click="placeOnScreens">Place A / B on screens</button>
+					<button v-if="store.dir.value" @click="store.forget()">Forget folder</button>
+				</div>
+				<h2>This window</h2>
+				<div class="buttons">
+					<button :class="{on: screen === 'a'}" @click="setScreen('a')">Screen A (loop)</button>
+					<button :class="{on: screen === 'b'}" @click="setScreen('b')">Screen B (data)</button>
+					<button :class="{on: screen === 'ab'}" @click="setScreen('ab')">Both</button>
 					<button @click="goFullscreen">Fullscreen</button>
-					<button v-if="showSetup" @click="showSetup = false">Close</button>
+				</div>
+				<h2>Monitors</h2>
+				<div class="buttons">
+					<button @click="placeOnScreens">Open A and B on two screens</button>
+					<button v-if="showSetup && !needsGesture" @click="showSetup = false">Close</button>
 				</div>
 				<p class="hint">
-					Press <kbd>S</kbd> to toggle this panel. Open
-					<code>?screen=a</code> / <code>?screen=b</code> for a single screen.
+					Later: park the mouse in the top-left corner, press <kbd>S</kbd>, or
+					add <code>?setup</code> to the URL to get back here.
 				</p>
 			</div>
 		</div>
@@ -204,6 +241,29 @@ kbd,
 	padding: 2rem;
 	border: 1px solid #444;
 	line-height: 1.6;
+}
+
+.setup-box h2 {
+	font-size: 0.75rem;
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: 0.2em;
+	color: #888;
+	margin: 1.2rem 0 0.4rem;
+}
+
+button.on {
+	background: #fff;
+	color: #000;
+	border-color: #fff;
+}
+
+.corner {
+	position: fixed;
+	top: 12px;
+	left: 12px;
+	z-index: 11;
+	cursor: pointer;
 }
 
 .setup-box h1 {

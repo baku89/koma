@@ -32,7 +32,6 @@ const layout: LayoutNode = {
 			split: 'row',
 			ratio: 3,
 			children: [
-				{pane: 'scene', ratio: 3},
 				{
 					split: 'col',
 					ratio: 2,
@@ -41,6 +40,7 @@ const layout: LayoutNode = {
 						{pane: 'sequence', ratio: 1},
 					],
 				},
+				{pane: 'scene', ratio: 3},
 			],
 		},
 		{

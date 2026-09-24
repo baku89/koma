@@ -30,6 +30,7 @@ const shownKind = computed(() => {
 	const f = shown.value
 	if (!f) return '—'
 	if (f.take === 'trash') return 'retake (discarded)'
+	if (f.take === 'previz') return 'previz (not shot yet)'
 	return store.project.value?.layers?.[f.layer]?.name ?? (f.layer === 0 ? 'Main' : `Layer ${f.layer}`)
 })
 
