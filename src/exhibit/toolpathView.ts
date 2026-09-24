@@ -12,7 +12,9 @@ export interface ToolpathScene {
 	lines: string[]
 }
 
-const MAX_LABELS = 900
+/** One label every this many G-code lines (plus the header): enough to read
+ *  the language of the file without burying the path in text. */
+const LABEL_EVERY = 200
 
 function cutBounds(tp: Toolpath) {
 	let min: [number, number, number] | null = null
@@ -134,23 +136,20 @@ export function drawToolpath(
 	}
 	ctx.globalAlpha = 1
 
-	// Labels: one per source line at the end of its last segment.
+	// Labels: the text of every LABEL_EVERY-th source line, at the end of the
+	// move it produced.
 	const endOf = new Map<number, {to: [number, number, number]; rapid: boolean}>()
 	for (const seg of toolpath.segments) endOf.set(seg.line, {to: seg.to, rapid: seg.rapid})
-	const entries = [...endOf.entries()]
-	// Label budget follows the pane area so a small pane isn't buried in text.
-	const budget = Math.max(80, Math.min(MAX_LABELS, Math.floor((w * h) / 1400)))
-	const step = Math.max(1, Math.ceil(entries.length / budget))
-	ctx.font = `8px ${opts.font}`
+	ctx.font = `9px ${opts.font}`
 	ctx.textBaseline = 'middle'
-	ctx.globalAlpha = 0.7
-	entries.forEach(([line, e], i) => {
-		if (i % step !== 0) return
+	ctx.globalAlpha = 0.85
+	for (const [line, e] of endOf) {
+		if (line % LABEL_EVERY !== 0) continue
 		const p = project(e.to)
-		if (p[2] <= 0) return
+		if (p[2] <= 0) continue
 		ctx.fillStyle = line < sent ? (opts.accent ?? opts.color) : e.rapid ? opts.dim : opts.color
 		ctx.fillText(lines[line] ?? '', p[0] + 4, p[1])
-	})
+	}
 	ctx.globalAlpha = 1
 
 	// Header lines (before the first move) stacked at the start point.
