@@ -58,6 +58,13 @@ export default defineConfig({
 	],
 	build: {
 		sourcemap: true,
+		rollupOptions: {
+			input: {
+				main: fileURLToPath(new URL('./index.html', import.meta.url)),
+				// Exhibition screens (ADDSUB.md §15): a separate page at /exhibit.html
+				exhibit: fileURLToPath(new URL('./exhibit.html', import.meta.url)),
+			},
+		},
 	},
 	resolve: {
 		alias: [
