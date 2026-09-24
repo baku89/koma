@@ -4,7 +4,7 @@ import {range as _range} from 'lodash-es'
 import * as Tq from 'tweeq'
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
 
-import {MixBlendModeValues, useProjectStore} from '@/stores/project'
+import {useProjectStore} from '@/stores/project'
 import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
@@ -111,13 +111,9 @@ function onPreviewUp() {
 	}
 }
 
-/** Visible layers in display order, with their storage index and view. */
+/** Visible layers in display order, with their storage index. */
 const layers = computed(() =>
-	project.visibleLayerIndices.map(index => ({
-		index,
-		layer: project.layer(index),
-		view: project.layerView(index),
-	}))
+	project.visibleLayerIndices.map(index => ({index, layer: project.layer(index)}))
 )
 
 function toScales(range: vec2, unitWidth: number) {
@@ -168,7 +164,7 @@ const visualizersStyles = computed(() => {
 	>
 		<aside class="aside">
 			<div
-				v-for="{index, layer, view} in layers"
+				v-for="{index, layer} in layers"
 				:key="layer.id"
 				class="layer-control"
 				:class="{current: index === viewport.currentLayer}"
@@ -180,19 +176,6 @@ const visualizersStyles = computed(() => {
 				>
 					{{ layer.name }}
 				</button>
-				<Tq.InputDropdown
-					:modelValue="view.mixBlendMode"
-					:options="MixBlendModeValues"
-					@update:modelValue="project.setLayerView(index, {mixBlendMode: $event})"
-				/>
-				<Tq.InputNumber
-					:modelValue="view.opacity * 100"
-					:min="0"
-					:max="100"
-					:precision="0"
-					suffix="%"
-					@update:modelValue="project.setLayerView(index, {opacity: $event / 100})"
-				/>
 			</div>
 		</aside>
 		<Tq.Timeline
@@ -287,11 +270,12 @@ const visualizersStyles = computed(() => {
 	&.current .layer-name
 		color var(--tq-color-accent)
 
+// Just the name: blend / opacity live in the Layers dialog (presets).
 .layer-name
 	height var(--tq-input-height)
 	text-align left
 	font-weight bold
-	font-size 0.85em
+	font-size 0.9em
 	white-space nowrap
 	overflow hidden
 	text-overflow ellipsis
