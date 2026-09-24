@@ -13,6 +13,11 @@ import {ConfigType, TethrIdentifier} from 'tethr'
 import {computed, nextTick, reactive, ref, toRaw, toRefs} from 'vue'
 
 import {
+	type AddsubProjectData,
+	DEFAULT_ADDSUB_DATA,
+	type ShotMachineData,
+} from '@/addsub/projectData'
+import {
 	assignReactive,
 	clearAssets,
 	debounceAsync,
@@ -109,6 +114,8 @@ interface Project {
 	 * folder, restorable later (Dragonframe-style).
 	 */
 	trash: TrashedShot[]
+	/** Work-specific settings and sequence progress (addsub branch). */
+	addsub: AddsubProjectData
 }
 
 type UndoableData = Pick<Project, 'komas' | 'captureShot' | 'markers'> & {
@@ -142,7 +149,7 @@ export interface Marker {
 	color: string
 }
 
-export interface Shot {
+export interface Shot extends ShotMachineData {
 	/** Asset ids (see utils/assets) — resolve to bytes via resolveBlob/resolveAssetUrl. */
 	lv: string
 	jpg: string
@@ -227,6 +234,7 @@ const emptyProject: Project = {
 	markers: [],
 	camera: undefined,
 	trash: [],
+	addsub: DEFAULT_ADDSUB_DATA,
 }
 
 type BlobRef = {$type: 'blob'; filename: string}
