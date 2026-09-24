@@ -1155,6 +1155,13 @@ export const useProjectStore = defineStore('project', () => {
 
 	return {
 		...toRefs(project),
+		/**
+		 * The folder this project is saved in (null for an unsaved / ephemeral
+		 * project). Read-only: other stores use it to read sibling folders the
+		 * app doesn't own (e.g. files written next to project.json by external
+		 * tools). Writing project files stays inside this store.
+		 */
+		directoryHandle: computed(() => directoryHandle.value),
 		readProjectFile,
 		history,
 		undo: history.undo,
