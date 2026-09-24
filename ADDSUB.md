@@ -477,3 +477,66 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 
 - テストショットをいつまで画面Aに含めるか（本番のコマ数で切り替えるか、手動か）
 - 画面Aの再生速度（本番どおり 18fps か）と、ループの範囲（全コマか、直近のみか）
+
+---
+
+## 実装メモ（as-built, 2026-09-24 初回コミット時点）
+
+`addsub` ブランチの現状。仕様（上の章）との差分と、実機で確認が要る仮定を残す。
+
+### コミットの分け方
+- `main` に戻せる汎用: `src/utils/fluidnc/`（WebSerial クライアント・status/`$I` パース・G-code ビルダ・vitest）、`src/utils/serialDiscovery.ts`、`src/stores/machine.ts`（`defineMachineStore` ファクトリ）、`src/components/MachinePanel.vue`、`TitleBarMachineConnection.vue`、project ストアの `directoryHandle` 公開と open 時の既定値 cloneDeep。
+- 作品固有（このブランチに閉じる）: `src/addsub/**`、`src/exhibit/**` + `exhibit.html`、`App.vue`/`TitleBar.vue` の組み込み、`dev_modules/ws-fanout` submodule、Tracker UI の撤去。
+
+### 機器接続（§3.5）
+- 2 台の FluidNC は `$I` の `[MSG: Machine: <name>]` で識別する。**config.yaml の `name:` を `AST200`（フライス盤）/ `BoxRig`（Box Rig）にする**（既定。各パネルの config `machine.<id>.fluidncName` で変更可）。
+- `navigator.serial.getPorts()` の全ポートを起動時と `connect` イベント時に順に開いて識別し、該当機に渡す。LED（ws-fanout）も同じ仕組みで PING/INFO で識別。ポート open は ESP32 をリセットし得るので、1 ポートは 1 回しか開かない（`serialDiscovery` が調停）。
+- 送信は 1 行→`ok` 待ち。realtime（`?` `!` `~` `^X` `0x85`）は生バイトで別送。`waitIdle` は Idle を 2 回連続で見るまで待つ（`ok` は「planner に入った」の意味で、直後の 1 回目の Idle は信用しない）。
+
+### previz/frames.json（§13.1 の未決を仮決め）
+```json
+{
+  "version": 1,
+  "fps": 18,
+  "paths": {"gcode": "gcode/%04d.nc", "led": "led/%04d.png", "render": "render/%04d.jpg"},
+  "ledTopFilmY": 1500,
+  "frames": [
+    {"frame": 1,
+     "camera": {"position": [x, y, z], "rotation": [x, y, z, w]},
+     "cameraConfigs": {"aperture": 8},
+     "gcode": "gcode/0001.nc", "led": "led/0001.png", "render": "render/0001.jpg",
+     "cut": true}
+  ]
+}
+```
+- `position` は film 座標 mm・投影中心（入射瞳）。`rotation` は quaternion、代わりに `"angles": {"tilt","pan","roll"}`（度）でも可。
+- `paths` は省略時の既定パターン（`%04d` = `frame` の値）。フレーム個別の `gcode`/`led`/`render` が優先。`"cut": false` で切削なし。
+- koma 側は timeline frame + `project.addsub.previzFrameOffset` = previz `frame`。`FileSystemObserver` があれば監視、無ければ 3 秒ポーリング。parse 失敗は書きかけとみなし再試行。
+
+### シーケンス（§2）
+- `src/addsub/stores/sequence.ts`。ステップ: `cut → spindleOff → extend → rig → led → settle → capture → park → retract`。各ステップ完了ごとに `project.addsub.sequence` に進行を保存（frame / step / done / status / returnPosition）。パネルの「Resume」でステップを選んで再開。
+- `cut` は先に `G10 L2 P1` で G54 原点を `filmOriginMill(kBase)` に合わせてから G-code を流す。`extend` 前の table 位置を `returnPosition` に保存し `retract` で戻す。
+- `stop()` = abort + 両機に feed hold。復帰（`~`/`$X`/reset）は機械パネルから。
+- Sigma fp の撮影は App.vue の `shoot()` をそのまま使う（`sequence.registerCapture`）。park 参照ショットは `parkLayer`（既定 1）に入る。
+- 揺れ判定はまだ固定待ち（`settleMs`）。ライブビュー差分は未実装。
+
+### 座標・運動学（§3.0, §7.1, §10）
+- `src/addsub/coords.ts`, `kinematics.ts`。R = Ry(pan)·Rz(roll)·Rx(tilt)、分解は `rotationToAngles`（ロール ±90° でジンバルロック）。IK/FK は vitest で往復確認済み。
+- **実機で要確認の仮定**: 回転軸の符号（`calibration.rotarySigns`）、film 原点の world 位置（`filmOriginWorld`）、`rigOffset`、`millOffset`、フライス盤は X/Y ともテーブル移動（AST200）として `tableShiftWorld` で扱っている。
+- 校正ウィザード（§12）は未実装。値は Shot Sequence パネルの Settings で手入力。
+
+### LED（§8）
+- 配置マップは `led/layout.ts` がパラメータから生成（面幅 1500・ストリップ 1400・42 粒・10 本/ライン・100 mm 間隔・上端 `topY`・各ライン左始まり）。**面幅・上端 Y・ジグザグの開始側・ライン 1/2 の上下は仮定**。firmware の INFO と粒数が食い違うとパネルにエラーを出す。
+- 展開図は L B R F を横に並べた 1 枚（内側から見て左→右）。`topFilmY` が画像上端の film Y。粒ごとにピッチ幅のボックス平均でサンプル。
+
+### 展示画面（§15）
+- `/exhibit.html`。`?screen=a`（ループ再生、BroadcastChannel で再生位置を配信）/ `?screen=b`（グリッド）/ 無指定で並列表示。フォルダハンドルは IndexedDB、`project.json` を 4 秒ポーリング、`_lv` を再生位置の前後だけ読む。
+- ライブビュー・送出中 G-code・リグ現在位置は **aux-manager の WebSocket 中継が未実装**のためプレースホルダ。QR は `qrcode` パッケージでブラウザ内生成。
+
+### 手元で試す（ハード無しの確認）
+- `yarn test`（parse・IK・LED map）。
+- ESP32 dev board に FluidNC を焼き、config.yaml に `name: BoxRig` を書けば、モーター無しでも識別・自動再接続・ジョグ送信・Idle 待ちを確認できる。`name: AST200` にすればフライス盤側。
+- 同じ板に `dev_modules/ws-fanout/firmware` を焼けば（NodeMCU は BOOT 長押し個体あり）、LED 未接続でも INFO / SHOW ACK まで通る。
+
+### 未実装（仕様にあるもの）
+- §8.1 AE リアルタイムプレビュー、§9 ライブビューのキャスト、§12 校正ウィザード、§13.2 Houdini とのリアルタイム通信、§14 レイヤー種別と保存フォルダ、§15 のリレー依存パネルと `_lv` キャッシュ、揺れ収束のライブビュー判定、脱調検知。
