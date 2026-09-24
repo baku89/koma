@@ -9,7 +9,7 @@
 		"recal": "RECAL=1 yarn aux",
 		"raw": "RAW=1 yarn aux",
 		"lint": "eslint \"src/**/*.{ts,vue}\"",
-		"test": "echo 'No test'",
+		"test": "vitest run",
 		"build": "vite build",
 		"preversion": "npm run test",
 		"postversion": "git push && git push --tags"
@@ -72,6 +72,7 @@
 		"vite-plugin-electron": "^0.29.1",
 		"vite-plugin-glsl": "^1.6.0",
 		"vite-plugin-monaco-editor": "^1.1.0",
+		"vitest": "^3.1.1",
 		"vite-plugin-pwa": "^1.0.3",
 		"vue": "^3.5.34",
 		"vue-eslint-parser": "^10.4.0",
