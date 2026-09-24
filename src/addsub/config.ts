@@ -41,12 +41,12 @@ export const RIG_DEFINITION: MachineDefinition = {
 	fluidncName: 'BoxRig',
 	axes: ['x', 'y', 'z', 'a', 'b', 'c'],
 	axisInfo: {
-		x: {unit: 'mm', label: 'X (gantry)'},
-		y: {unit: 'mm', label: 'Y (vertical)'},
-		z: {unit: 'mm', label: 'Z (carriage)'},
-		a: {unit: 'deg', label: 'A (tilt)'},
-		b: {unit: 'deg', label: 'B (pan)'},
-		c: {unit: 'deg', label: 'C (roll)'},
+		x: {unit: 'mm'},
+		y: {unit: 'mm'},
+		z: {unit: 'mm'},
+		a: {unit: 'deg'},
+		b: {unit: 'deg'},
+		c: {unit: 'deg'},
 	},
 	jogFeed: 1500,
 }
