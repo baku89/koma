@@ -8,7 +8,6 @@
  * Scene units are metres (world mm / 1000).
  */
 import {useElementSize} from '@vueuse/core'
-import {asyncComputed} from '@vueuse/core'
 import {mat4, quat, vec3} from 'linearly'
 import * as THREE from 'three'
 import type {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js'
@@ -29,7 +28,7 @@ import {computed, onMounted, ref, shallowRef, watch} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
-import {type Axis, parseToolpath, prepareGCode} from '@/utils/fluidnc'
+import type {Axis} from '@/utils/fluidnc'
 
 import {BLOCK_HEIGHT} from '../config'
 import {filmToWorld, millToWorld, tableShiftWorld} from '../coords'
@@ -142,10 +141,7 @@ function onRendererReady(trois: any) {
 		cameraControlTarget.value = cameraControl.target.toArray() as vec3
 	})
 
-	trois.onAfterRender(() => {
-		placeLabels()
-		drawAnnotations()
-	})
+	trois.onAfterRender(placeLabels)
 
 	const guide: THREE.Group = $guide.value.group
 	guide.add(new THREE.GridHelper(4, 40, 0x555555, 0x333333))
@@ -327,181 +323,6 @@ watch(
 	},
 	{immediate: true}
 )
-
-//------------------------------------------------------------------------------
-// Toolpath of the capture frame's G-code (ADDSUB.md §11.1), drawn on the
-// block: rapids dim, cuts bright, and — while the mill is streaming it — the
-// part already sent in the accent colour. The file's WCS is the film origin in
-// mill axes, so a point (x, y, z) sits at film (y, z, x).
-
-const captureGcodeLines = asyncComputed<string[] | null>(async () => {
-	const pf = previz.frameFor(project.captureShot.frame)
-	if (!pf?.gcode) return null
-	try {
-		const text = await previz.readText(pf.gcode)
-		return prepareGCode(text).map(l => l.line)
-	} catch {
-		return null
-	}
-}, null)
-
-const toolpath = computed(() =>
-	captureGcodeLines.value ? parseToolpath(captureGcodeLines.value) : null
-)
-
-const rapidLines = new THREE.LineSegments(
-	new THREE.BufferGeometry(),
-	new THREE.LineBasicMaterial({color: 0x777777, transparent: true, opacity: 0.35})
-)
-const cutLines = new THREE.LineSegments(
-	new THREE.BufferGeometry(),
-	new THREE.LineBasicMaterial({color: 0xffffff, transparent: true, opacity: 0.9})
-)
-const doneLines = new THREE.LineSegments(
-	new THREE.BufferGeometry(),
-	new THREE.LineBasicMaterial({color: 0xff5577})
-)
-
-onMounted(() => {
-	$lines.value?.add(rapidLines)
-	$lines.value?.add(cutLines)
-	$lines.value?.add(doneLines)
-})
-
-/** How many prepared lines the mill has accepted for this frame (else 0). */
-const sentLines = computed(() =>
-	sequence.running && mill.busy && mill.streamProgress ? mill.streamProgress.index : 0
-)
-
-watch(
-	() => [toolpath.value, blockOriginWorld.value, kBase.value, sentLines.value] as const,
-	([tp, origin, k, sent]) => {
-		const rapid: number[] = []
-		const cut: number[] = []
-		const done: number[] = []
-		if (tp) {
-			const lift = filmLiftOf(k)
-			const toWorld = (p: [number, number, number]) => {
-				// mill (x, y, z) → film (y, z, x), then onto the block in world.
-				const w = vec3.add(origin, [p[1], p[2] + lift, p[0]])
-				return vec3.scale(w, S)
-			}
-			for (const seg of tp.segments) {
-				const a = toWorld(seg.from)
-				const b = toWorld(seg.to)
-				const target = seg.rapid ? rapid : seg.line < sent ? done : cut
-				target.push(...a, ...b)
-			}
-		}
-		for (const [obj, arr] of [
-			[rapidLines, rapid],
-			[cutLines, cut],
-			[doneLines, done],
-		] as const) {
-			obj.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr), 3))
-			obj.geometry.computeBoundingSphere()
-		}
-	},
-	{immediate: true}
-)
-
-/**
- * Annotated toolpath, after the catalogue plate: each G-code line's text sits
- * at the end point of the move it produced, in the UI's monospace at a fixed
- * size (a 2D canvas over the WebGL view, redrawn after every render). Header
- * lines without motion stack at the start of the path. Thinned when a frame
- * has more lines than can be read.
- */
-const showGcodeText = Tq.config.ref('addsub.view.gcodeText', true)
-const MAX_ANNOTATIONS = 1500
-
-interface Annotation {
-	text: string
-	position: vec3
-	rapid: boolean
-	line: number
-}
-
-const annotations = computed<Annotation[]>(() => {
-	const tp = toolpath.value
-	const lines = captureGcodeLines.value
-	if (!tp || !lines || !showGcodeText.value) return []
-	const origin = blockOriginWorld.value
-	const lift = filmLiftOf(kBase.value)
-	const toScene = (p: [number, number, number]) =>
-		vec3.scale(vec3.add(origin, [p[1], p[2] + lift, p[0]]), S)
-
-	// Last segment per source line → the move's end point.
-	const endOf = new Map<number, {to: [number, number, number]; rapid: boolean}>()
-	for (const seg of tp.segments) endOf.set(seg.line, {to: seg.to, rapid: seg.rapid})
-
-	const out: Annotation[] = []
-	const firstMoveLine = tp.segments[0]?.line ?? lines.length
-	const start = tp.segments[0] ? toScene(tp.segments[0].from) : null
-	lines.forEach((text, line) => {
-		const end = endOf.get(line)
-		if (end) {
-			out.push({text, position: toScene(end.to), rapid: end.rapid, line})
-		} else if (line < firstMoveLine && start) {
-			// Header (G90 G94 G17 G21, T1, S…, M3 …): stacked at the start point;
-			// the stacking is done at draw time via the `line` offset.
-			out.push({text, position: start, rapid: true, line})
-		}
-	})
-	if (out.length <= MAX_ANNOTATIONS) return out
-	const step = Math.ceil(out.length / MAX_ANNOTATIONS)
-	return out.filter((_, i) => i % step === 0)
-})
-
-const $annot = shallowRef<HTMLCanvasElement | null>(null)
-
-function drawAnnotations() {
-	const canvas = $annot.value
-	if (!canvas || !camera) return
-	const w = rootSize.width.value
-	const h = rootSize.height.value
-	const dpr = window.devicePixelRatio || 1
-	if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-		canvas.width = Math.round(w * dpr)
-		canvas.height = Math.round(h * dpr)
-	}
-	const ctx = canvas.getContext('2d')
-	if (!ctx) return
-	ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-	ctx.clearRect(0, 0, w, h)
-	const list = annotations.value
-	if (list.length === 0) return
-
-	const style = getComputedStyle(canvas)
-	ctx.font = `10px ${style.getPropertyValue('--tq-font-code') || 'monospace'}`
-	ctx.textBaseline = 'middle'
-	const colorText = Tq.theme.colorText
-	const colorMute = Tq.theme.colorTextMute
-	const colorDone = Tq.theme.colorAccent
-	const sent = sentLines.value
-	const firstMoveLine = toolpath.value?.segments[0]?.line ?? 0
-	let header = 0
-
-	for (const a of list) {
-		projected.set(...a.position).project(camera)
-		if (projected.z > 1) continue
-		const x = ((projected.x + 1) / 2) * w
-		let y = ((1 - projected.y) / 2) * h
-		if (x < -200 || x > w + 20 || y < -20 || y > h + 20) continue
-		if (a.line < firstMoveLine) {
-			// Header stack grows upward from the start point.
-			y -= 12 * (firstMoveLine - header++)
-		}
-		ctx.fillStyle = a.line < sent ? colorDone : a.rapid ? colorMute : colorText
-		ctx.fillText(a.text, x + 4, y)
-	}
-}
-
-function filmLiftOf(k: number) {
-	// blockOriginWorld already includes the film origin (k = 0); the stack
-	// under the current block is what lifts the film frame.
-	return BLOCK_HEIGHT * k
-}
 
 //------------------------------------------------------------------------------
 // Jog arrows
@@ -785,17 +606,6 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 				<div class="seq">{{ sequence.currentStep ?? (sequence.message ?? 'idle') }}</div>
 			</div>
 		</div>
-		<canvas ref="$annot" class="annotations" aria-hidden="true" />
-		<div class="view-tools">
-			<Tq.InputButton
-				icon="mdi:code-tags"
-				subtle
-				narrow
-				:tooltip="showGcodeText ? 'Hide G-code text' : 'Show G-code text'"
-				:class="{active: showGcodeText}"
-				@click="showGcodeText = !showGcodeText"
-			/>
-		</div>
 		<div class="labels" aria-hidden="true">
 			<span
 				v-for="l in gizmoLabels"
@@ -924,37 +734,6 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 	pointer-events none
 	z-index 1
 	overflow hidden
-
-.annotations
-	position absolute
-	inset 0
-	width 100%
-	height 100%
-	pointer-events none
-	z-index 1
-
-.view-tools
-	position absolute
-	top var(--tq-gap-control)
-	right var(--tq-gap-control)
-	z-index 2
-	display flex
-	gap var(--tq-gap-group)
-
-	.active
-		color var(--tq-color-accent)
-
-.gizmo-label
-	position absolute
-	top 0
-	left 0
-	white-space nowrap
-	font-size 1em
-	line-height 1
-	padding 1px 3px
-	border-radius 3px
-	background unquote('color-mix(in srgb, var(--tq-color-background) 70%, transparent)')
-	will-change transform
 
 .block
 	min-width 15em

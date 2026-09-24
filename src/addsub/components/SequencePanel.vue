@@ -85,6 +85,25 @@ function setShootFromMill() {
 	project.addsub.shootPosition = addsub.value.shootPosition.y === undefined ? {x} : {x, y}
 }
 
+/**
+ * Calibration shortcut: with the tool tip touching the film origin (block A's
+ * bottom corner, table at the shoot position), solve millOffset so that
+ * filmOriginMill(kBase) equals the current machine position:
+ *   world = cycle(mill) + t  ⇒  t = filmOriginWorld + [0, 60·k, 0] − cycle(mpos)
+ */
+function setMillOffsetFromHere() {
+	const m = mill.mpos
+	if (m.x === undefined || m.y === undefined || m.z === undefined) return
+	const {filmOriginWorld} = project.addsub.calibration
+	const lift = 60 * project.addsub.kBase
+	const cycled = [m.y, m.z, m.x]
+	project.addsub.calibration.millOffset = [
+		filmOriginWorld[0] - cycled[0],
+		filmOriginWorld[1] + lift - cycled[1],
+		filmOriginWorld[2] - cycled[2],
+	]
+}
+
 function setParkFromRig() {
 	const m = rig.mpos
 	if (m.x === undefined) return
@@ -255,7 +274,17 @@ function setParkFromRig() {
 				<Tq.InputVec v-model="project.addsub.calibration.rigOffset" />
 			</Tq.Parameter>
 			<Tq.Parameter label="Mill offset" icon="mdi:axis-arrow" hint="world = cycle(mill) + offset, at the shoot position">
-				<Tq.InputVec v-model="project.addsub.calibration.millOffset" />
+				<div class="buttons">
+					<Tq.InputVec v-model="project.addsub.calibration.millOffset" />
+					<Tq.InputButton
+						icon="mdi:crosshairs-gps"
+						subtle
+						narrow
+						tooltip="Tool tip is at the film origin now → solve the offset"
+						:disabled="!mill.connected"
+						@click="setMillOffsetFromHere"
+					/>
+				</div>
 			</Tq.Parameter>
 			<Tq.Parameter label="LED optional" icon="mdi:led-strip" hint="Skip the LED step when the wall isn't connected">
 				<Tq.InputSwitch v-model="project.addsub.ledOptional" />
