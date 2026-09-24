@@ -57,14 +57,11 @@ function draw() {
 
 	const frame = viewport.previewFrame
 	const shots = project.allKomas[frame]?.shots ?? []
-	const topLayer = Math.min(viewport.currentLayer, shots.length - 1)
 
-	// The visible layers that actually have something to decode (a non-null shot
-	// with an `lv`). A frame with none is genuinely empty — note a frame can have
-	// a non-empty `shots` array whose visible layers are all null (e.g. capturing
-	// only an upper layer), so emptiness can't be judged by `topLayer` alone.
+	// The composited layers (visible, in display order, up to the current one)
+	// that actually have something to decode (a non-null shot with an `lv`).
 	const realLayers: number[] = []
-	for (let layer = 0; layer <= topLayer; layer++) {
+	for (const layer of project.compositeLayers(viewport.currentLayer)) {
 		if (shots[layer]?.lv) realLayers.push(layer)
 	}
 
@@ -95,7 +92,7 @@ function draw() {
 		const bmp = cache.get(key(frame, layer))
 		if (!bmp) continue
 
-		const {opacity, mixBlendMode} = project.layer(layer)
+		const {opacity, mixBlendMode} = project.layerView(layer)
 		ctx.globalAlpha = opacity
 		ctx.globalCompositeOperation = blendMode[mixBlendMode] ?? 'source-over'
 		ctx.drawImage(bmp, 0, 0, c.width, c.height)

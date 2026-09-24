@@ -55,30 +55,41 @@ export const MixBlendModeValues: MixBlendMode[] = [
 type MixBlendMode = 'normal' | 'lighten' | 'darken' | 'difference'
 
 /**
- * What a layer is for (ADDSUB.md §14.1). Drives where the shot sequence puts
- * its frames and what the exhibition screen shows.
- * - main: the film
- * - test: test shots
- * - import: images brought in from outside (previz, onionskin references)
- * - replay: a re-shoot pass (e.g. after appending a block, one layer per pass)
- * - park: park-frame reference shots
+ * A layer is a named, independent timeline sharing the film's frame numbers
+ * (the film itself, a test shot started from any frame, a replay pass, park
+ * reference shots, imported references…). Layers are storage slots: a layer's
+ * index in `project.layers` is the index into every `koma.shots[]`, so layers
+ * are only ever appended, never reordered or removed here. Layer 0 is the film.
+ *
+ * How layers are *shown* — which ones, in what order, with which blend mode
+ * and opacity — is a {@link LayerPreset}; several can be saved and switched
+ * (Layers dialog).
  */
-export type LayerKind = 'main' | 'test' | 'import' | 'replay' | 'park'
-
-export const LayerKindValues: LayerKind[] = [
-	'main',
-	'test',
-	'import',
-	'replay',
-	'park',
-]
-
 export interface Layer {
+	/** Stable id (survives renames / reordering). */
+	id: string
+	name: string
+}
+
+export interface LayerView {
+	layerId: string
 	opacity: number
 	mixBlendMode: MixBlendMode
-	kind?: LayerKind
-	/** Free label, e.g. "replay k2". */
-	label?: string
+}
+
+export interface LayerPreset {
+	id: string
+	name: string
+	/** Display order, bottom → top. Layers not listed are hidden. */
+	layers: LayerView[]
+}
+
+export function newLayerId() {
+	return 'L' + Math.random().toString(36).slice(2, 10)
+}
+
+export function newPresetId() {
+	return 'P' + Math.random().toString(36).slice(2, 10)
 }
 
 /**
@@ -123,6 +134,10 @@ interface Project {
 		zoom: number
 	}
 	layers: Layer[]
+	/** Saved ways of showing the layers (see LayerPreset). */
+	layerPresets: LayerPreset[]
+	/** Id of the preset in use. */
+	activeLayerPreset: string
 	audio: {
 		src?: Blob
 		startFrame: number
@@ -248,10 +263,15 @@ const emptyProject: Project = {
 		`,
 		zoom: 1.3,
 	},
-	layers: [
-		{opacity: 1, mixBlendMode: 'normal', kind: 'main'},
-		{opacity: 1, mixBlendMode: 'difference', kind: 'test'},
+	layers: [{id: 'main', name: 'Main'}],
+	layerPresets: [
+		{
+			id: 'default',
+			name: 'Default',
+			layers: [{layerId: 'main', opacity: 1, mixBlendMode: 'normal'}],
+		},
 	],
+	activeLayerPreset: 'default',
 	audio: {
 		startFrame: 0,
 	},
@@ -479,6 +499,59 @@ async function saveProject(dir: FileSystemDirectoryHandle, project: Project) {
 	const trash = project.trash.map(t => ({...t, shot: saveShot(t.shot)}))
 
 	await saveJson(dir, 'project.json', {...project, komas, audio, trash})
+}
+
+/**
+ * Bring a loaded project's layers up to the current model: give every layer
+ * an id and a name, make sure there is a layer for every shot slot in use
+ * (older files created slots implicitly), and turn per-layer opacity/blend
+ * from older files into a "Default" preset showing all layers in order.
+ */
+function normalizeLayers(p: Project) {
+	const raw: any[] = p.layers ?? []
+	const layers: Layer[] = raw.map((l, i) => ({
+		id: l.id ?? (i === 0 ? 'main' : newLayerId()),
+		name: l.name ?? l.label ?? (i === 0 ? 'Main' : l.kind ? `${l.kind} ${i}` : `Layer ${i}`),
+	}))
+	const used = Math.max(
+		1,
+		...p.komas.map(k => k?.shots?.length ?? 0),
+		p.captureShot.layer + 1
+	)
+	while (layers.length < used) {
+		layers.push({
+			id: layers.length === 0 ? 'main' : newLayerId(),
+			name: layers.length === 0 ? 'Main' : `Layer ${layers.length}`,
+		})
+	}
+	p.layers = layers
+
+	const ids = new Set(layers.map(l => l.id))
+	let presets: LayerPreset[] = (p.layerPresets ?? [])
+		.filter(pr => pr && Array.isArray(pr.layers))
+		.map(pr => ({
+			id: pr.id ?? newPresetId(),
+			name: pr.name ?? 'Preset',
+			layers: pr.layers.filter(v => ids.has(v.layerId)),
+		}))
+	if (presets.length === 0) {
+		// Legacy: opacity / blend lived on the layer itself.
+		presets = [
+			{
+				id: 'default',
+				name: 'Default',
+				layers: layers.map((l, i) => ({
+					layerId: l.id,
+					opacity: raw[i]?.opacity ?? 1,
+					mixBlendMode: raw[i]?.mixBlendMode ?? 'normal',
+				})),
+			},
+		]
+	}
+	p.layerPresets = presets
+	if (!presets.some(pr => pr.id === p.activeLayerPreset)) {
+		p.activeLayerPreset = presets[0].id
+	}
 }
 
 export const useProjectStore = defineStore('project', () => {
@@ -798,6 +871,7 @@ export const useProjectStore = defineStore('project', () => {
 				unflatProject,
 				cloneDeep(emptyProject)
 			)
+			normalizeLayers(mergedProject)
 
 			autoSave.pause()
 			assignReactive(project, mergedProject)
@@ -1042,12 +1116,108 @@ export const useProjectStore = defineStore('project', () => {
 		koma.shots[layer] = shot
 	}
 
-	function layer(layer: number) {
-		while (layer >= project.layers.length) {
-			project.layers.push({opacity: 1, mixBlendMode: 'normal'})
-		}
+	/** Layer by storage index. Never creates: unknown → a placeholder. */
+	function layer(index: number): Layer {
+		return project.layers[index] ?? {id: `missing-${index}`, name: `Layer ${index}`}
+	}
 
-		return project.layers[layer]
+	function layerIndexOf(id: string): number {
+		return project.layers.findIndex(l => l.id === id)
+	}
+
+	/** Append a new named layer (shown on top in the active preset). */
+	function addLayer(name: string): number {
+		const id = newLayerId()
+		project.layers.push({id, name})
+		activePreset.value.layers.push({layerId: id, opacity: 1, mixBlendMode: 'normal'})
+		return project.layers.length - 1
+	}
+
+	//---- Presets
+
+	const activePreset = computed<LayerPreset>(() => {
+		const found = project.layerPresets.find(p => p.id === project.activeLayerPreset)
+		return found ?? project.layerPresets[0]
+	})
+
+	function setActivePreset(id: string) {
+		if (project.layerPresets.some(p => p.id === id)) project.activeLayerPreset = id
+	}
+
+	/** New preset, copied from the active one (or showing every layer). */
+	function addPreset(name: string, fromActive = true): string {
+		const id = newPresetId()
+		const layers: LayerView[] = fromActive
+			? cloneDeep(toRaw(activePreset.value.layers))
+			: project.layers.map(l => ({layerId: l.id, opacity: 1, mixBlendMode: 'normal' as const}))
+		project.layerPresets.push({id, name, layers})
+		project.activeLayerPreset = id
+		return id
+	}
+
+	function removePreset(id: string) {
+		if (project.layerPresets.length <= 1) return
+		project.layerPresets = project.layerPresets.filter(p => p.id !== id)
+		if (project.activeLayerPreset === id) {
+			project.activeLayerPreset = project.layerPresets[0].id
+		}
+	}
+
+	/** Storage indices of the visible layers, in display order. */
+	const visibleLayerIndices = computed<number[]>(() =>
+		activePreset.value.layers
+			.map(v => project.layers.findIndex(l => l.id === v.layerId))
+			.filter(i => i !== -1)
+	)
+
+	const DEFAULT_VIEW = {opacity: 1, mixBlendMode: 'normal' as MixBlendMode}
+
+	/** How a layer (by storage index) is shown in the active preset. */
+	function layerView(index: number): {opacity: number; mixBlendMode: MixBlendMode} {
+		const id = project.layers[index]?.id
+		return activePreset.value.layers.find(v => v.layerId === id) ?? DEFAULT_VIEW
+	}
+
+	function setLayerView(index: number, patch: Partial<Omit<LayerView, 'layerId'>>) {
+		const id = project.layers[index]?.id
+		const view = activePreset.value.layers.find(v => v.layerId === id)
+		if (view) Object.assign(view, patch)
+	}
+
+	function isLayerVisible(index: number) {
+		const id = project.layers[index]?.id
+		return id !== undefined && activePreset.value.layers.some(v => v.layerId === id)
+	}
+
+	function setLayerVisible(index: number, visible: boolean) {
+		const id = project.layers[index]?.id
+		if (!id) return
+		const views = activePreset.value.layers
+		const at = views.findIndex(v => v.layerId === id)
+		if (visible && at === -1) views.push({layerId: id, opacity: 1, mixBlendMode: 'normal'})
+		if (!visible && at !== -1) views.splice(at, 1)
+	}
+
+	/** Move a visible layer by `delta` positions in the display order. */
+	function moveLayer(index: number, delta: number) {
+		const id = project.layers[index]?.id
+		const views = activePreset.value.layers
+		const from = views.findIndex(v => v.layerId === id)
+		if (from === -1) return
+		const to = clamp(from + delta, 0, views.length - 1)
+		const [v] = views.splice(from, 1)
+		views.splice(to, 0, v)
+	}
+
+	/**
+	 * Which layers to composite when `current` is the active layer: the visible
+	 * layers in display order, up to and including it (or just `current` when
+	 * it is hidden).
+	 */
+	function compositeLayers(current: number): number[] {
+		const vis = visibleLayerIndices.value
+		const pos = vis.indexOf(current)
+		return pos === -1 ? [current] : vis.slice(0, pos + 1)
 	}
 
 	/**
@@ -1062,30 +1232,6 @@ export const useProjectStore = defineStore('project', () => {
 		layer: number = t.layer
 	) {
 		setShot(frame, layer, cloneDeep(toRaw(t.shot)))
-	}
-
-	/** Kind of a layer; layer 0 defaults to main, others to test. */
-	function layerKind(index: number): LayerKind {
-		return project.layers[index]?.kind ?? (index === 0 ? 'main' : 'test')
-	}
-
-	/**
-	 * Index of the first layer of `kind` (and `label`, when given). With
-	 * `create`, appends one when none exists. Returns -1 otherwise.
-	 */
-	function layerOfKind(
-		kind: LayerKind,
-		label?: string,
-		opts: {create?: boolean} = {}
-	): number {
-		const i = project.layers.findIndex(
-			(l, idx) =>
-				(l.kind ?? (idx === 0 ? 'main' : 'test')) === kind &&
-				(label === undefined || l.label === label)
-		)
-		if (i !== -1 || !opts.create) return i
-		project.layers.push({opacity: 1, mixBlendMode: 'normal', kind, label})
-		return project.layers.length - 1
 	}
 
 	function layerCount(frame: number) {
@@ -1268,8 +1414,19 @@ export const useProjectStore = defineStore('project', () => {
 		ensureLv,
 		setShot,
 		layer,
-		layerKind,
-		layerOfKind,
+		layerIndexOf,
+		addLayer,
+		activePreset,
+		setActivePreset,
+		addPreset,
+		removePreset,
+		visibleLayerIndices,
+		layerView,
+		setLayerView,
+		isLayerVisible,
+		setLayerVisible,
+		moveLayer,
+		compositeLayers,
 		restoreTrashed,
 		layerCount,
 		duration,

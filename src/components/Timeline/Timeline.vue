@@ -4,7 +4,7 @@ import {range as _range} from 'lodash-es'
 import * as Tq from 'tweeq'
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
 
-import {LayerKindValues, MixBlendModeValues, useProjectStore} from '@/stores/project'
+import {MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useSelectionStore} from '@/stores/selection'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
@@ -22,6 +22,7 @@ const timeline = useTimelineStore()
 const appSelection = useSelectionStore()
 
 const $timeline = ref<null | InstanceType<typeof Tq.Timeline>>(null)
+const {actions} = Tq.useTweeq()
 
 watch(
 	() => viewport.previewFrame,
@@ -110,14 +111,14 @@ function onPreviewUp() {
 	}
 }
 
-const layers = computed(() => {
-	const komaLayerCounts = project.komas.map((_, i) => project.layerCount(i))
-	const layerCount = Math.max(...komaLayerCounts, project.captureShot.layer + 1)
-
-	return Array(layerCount)
-		.fill(0)
-		.map((_, i) => project.layer(i))
-})
+/** Visible layers in display order, with their storage index and view. */
+const layers = computed(() =>
+	project.visibleLayerIndices.map(index => ({
+		index,
+		layer: project.layer(index),
+		view: project.layerView(index),
+	}))
+)
 
 function toScales(range: vec2, unitWidth: number) {
 	const start = Math.ceil(range[0])
@@ -166,30 +167,31 @@ const visualizersStyles = computed(() => {
 		@pointerdown="appSelection.reserveUnselect"
 	>
 		<aside class="aside">
-			<div v-for="(layer, i) in layers" :key="i" class="layer-control">
+			<div
+				v-for="{index, layer, view} in layers"
+				:key="layer.id"
+				class="layer-control"
+				:class="{current: index === viewport.currentLayer}"
+			>
+				<button
+					class="layer-name"
+					:title="`${layer.name} (slot ${index})`"
+					@click="actions.perform('layers')"
+				>
+					{{ layer.name }}
+				</button>
 				<Tq.InputDropdown
-					:modelValue="project.layerKind(i)"
-					:options="LayerKindValues"
-					:labels="
-						LayerKindValues.map(k =>
-							k === project.layerKind(i) && layer.label ? `${k} · ${layer.label}` : k
-						)
-					"
-					:tooltip="layer.label"
-					@update:modelValue="project.layers[i].kind = $event"
-				/>
-				<Tq.InputDropdown
-					:modelValue="layer.mixBlendMode"
+					:modelValue="view.mixBlendMode"
 					:options="MixBlendModeValues"
-					@update:modelValue="project.layers[i].mixBlendMode = $event"
+					@update:modelValue="project.setLayerView(index, {mixBlendMode: $event})"
 				/>
 				<Tq.InputNumber
-					:modelValue="layer.opacity * 100"
+					:modelValue="view.opacity * 100"
 					:min="0"
 					:max="100"
 					:precision="0"
 					suffix="%"
-					@update:modelValue="project.layers[i].opacity = $event / 100"
+					@update:modelValue="project.setLayerView(index, {opacity: $event / 100})"
 				/>
 			</div>
 		</aside>
@@ -281,6 +283,22 @@ const visualizersStyles = computed(() => {
 	flex-direction column
 	gap 4px
 	justify-content center
+
+	&.current .layer-name
+		color var(--tq-color-accent)
+
+.layer-name
+	height var(--tq-input-height)
+	text-align left
+	font-weight bold
+	font-size 0.85em
+	white-space nowrap
+	overflow hidden
+	text-overflow ellipsis
+	cursor pointer
+
+	&:hover
+		color var(--tq-color-text)
 
 
 .ruler

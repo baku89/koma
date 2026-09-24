@@ -26,19 +26,20 @@ type Layer = ({type: 'jpg'; src: string} | {type: 'lv'}) & {
 const layers = asyncComputed<Layer[]>(async () => {
 	const {komas, captureShot} = project
 
-	const shots: (Shot | null)[] = komas[props.frame]?.shots ?? []
+	void (komas as unknown)
 
-	const layerCount = Math.max(
-		shots.length,
-		captureShot.frame === props.frame ? captureShot.layer + 1 : 0
+	// Visible layers in display order up to the current one (or the capture
+	// layer's stack when this is the capture frame).
+	const indices = project.compositeLayers(
+		captureShot.frame === props.frame ? captureShot.layer : viewport.currentLayer
 	)
 
 	const layers: Layer[] = []
 
-	for (let layer = 0; layer < layerCount; layer++) {
-		const shot = project.shot(props.frame, layer)
+	for (const layer of indices) {
+		const shot: Shot | null = project.shot(props.frame, layer)
 
-		const {opacity, mixBlendMode} = project.layer(layer)
+		const {opacity, mixBlendMode} = project.layerView(layer)
 
 		if (captureShot.frame === props.frame && captureShot.layer === layer) {
 			layers.push({
@@ -76,7 +77,7 @@ const style = computed(() => {
 <template>
 	<div class="PreviewKoma" :style="style" v-show="layers.length > 0">
 		<div
-			v-for="(layer, index) in layers.slice(0, viewport.currentLayer + 1)"
+			v-for="(layer, index) in layers"
 			:key="index"
 			class="layer"
 			:style="{

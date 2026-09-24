@@ -53,7 +53,16 @@ export const useViewportStore = defineStore('viewport', () => {
 	}
 
 	function setCurrentLayer(value: number) {
-		currentLayer.value = clamp(value, 0, 1)
+		currentLayer.value = clamp(value, 0, Math.max(0, project.layers.length - 1))
+	}
+
+	/** Step to the previous/next *visible* layer in display order. */
+	function stepLayer(delta: 1 | -1) {
+		const vis = project.visibleLayerIndices
+		if (vis.length === 0) return
+		const pos = vis.indexOf(currentLayer.value)
+		const next = pos === -1 ? vis[0] : vis[clamp(pos + delta, 0, vis.length - 1)]
+		currentLayer.value = next
 	}
 
 	// Selection
@@ -413,6 +422,7 @@ export const useViewportStore = defineStore('viewport', () => {
 		setCurrentFrame,
 		currentLayer: readonly(currentLayer),
 		setCurrentLayer,
+		stepLayer,
 		previewFrame,
 		temporalFrame,
 		isPlaying,

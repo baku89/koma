@@ -37,6 +37,7 @@ import {
 
 import CameraControl from './CameraControl.vue'
 import InAppProjectsPanel from './InAppProjectsPanel.vue'
+import LayersPanel from './LayersPanel.vue'
 import MachinePanel from './MachinePanel.vue'
 import MarkerSettings from './MarkerSettings.vue'
 import Preview from './Preview'
@@ -797,13 +798,7 @@ Tq.actions.register([
 						{title: 'New Test Shot'}
 					)
 					if (!result || !result.name.trim()) return
-					project.layers.push({
-						opacity: 1,
-						mixBlendMode: 'normal',
-						kind: 'test',
-						label: result.name.trim(),
-					})
-					const layer = project.layers.length - 1
+					const layer = project.addLayer(result.name.trim())
 					project.$patch({captureShot: {frame: viewport.currentFrame, layer}})
 					viewport.setCurrentLayer(layer)
 				},
@@ -813,14 +808,15 @@ Tq.actions.register([
 				label: 'Rename Current Layer…',
 				icon: 'mdi:rename',
 				async perform() {
-					const layer = project.layer(viewport.currentLayer)
+					const layer = project.layers[viewport.currentLayer]
+					if (!layer) return
 					const result = await Tq.modal.prompt(
-						{name: layer.label ?? ''},
+						{name: layer.name},
 						{name: {type: 'string'}},
 						{title: 'Rename Layer'}
 					)
-					if (!result) return
-					layer.label = result.name.trim() || undefined
+					if (!result || !result.name.trim()) return
+					layer.name = result.name.trim()
 				},
 			},
 			{
@@ -977,7 +973,7 @@ Tq.actions.register([
 				icon: 'mdi:arrow-down',
 				bind: ['down', gamepadAxisDown.down()],
 				perform() {
-					viewport.setCurrentLayer(viewport.currentLayer + 1)
+					viewport.stepLayer(1)
 					viewport.selectShot()
 				},
 			},
@@ -986,8 +982,20 @@ Tq.actions.register([
 				icon: 'mdi:arrow-up',
 				bind: ['up', gamepadAxisUp.down()],
 				perform() {
-					viewport.setCurrentLayer(viewport.currentLayer - 1)
+					viewport.stepLayer(-1)
 					viewport.selectShot()
+				},
+			},
+			{
+				id: 'layers',
+				label: 'Layers…',
+				icon: 'mdi:layers-triple',
+				bind: 'command+shift+l',
+				async perform() {
+					await Tq.modal.promptTabs(
+						[{id: 'layers', title: 'Layers', component: markRaw(LayersPanel)}],
+						{title: 'Layers'}
+					)
 				},
 			},
 			{
