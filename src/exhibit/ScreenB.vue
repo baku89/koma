@@ -3,7 +3,7 @@
  * Screen B: the blueprint-like grid. The split tree is data so cells can be
  * rearranged or swapped without touching markup (§15.2).
  */
-import {onMounted, onUnmounted, ref} from 'vue'
+import {onUnmounted, ref} from 'vue'
 
 import SplitNode, {type LayoutNode} from './SplitNode.vue'
 import {useExhibitStore} from './store'
@@ -12,23 +12,14 @@ const props = defineProps<{follow: boolean}>()
 
 const store = useExhibitStore()
 
-// Follow screen A's playhead (broadcast), or run our own clock when alone.
+// Follow screen A's playhead: in its own window via the broadcast, side by
+// side with A through the shared store (A writes shownIndex directly).
 const channel = new BroadcastChannel('koma-exhibit')
 channel.onmessage = e => {
-	if (e.data?.type === 'frame') store.shownIndex.value = e.data.index
+	if (props.follow && e.data?.type === 'frame') store.shownIndex.value = e.data.index
 }
 
-let ownTimer: ReturnType<typeof setInterval> | null = null
-onMounted(() => {
-	if (!props.follow) {
-		ownTimer = setInterval(() => {
-			const n = store.frames.value.length
-			store.shownIndex.value = n ? (store.shownIndex.value + 1) % n : 0
-		}, 1000 / store.fps.value)
-	}
-})
 onUnmounted(() => {
-	if (ownTimer) clearInterval(ownTimer)
 	channel.close()
 	clearInterval(clockTimer)
 })

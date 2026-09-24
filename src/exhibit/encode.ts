@@ -39,9 +39,42 @@ export async function encodeTakesToMp4(
 	const height = even(opts.height)
 	const fps = opts.fps
 
+	// H.264 (hardware on the Mac mini) first; Chromium builds without
+	// proprietary codecs (e.g. Playwright's) fall back to VP9 / AV1, which
+	// mp4-muxer can also wrap.
+	const candidates: {codec: string; mux: 'avc' | 'vp9' | 'av1'; extra?: Partial<VideoEncoderConfig>}[] = [
+		{codec: 'avc1.64002a', mux: 'avc', extra: {avc: {format: 'avc'}}},
+		{codec: 'avc1.42001f', mux: 'avc', extra: {avc: {format: 'avc'}}},
+		{codec: 'vp09.00.40.08', mux: 'vp9'},
+		{codec: 'av01.0.08M.08', mux: 'av1'},
+	]
+	let chosen: (typeof candidates)[number] | null = null
+	let config: VideoEncoderConfig | null = null
+	for (const c of candidates) {
+		const cfg: VideoEncoderConfig = {
+			codec: c.codec,
+			width,
+			height,
+			bitrate: opts.bitrate ?? 12_000_000,
+			framerate: fps,
+			latencyMode: 'quality',
+			...c.extra,
+		}
+		try {
+			if ((await VideoEncoder.isConfigSupported(cfg)).supported) {
+				chosen = c
+				config = cfg
+				break
+			}
+		} catch {
+			// try the next one
+		}
+	}
+	if (!chosen || !config) throw new Error('No supported video encoder (H.264 / VP9 / AV1)')
+
 	const muxer = new Muxer({
 		target: new ArrayBufferTarget(),
-		video: {codec: 'avc', width, height},
+		video: {codec: chosen.mux, width, height},
 		fastStart: 'in-memory',
 	})
 
@@ -52,23 +85,6 @@ export async function encodeTakesToMp4(
 			error = e
 		},
 	})
-
-	// Level 4.2 handles 1080p60; pick a profile the hardware encoder likes.
-	const config: VideoEncoderConfig = {
-		codec: 'avc1.64002a',
-		width,
-		height,
-		bitrate: opts.bitrate ?? 12_000_000,
-		framerate: fps,
-		latencyMode: 'quality',
-		avc: {format: 'avc'},
-	}
-	const support = await VideoEncoder.isConfigSupported(config)
-	if (!support.supported) {
-		config.codec = 'avc1.42001f'
-		const fallback = await VideoEncoder.isConfigSupported(config)
-		if (!fallback.supported) throw new Error('No H.264 encoder available')
-	}
 	encoder.configure(config)
 
 	const canvas = new OffscreenCanvas(width, height)
