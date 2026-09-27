@@ -12,6 +12,7 @@ import {markRaw, watch, watchEffect} from 'vue'
 import AddsubVisualizer from '@/addsub/components/AddsubVisualizer.vue'
 import LedPanel from '@/addsub/components/LedPanel.vue'
 import SequencePanel from '@/addsub/components/SequencePanel.vue'
+import {linearRigPlan, setPlan} from '@/addsub/plan'
 import {useLedStore} from '@/addsub/stores/led'
 import {useMillStore, useRigStore} from '@/addsub/stores/machines'
 import {usePrevizStore} from '@/addsub/stores/previz'
@@ -874,6 +875,49 @@ Tq.actions.register([
 				icon: 'mdi:play-circle',
 				perform: () =>
 					sequence.start({frame: project.captureShot.frame, continuous: true}),
+			},
+			{
+				id: 'go_to_plan',
+				label: 'Go to Planned Rig Pose (capture frame)',
+				icon: 'mdi:map-marker-path',
+				perform: () => sequence.goToPlan().catch(() => {}),
+			},
+			{
+				id: 'new_rig_move_test',
+				label: 'New Rig Move Test…',
+				icon: 'mdi:vector-line',
+				async perform() {
+					// A test-shot layer whose frames carry a straight rig move as
+					// their plan (plan.ts). Nothing moves until the sequence runs or
+					// "Go to plan" is pressed.
+					const result = await Tq.modal.prompt(
+						{
+							name: 'rig move test',
+							frames: 10,
+							from: vec2.of(0, -30),
+							to: vec2.of(50, -30),
+						},
+						{
+							name: {type: 'string', label: 'Layer name'},
+							frames: {type: 'number', min: 1, max: 1000, step: 1, label: 'Frames'},
+							from: {type: 'vec2', label: 'From (X, Y)'},
+							to: {type: 'vec2', label: 'To (X, Y)'},
+						},
+						{title: 'New Rig Move Test'}
+					)
+					if (!result || !result.name.trim()) return
+					const layer = project.addLayer(result.name.trim())
+					const start = viewport.currentFrame
+					const plans = linearRigPlan(
+						{x: result.from[0], y: result.from[1]},
+						{x: result.to[0], y: result.to[1]},
+						result.frames
+					)
+					project.setDuration(start + plans.length)
+					plans.forEach((plan, i) => setPlan(project, start + i, layer, plan))
+					project.$patch({captureShot: {frame: start, layer}})
+					viewport.setCurrentLayer(layer)
+				},
 			},
 			{
 				id: 'sequence_stop',

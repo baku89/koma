@@ -4,6 +4,7 @@ import {computed} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 
+import {formatAxes} from '../plan'
 import {
 	REPLAY_STEPS,
 	SEQUENCE_STEP_LABELS,
@@ -28,6 +29,28 @@ const progress = computed(() => project.addsub.sequence)
 
 const captureFrame = computed(() => project.captureShot.frame)
 const previzFrame = computed(() => previz.frameFor(captureFrame.value))
+const plan = computed(() => sequence.planFor(captureFrame.value))
+
+const planText = computed(() => {
+	const p = plan.value
+	if (!p) return null
+	if (p.rig) return formatAxes(p.rig)
+	if (p.camera) return `camera ${p.camera.position.map(v => v.toFixed(1)).join(', ')}`
+	return p.cameraConfigs ? 'camera configs only' : 'empty'
+})
+
+const canGoToPlan = computed(
+	() => !!plan.value && rig.connected && !sequence.running && !rig.busy
+)
+
+function setPlanFromRig() {
+	const m = rig.mpos
+	if (m.x === undefined) return
+	sequence.setPlan(captureFrame.value, {
+		...plan.value,
+		rig: {x: m.x, y: m.y, z: m.z, a: m.a, b: m.b, c: m.c},
+	})
+}
 
 const statusText = computed(() => {
 	if (sequence.running) return sequence.message ?? 'Running'
@@ -138,6 +161,50 @@ function setParkFromRig() {
 					}}
 				</span>
 			</span>
+		</Tq.Parameter>
+
+		<Tq.Parameter
+			label="Plan"
+			icon="mdi:map-marker-path"
+			:hint="{
+				title: 'Planned rig pose for the capture frame',
+				description: 'Seeking never moves the rig; only Go or the sequence does.',
+			}"
+		>
+			<div class="plan">
+				<span class="tq-font-numeric plan-text" :class="{mute: !planText}">
+					{{ planText ?? 'none' }}
+				</span>
+				<Tq.InputButton
+					icon="mdi:crosshairs-gps"
+					label="Go"
+					:tooltip="{
+						title: 'Move rig to plan',
+						description: 'Moves now, at the rig feed, after the limits check.',
+					}"
+					:disabled="!canGoToPlan"
+					@click="sequence.goToPlan().catch(() => {})"
+				/>
+				<Tq.InputButton
+					icon="mdi:content-save-outline"
+					subtle
+					narrow
+					:tooltip="{
+						title: 'Set plan from rig',
+						description: 'Pin the current rig axes as this frame\'s plan.',
+					}"
+					:disabled="!rig.connected"
+					@click="setPlanFromRig"
+				/>
+				<Tq.InputButton
+					icon="mdi:close"
+					subtle
+					narrow
+					tooltip="Clear this frame's plan"
+					:disabled="!plan"
+					@click="sequence.setPlan(captureFrame, null)"
+				/>
+			</div>
 		</Tq.Parameter>
 
 		<li class="steps">
@@ -315,6 +382,18 @@ function setParkFromRig() {
 .mute
 	color var(--tq-color-text-mute)
 	font-size 0.85em
+
+.plan
+	display flex
+	align-items center
+	gap var(--tq-gap-control)
+
+.plan-text
+	flex 1 1 0
+	min-width 0
+	overflow hidden
+	text-overflow ellipsis
+	white-space nowrap
 
 .steps
 	grid-column 1 / 3

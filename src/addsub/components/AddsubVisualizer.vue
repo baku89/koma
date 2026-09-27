@@ -34,6 +34,7 @@ import {BLOCK_HEIGHT} from '../config'
 import {filmToWorld, millToWorld, tableShiftWorld} from '../coords'
 import {rigAxesToCameraPose} from '../kinematics'
 import {ledBottomY} from '../led/layout'
+import {planFor, plannedFrames} from '../plan'
 import {useLedStore} from '../stores/led'
 import {useMillStore, useRigStore} from '../stores/machines'
 import {usePrevizStore} from '../stores/previz'
@@ -233,6 +234,17 @@ const previzLine = new THREE.Line(
 	new THREE.BufferGeometry(),
 	new THREE.LineBasicMaterial({color: 0xff6666})
 )
+// Planned rig poses on the capture layer (plan.ts): a dashed line through the
+// frames that have a plan, so a move can be checked before anything moves.
+const planLine = new THREE.Line(
+	new THREE.BufferGeometry(),
+	new THREE.LineDashedMaterial({color: 0x66aaff, dashSize: 0.03, gapSize: 0.02})
+)
+// One dot per planned frame: a short move (tens of mm) is invisible as a line.
+const planPoints = new THREE.Points(
+	new THREE.BufferGeometry(),
+	new THREE.PointsMaterial({color: 0x66aaff, size: 0.015})
+)
 const ledPoints = new THREE.Points(
 	new THREE.BufferGeometry(),
 	new THREE.PointsMaterial({size: 0.012, vertexColors: true})
@@ -243,6 +255,8 @@ onMounted(() => {
 	if (!g) return
 	g.add(shotLine)
 	g.add(previzLine)
+	g.add(planLine)
+	g.add(planPoints)
 	g.add(ledPoints)
 })
 
@@ -285,6 +299,39 @@ watch(
 	pts => {
 		previzLine.geometry.setFromPoints(pts)
 		previzLine.geometry.computeBoundingSphere()
+	},
+	{immediate: true}
+)
+
+const planPositions = computed(() => {
+	const pts: THREE.Vector3[] = []
+	const layer = project.captureShot.layer
+	const k = kBase.value
+	for (const f of plannedFrames(project, layer)) {
+		const plan = planFor(project, f, layer)
+		if (!plan) continue
+		let pose: {position: vec3} | null = null
+		if (plan.rig) {
+			// Axes the plan leaves out stay where the rig is now.
+			pose = rigAxesToCameraPose({...rig.mpos, ...plan.rig}, k, cal.value)
+		} else if (plan.camera) {
+			pose = plan.camera
+		}
+		if (!pose) continue
+		const w = filmToWorld(pose.position, k, cal.value.filmOriginWorld)
+		pts.push(new THREE.Vector3(...vec3.scale(w, S)))
+	}
+	return pts
+})
+
+watch(
+	planPositions,
+	pts => {
+		planLine.geometry.setFromPoints(pts)
+		planLine.computeLineDistances()
+		planLine.geometry.computeBoundingSphere()
+		planPoints.geometry.setFromPoints(pts)
+		planPoints.geometry.computeBoundingSphere()
 	},
 	{immediate: true}
 )
@@ -746,6 +793,20 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 	pointer-events none
 	z-index 1
 	overflow hidden
+
+// Positioned each frame by placeLabels() via transform; must be a positioned
+// block (transform is ignored on inline boxes, which stacks them top-left).
+.gizmo-label
+	position absolute
+	top 0
+	left 0
+	white-space nowrap
+	font-size 1em
+	line-height 1
+	padding 1px 3px
+	border-radius 3px
+	background unquote('color-mix(in srgb, var(--tq-color-background) 70%, transparent)')
+	will-change transform
 
 .block
 	min-width 15em

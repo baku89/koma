@@ -36,7 +36,8 @@ import {
 
 import {BLOCK_HEIGHT} from '../config'
 import {filmOriginMill} from '../coords'
-import {cameraPoseToRigAxes, type RigTarget} from '../kinematics'
+import {cameraPoseToRigAxes} from '../kinematics'
+import {type FramePlan, planFor as planForFrame, setPlan as setPlanFrame} from '../plan'
 import {
 	REPLAY_STEPS,
 	SEQUENCE_STEPS,
@@ -138,11 +139,12 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		}
 	}
 
-	function rigLimitsCheck(target: RigTarget) {
+	function rigLimitsCheck(target: AxesPosition) {
 		const limits = project.addsub.rigLimits
 		for (const [axis, range] of Object.entries(limits)) {
 			if (!range) continue
-			const v = target[axis as keyof RigTarget]
+			const v = target[axis as keyof AxesPosition]
+			if (v === undefined) continue
 			if (v < range[0] || v > range[1]) {
 				throw new SequenceError(
 					'rig',
@@ -160,7 +162,8 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	// What to do for a frame, per mode
 
 	interface FrameSource {
-		rigTarget: RigTarget | null
+		/** Partial: axes left out are not moved. */
+		rigTarget: AxesPosition | null
 		ledFile: string | null
 		cameraConfigs?: Record<string, unknown>
 		/** Timeline frame whose lighting `led.ensureFrame` should show. */
@@ -190,12 +193,68 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 				ledFrame: frame,
 			}
 		}
+		// The koma-side plan for this frame (plan.ts) overrides previz field by
+		// field: explicit rig axes first, else a camera pose to solve, else previz.
 		const pf = previz.frameFor(frame)
+		const plan = planFor(frame)
+		const rigTarget = plan?.rig
+			? {...plan.rig}
+			: plan?.camera
+				? cameraPoseToRigAxes(plan.camera, kBase, calibration)
+				: pf?.pose
+					? cameraPoseToRigAxes(pf.pose, kBase, calibration)
+					: null
 		return {
-			rigTarget: pf?.pose ? cameraPoseToRigAxes(pf.pose, kBase, calibration) : null,
+			rigTarget,
 			ledFile: pf?.led ?? null,
-			cameraConfigs: pf?.cameraConfigs as Record<string, unknown> | undefined,
+			cameraConfigs: (plan?.cameraConfigs ?? pf?.cameraConfigs) as
+				| Record<string, unknown>
+				| undefined,
 			ledFrame: frame,
+		}
+	}
+
+	//--------------------------------------------------------------------------
+	// Plans (plan.ts): per layer + frame, on the capture layer unless given
+
+	function planFor(frame: number, layer = project.captureShot.layer): FramePlan | undefined {
+		return planForFrame(project, frame, layer)
+	}
+
+	function setPlan(frame: number, plan: FramePlan | null, layer = project.captureShot.layer) {
+		setPlanFrame(project, frame, layer, plan)
+	}
+
+	/** Whether the sequence has anything to shoot at this frame. */
+	function hasSource(frame: number, layer = project.captureShot.layer) {
+		return !!planFor(frame, layer) || !!previz.frameFor(frame)
+	}
+
+	/**
+	 * Move the rig to the frame's planned pose, now. This is the only way a
+	 * plan moves the rig outside the sequence: seeking never does. Same checks
+	 * as the sequence's rig step.
+	 */
+	async function goToPlan(frame = project.captureShot.frame, layer = project.captureShot.layer) {
+		if (running.value) throw new SequenceError('rig', 'Sequence is running')
+		const plan = planFor(frame, layer)
+		if (!plan) throw new SequenceError('rig', `Frame ${frame}: no plan`)
+		const {calibration, kBase} = project.addsub
+		const target = plan.rig
+			? {...plan.rig}
+			: plan.camera
+				? cameraPoseToRigAxes(plan.camera, kBase, calibration)
+				: null
+		if (!target) throw new SequenceError('rig', `Frame ${frame}: plan has no pose`)
+		if (!rig.connected) throw new SequenceError('rig', 'Box Rig is not connected')
+		rigLimitsCheck(target)
+		message.value = `Moving rig to plan for frame ${frame}`
+		try {
+			await rig.moveTo(target, {feed: project.addsub.rigFeed})
+			message.value = null
+		} catch (e) {
+			message.value = e instanceof Error ? e.message : String(e)
+			throw e
 		}
 	}
 
@@ -226,8 +285,21 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		await mill.waitIdle({signal: signal()})
 	}
 
-	async function stepExtend() {
-		if (!mill.connected) throw new SequenceError('extend', 'Mill is not connected')
+	/**
+	 * Whether the mill has to take part in this frame. A frame with no G-code
+	 * (a rig-only plan, a `cut: false` previz frame) can be shot with the mill
+	 * offline: the table then simply stays where the operator left it.
+	 */
+	function millNeeded(frame: number) {
+		return !!previz.frameFor(frame)?.gcode
+	}
+
+	async function stepExtend(frame: number) {
+		if (!mill.connected) {
+			if (millNeeded(frame)) throw new SequenceError('extend', 'Mill is not connected')
+			warn('Mill not connected — table not moved')
+			return
+		}
 		const {shootPosition, cutPosition, millFeed} = project.addsub
 		const cur = mill.mpos
 		if (!project.addsub.sequence?.returnPosition) {
@@ -357,8 +429,11 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		await stepCapture(frame, 'park')
 	}
 
-	async function stepRetract() {
-		if (!mill.connected) throw new SequenceError('retract', 'Mill is not connected')
+	async function stepRetract(frame: number) {
+		if (!mill.connected) {
+			if (millNeeded(frame)) throw new SequenceError('retract', 'Mill is not connected')
+			return
+		}
 		const back = project.addsub.sequence?.returnPosition ?? project.addsub.cutPosition
 		if (!back) {
 			warn('No return position recorded — table left at the shoot position')
@@ -383,7 +458,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			case 'cut':
 				return stepCut(frame)
 			case 'extend':
-				return stepExtend()
+				return stepExtend(frame)
 			case 'rig':
 				return stepRig(frame, src)
 			case 'led':
@@ -395,7 +470,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			case 'park':
 				return stepPark(frame)
 			case 'retract':
-				return stepRetract()
+				return stepRetract(frame)
 		}
 	}
 
@@ -499,8 +574,8 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 					if (!range || frame > range[1]) break
 				} else {
 					frame = project.captureShot.frame
-					if (!previz.frameFor(frame)) {
-						message.value = `No previz data for frame ${frame} — stopped`
+					if (!hasSource(frame)) {
+						message.value = `No plan or previz data for frame ${frame} — stopped`
 						break
 					}
 				}
@@ -631,6 +706,10 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		pauseAfterFrame,
 		clearProgress,
 		appendBlock,
+		planFor,
+		setPlan,
+		hasSource,
+		goToPlan,
 		steps: SEQUENCE_STEPS,
 		replaySteps: REPLAY_STEPS,
 	}

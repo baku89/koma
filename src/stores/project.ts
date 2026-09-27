@@ -99,7 +99,7 @@ export function newPresetId() {
  */
 export type CameraIdentity = TethrIdentifier
 
-interface Project {
+export interface Project {
 	name: string
 	fps: number
 	captureShot: {frame: number; layer: number}

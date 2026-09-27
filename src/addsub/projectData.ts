@@ -14,6 +14,7 @@ import {
 	type LedLayoutParams,
 	RIG_TRAVEL,
 } from './config'
+import type {PlanTable} from './plan'
 
 /** One step of the per-frame sequence, in order. §2 */
 export const SEQUENCE_STEPS = [
@@ -108,6 +109,8 @@ export interface AddsubProjectData {
 		brightnessCap: number
 	}
 	sequence: SequenceProgress | null
+	/** Per-frame shooting plans, by layer id then timeline frame (plan.ts). §13 */
+	plan: PlanTable
 	/**
 	 * Per-layer G-code, for takes that were cut with their own files (e.g.
 	 * imported test shoots): layer id → path pattern relative to the project
@@ -139,6 +142,7 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 		brightnessCap: 0.8,
 	},
 	sequence: null,
+	plan: {},
 }
 
 /** What a shot records about the rig / mill / lighting it was taken with. */

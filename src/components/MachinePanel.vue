@@ -176,20 +176,34 @@ const canJog = computed(
 		</Tq.Parameter>
 
 		<!-- Jog settings -->
-		<Tq.Parameter label="Step" icon="mdi:ruler" hint="Jog step (mm / deg)">
+		<Tq.Parameter
+			label="Step"
+			icon="mdi:ruler"
+			:hint="{title: 'Jog step', description: 'mm per click (degrees on rotary axes)'}"
+		>
 			<Tq.InputRadio
 				v-model="jogStep"
 				:options="stepPresets"
 				:labels="stepPresets.map(String)"
 			/>
 		</Tq.Parameter>
-		<Tq.Parameter label="Feed" icon="mdi:speedometer" hint="Jog feed (mm/min)">
-			<Tq.InputNumber v-model="jogFeed" :min="1" :max="20000" :step="10" />
+		<Tq.Parameter
+			label="Feed"
+			icon="mdi:speedometer"
+			:hint="{title: 'Jog feed rate', description: 'mm/min (degrees/min on rotary axes)'}"
+		>
+			<Tq.InputNumber
+				v-model="jogFeed"
+				:min="1"
+				:max="20000"
+				:step="10"
+				suffix=" mm/min"
+			/>
 		</Tq.Parameter>
 
 		<!-- Axes: jog ± around the machine position, then the work position
 		     with "zero here" / "set value" (G10 L20) -->
-		<li class="axes-head">
+		<li class="axes-head axis-grid">
 			<span></span>
 			<span class="col-label">machine</span>
 			<span></span>
@@ -201,14 +215,20 @@ const canJog = computed(
 			:key="axis"
 			:label="axisInfo(axis).label ?? axis.toUpperCase()"
 		>
-			<div class="axis">
+			<div class="axis axis-grid">
 				<Tq.InputButton
 					icon="mdi:minus"
 					narrow
 					:disabled="!canJog"
 					@click="jog(axis, -1)"
 				/>
-				<span class="pos tq-font-numeric" title="Machine position (MPos)">
+				<span
+					v-tooltip="{
+						title: 'Machine position',
+						description: 'MPos, from the homing origin',
+					}"
+					class="pos tq-font-numeric"
+				>
 					{{ fmt(machine.mpos[axis], axis) }}
 				</span>
 				<Tq.InputButton
@@ -217,7 +237,13 @@ const canJog = computed(
 					:disabled="!canJog"
 					@click="jog(axis, 1)"
 				/>
-				<span class="pos work tq-font-numeric" title="Work position (WPos)">
+				<span
+					v-tooltip="{
+						title: 'Work position',
+						description: 'WPos, relative to the G54 origin',
+					}"
+					class="pos work tq-font-numeric"
+				>
 					{{ fmt(machine.wpos[axis], axis) }}
 				</span>
 				<span class="work-tools">
@@ -225,7 +251,10 @@ const canJog = computed(
 						icon="mdi:numeric-0-circle-outline"
 						narrow
 						subtle
-						:tooltip="`Zero work ${axis.toUpperCase()} here (G10 L20)`"
+						:tooltip="{
+							title: `Zero ${axis.toUpperCase()} here`,
+							description: `The current position becomes work ${axis.toUpperCase()} = 0 (G10 L20). Nothing moves.`,
+						}"
 						:disabled="!machine.connected"
 						@click="machine.zeroWork([axis])"
 					/>
@@ -233,7 +262,10 @@ const canJog = computed(
 						icon="mdi:pencil-outline"
 						narrow
 						subtle
-						:tooltip="`Set work ${axis.toUpperCase()} to a value here`"
+						:tooltip="{
+							title: `Set ${axis.toUpperCase()}…`,
+							description: `Enter the work ${axis.toUpperCase()} value of the current position (G10 L20). Nothing moves.`,
+						}"
 						:disabled="!machine.connected"
 						@click="setWorkValue(axis)"
 					/>
@@ -241,7 +273,10 @@ const canJog = computed(
 						icon="mdi:target"
 						narrow
 						subtle
-						:tooltip="`Go to work ${axis.toUpperCase()} = 0`"
+						:tooltip="{
+							title: `Go to ${axis.toUpperCase()} = 0`,
+							description: `Move to work ${axis.toUpperCase()} = 0 at the jog feed.`,
+						}"
 						:disabled="!canJog"
 						@click="machine.goToWork([axis])"
 					/>
@@ -388,12 +423,20 @@ const canJog = computed(
 	text-overflow ellipsis
 	white-space nowrap
 
+// One column template shared by the header and every axis row, so the
+// "machine" / "work" captions sit exactly over their numbers. The fixed columns
+// are the width of a narrow icon-only InputButton (icon + 1px padding each side);
+// the last one holds the three work tools.
+.axis-grid
+	--jog-button calc(var(--tq-icon-size) + 2px)
+	display grid
+	grid-template-columns var(--jog-button) 1fr var(--jog-button) 1fr calc(3 * var(--jog-button))
+	align-items center
+	gap var(--tq-gap-group)
+
 .axes-head
 	grid-column 2 / 3
 	list-style none
-	display grid
-	grid-template-columns auto 1fr auto 1fr auto
-	gap var(--tq-gap-group)
 	font-size 0.7em
 	letter-spacing 0.05em
 	text-transform uppercase
@@ -402,12 +445,6 @@ const canJog = computed(
 .col-label
 	text-align right
 	padding-right 0.5em
-
-.axis
-	display grid
-	grid-template-columns auto 1fr auto 1fr auto
-	align-items center
-	gap var(--tq-gap-group)
 
 .pos
 	text-align right

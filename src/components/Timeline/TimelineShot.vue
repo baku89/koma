@@ -6,6 +6,7 @@ import {ConfigNameList} from 'tethr'
 import * as Tq from 'tweeq'
 import {computed} from 'vue'
 
+import {formatAxes, planFor} from '@/addsub/plan'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
@@ -23,6 +24,22 @@ const viewport = useViewportStore()
 const timeline = useTimelineStore()
 
 const shot = computed(() => project.shot(props.frame, props.layer))
+
+// addsub: a frame with a shooting plan but no shot yet (plan.ts). Shown as a
+// marked empty cell; nothing moves when it is selected.
+const plan = computed(() => planFor(project, props.frame, props.layer))
+const planTooltip = computed(() => {
+	const p = plan.value
+	if (!p) return undefined
+	return {
+		title: 'Planned',
+		description: p.rig
+			? formatAxes(p.rig)
+			: p.camera
+				? `camera ${p.camera.position.map(v => v.toFixed(0)).join(', ')}`
+				: 'camera configs',
+	}
+})
 
 const lvUrl = asyncComputed(async () => {
 	// Regenerate the lv from the hi-res jpg if its file is missing, then resolve.
@@ -124,6 +141,9 @@ function printShotInfo(shot: Shot) {
 		>
 			<img v-if="lvUrl" :src="lvUrl" />
 		</div>
+		<div v-else-if="plan" v-tooltip="planTooltip" class="empty planned">
+			<Tq.Icon icon="mdi:map-marker-path" />
+		</div>
 		<div v-else class="empty" />
 		<div
 			v-if="timeline.frameWidth > 40"
@@ -183,6 +203,10 @@ function printShotInfo(shot: Shot) {
 
 	&:hover
 		background var(--tq-color-input-hover)
+
+	&.planned
+		color var(--tq-color-text-mute)
+		border 1px dashed var(--tq-color-text-mute)
 
 .in-between
 	position absolute
