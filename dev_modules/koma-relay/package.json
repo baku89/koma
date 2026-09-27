@@ -1,0 +1,17 @@
+{
+	"name": "koma-relay",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Always-on relay for koma's exhibition screens: hosts the built pages, receives the display copy of the project pushed by the shooting machine and fans out its live state (WebSocket) and WebRTC signalling.",
+	"license": "GPL-3.0",
+	"bin": {
+		"koma-relay": "./index.js"
+	},
+	"scripts": {
+		"start": "node index.js"
+	},
+	"dependencies": {
+		"ws": "^8.18.0"
+	}
+}

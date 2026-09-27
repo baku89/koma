@@ -1,6 +1,7 @@
 import vue from '@vitejs/plugin-vue'
+import {cpSync, existsSync, readdirSync} from 'fs'
 import {fileURLToPath} from 'url'
-import {defineConfig} from 'vite'
+import {defineConfig, type Plugin} from 'vite'
 import glsl from 'vite-plugin-glsl'
 import monacoEditorPlugin, {
 	type IMonacoEditorOpts,
@@ -11,12 +12,39 @@ const monacoEditorPluginDefault = (monacoEditorPlugin as any).default as (
 ) => any
 // import electron from 'vite-plugin-electron/simple'
 
+/**
+ * `public/_dev-*` are local symlinks to real project folders, served by the
+ * dev server for the exhibit page's `?seed=` path. They must never end up in
+ * dist/ (gigabytes of stills, and a dangling link aborts the build), so the
+ * build copies public/ itself, skipping them.
+ */
+function publicWithoutDevLinks(): Plugin {
+	const publicDir = fileURLToPath(new URL('./public', import.meta.url))
+	let outDir = 'dist'
+	return {
+		name: 'koma:public-without-dev-links',
+		apply: 'build',
+		config: () => ({build: {copyPublicDir: false}}),
+		configResolved(cfg) {
+			outDir = cfg.build.outDir
+		},
+		closeBundle() {
+			if (!existsSync(publicDir)) return
+			for (const name of readdirSync(publicDir)) {
+				if (name.startsWith('_dev-')) continue
+				cpSync(`${publicDir}/${name}`, `${outDir}/${name}`, {recursive: true, dereference: true})
+			}
+		},
+	}
+}
+
 export default defineConfig({
 	base: './',
 	server: {
 		port: 5555,
 	},
 	plugins: [
+		publicWithoutDevLinks(),
 		glsl(),
 		vue(),
 		monacoEditorPluginDefault({

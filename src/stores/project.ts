@@ -1,5 +1,6 @@
 import {
 	asyncComputed,
+	createEventHook,
 	pausableWatch,
 	useRefHistory,
 	whenever,
@@ -498,7 +499,9 @@ async function saveProject(dir: FileSystemDirectoryHandle, project: Project) {
 	// resolves each id to its current `_trash` filename.
 	const trash = project.trash.map(t => ({...t, shot: saveShot(t.shot)}))
 
-	await saveJson(dir, 'project.json', {...project, komas, audio, trash})
+	const data = {...project, komas, audio, trash}
+	await saveJson(dir, 'project.json', data)
+	return data
 }
 
 /**
@@ -907,6 +910,18 @@ export const useProjectStore = defineStore('project', () => {
 		save()
 	}
 
+	/**
+	 * Fires after each successful write of project.json, with the folder, the
+	 * live project (asset ids) and the serialized data (asset filenames) that
+	 * was written. Lets a mirror (e.g. the exhibition relay) push exactly what
+	 * is on disk without re-deriving it.
+	 */
+	const savedHook = createEventHook<{
+		dir: FileSystemDirectoryHandle
+		project: Project
+		data: unknown
+	}>()
+
 	const {fn: save, isExecuting: isSaving} = debounceAsync(
 		async () => {
 			if (isOpening.value) return
@@ -915,7 +930,8 @@ export const useProjectStore = defineStore('project', () => {
 				throw new Error('No directory is specified')
 			}
 
-			await saveProject(directoryHandle.value, toRaw(project))
+			const data = await saveProject(directoryHandle.value, toRaw(project))
+			savedHook.trigger({dir: directoryHandle.value, project: toRaw(project), data})
 		},
 		{
 			// Fires only once the whole (possibly re-queued) save chain settles, so
@@ -1405,6 +1421,7 @@ export const useProjectStore = defineStore('project', () => {
 		isOpening,
 		isSaving,
 		dirty,
+		onSaved: savedHook.on,
 		isSavedToDisk,
 		beginInteraction,
 		endInteraction,
