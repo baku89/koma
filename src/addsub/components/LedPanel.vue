@@ -4,7 +4,8 @@ import {computed} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 
-import {useLedStore} from '../stores/led'
+import {LED_FACES} from '../config'
+import {type ChaseMode, useLedStore} from '../stores/led'
 import {usePrevizStore} from '../stores/previz'
 
 const Tq = useTweeq()
@@ -26,6 +27,23 @@ async function showCurrentFrame() {
 	const blob = await previz.readBlob(pf.led)
 	await led.showImageBlob(blob, {file: pf.led}).catch(() => {})
 }
+
+const FACE_LABELS: Record<(typeof LED_FACES)[number], string> = {
+	L: 'L (−X)',
+	B: 'B (−Z)',
+	R: 'R (+X)',
+	F: 'F (+Z)',
+}
+
+const chaseMode = Tq.config.ref<ChaseMode>('addsub.led.chaseMode', 'pixel')
+const chaseStepMs = Tq.config.ref('addsub.led.chaseStepMs', 80)
+
+const chaseText = computed(() => {
+	const c = led.chasing
+	if (!c) return null
+	const name = ['L1', 'L2', 'B1', 'B2', 'R1', 'R2', 'F1', 'F2'][c.line] ?? `line ${c.line}`
+	return c.mode === 'line' ? name : `${name} · px ${c.index + 1} / ${c.total}`
+})
 
 const powerText = computed(() => {
 	const p = led.power
@@ -68,6 +86,27 @@ const powerText = computed(() => {
 
 		<Tq.Parameter label="Work light" icon="mdi:ceiling-light" hint="Temporary all-white; the frame's lighting comes back when off">
 			<Tq.InputSwitch :modelValue="led.workLight" @update:modelValue="led.setWorkLight($event)" />
+		</Tq.Parameter>
+		<Tq.Parameter label="Faces" icon="mdi:cube-outline" hint="One colour per face (both lines of a face together) instead of the frame's lighting">
+			<Tq.InputSwitch v-model="led.faceLight" />
+		</Tq.Parameter>
+		<Tq.Parameter v-for="face in LED_FACES" :key="face" :label="FACE_LABELS[face]" icon="mdi:palette">
+			<Tq.InputColor v-model="project.addsub.led.faceColors[face]" />
+		</Tq.Parameter>
+		<Tq.Parameter label="Chase" icon="mdi:ray-start-arrow" hint="Wiring check: light the wall in line order (L1 L2 B1 B2 R1 R2 F1 F2), one pixel or one line at a time">
+			<div class="buttons">
+				<Tq.InputRadio v-model="chaseMode" :options="['pixel', 'line']" :labels="['Pixel', 'Line']" />
+				<Tq.InputNumber v-model="chaseStepMs" class="step" :min="20" :max="2000" :step="10" :precision="0" suffix="ms" />
+				<Tq.InputButton
+					v-if="!led.chasing"
+					label="Start"
+					icon="mdi:play"
+					:disabled="!led.connected"
+					@click="led.startChase({mode: chaseMode, stepMs: chaseStepMs})"
+				/>
+				<Tq.InputButton v-else label="Stop" icon="mdi:stop" @click="led.stopChase()" />
+				<span v-if="chaseText" class="mute">{{ chaseText }}</span>
+			</div>
 		</Tq.Parameter>
 		<Tq.Parameter label="Follow" icon="mdi:auto-fix" hint="Show each capture frame's lighting automatically">
 			<Tq.InputSwitch v-model="led.followCapture" />
@@ -154,6 +193,9 @@ const powerText = computed(() => {
 .mute
 	color var(--tq-color-text-mute)
 	font-size 0.85em
+
+.step
+	flex 0 0 5.5em
 
 .more
 	grid-column 1 / 3

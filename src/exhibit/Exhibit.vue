@@ -7,18 +7,36 @@
  */
 import {computed, onMounted, onUnmounted, ref} from 'vue'
 
+import {useExhibitRelay} from './relay'
 import ScreenA from './ScreenA.vue'
 import ScreenB from './ScreenB.vue'
 import {useExhibitStore} from './store'
 
 const store = useExhibitStore()
+const relay = useExhibitRelay()
 
 const params = new URLSearchParams(location.search)
 const screen = (params.get('screen') ?? 'ab') as 'a' | 'b' | 'ab'
 
 const needsGesture = computed(
-	() => !store.dir.value || store.permission.value !== 'granted'
+	() => !store.source.value || store.permission.value !== 'granted'
 )
+
+const sourceName = computed(() => {
+	const s = store.source.value
+	if (!s) return null
+	return s.kind === 'http' ? `relay ${relay.base.value ?? s.label}` : `folder ${s.label}`
+})
+
+const relayStatus = computed(() => {
+	if (!relay.base.value) return 'no relay (folder source)'
+	if (!relay.connected.value) return 'relay unreachable — reconnecting'
+	if (relay.captureOnline.value) return 'shooting machine online'
+	const t = relay.captureLastSeen.value
+	return t
+		? `shooting machine offline · last seen ${new Date(t).toLocaleString('ja-JP', {hour12: false})}`
+		: 'shooting machine offline'
+})
 
 // Setup overlay: shown until a folder is readable. Afterwards it's reachable
 // by parking the mouse in the top-left corner (a gear appears), by pressing
@@ -136,32 +154,33 @@ async function goFullscreen() {
 		<div v-if="needsGesture || showSetup" class="setup">
 			<div class="setup-box">
 				<h1>Milling Stop-Motion — exhibition screens</h1>
-				<p v-if="!store.dir.value">
-					Choose the synced koma project folder (the one holding
-					<code>project.json</code>).
+				<p v-if="!store.source.value">
+					Open this page from <code>koma-relay</code> (it serves the display
+					copy pushed by the shooting machine), or choose a synced koma
+					project folder (the one holding <code>project.json</code>).
 				</p>
 				<p v-else-if="store.permission.value !== 'granted'">
-					Folder <strong>{{ store.dir.value.name }}</strong> needs read
-					permission again. Choose “Allow on every visit” to skip this after
-					a restart.
+					<strong>{{ sourceName }}</strong> needs read permission again.
+					Choose “Allow on every visit” to skip this after a restart.
 				</p>
 				<p v-else>
-					Folder <strong>{{ store.dir.value.name }}</strong>
+					<strong>{{ sourceName }}</strong>
 					<span v-if="store.project.value">
 						· {{ store.project.value.name }} · {{ store.frames.value.length }} frames
 					</span>
 				</p>
+				<p class="hint">{{ relayStatus }}</p>
 				<p v-if="store.error.value" class="error">{{ store.error.value }}</p>
 				<h2>Project</h2>
 				<div class="buttons">
 					<button
-						v-if="store.dir.value && store.permission.value !== 'granted'"
+						v-if="store.source.value?.kind === 'dir' && store.permission.value !== 'granted'"
 						@click="store.requestPermission()"
 					>
 						Grant access
 					</button>
 					<button @click="store.pick()">Choose folder…</button>
-					<button v-if="store.dir.value" @click="store.forget()">Forget folder</button>
+					<button v-if="store.source.value?.kind === 'dir'" @click="store.forget()">Forget folder</button>
 				</div>
 				<h2>This window</h2>
 				<div class="buttons">

@@ -28,13 +28,15 @@ import {
 	type SerialFamily,
 } from '@/utils/serialDiscovery'
 
-import {BLOCK_HEIGHT} from '../config'
+import {BLOCK_HEIGHT, LED_FACES, type LedFace} from '../config'
 import {decodeImage} from '../led/decode'
 import {buildLedLayout, ledLayoutFromSet} from '../led/layout'
 import {type RgbaImage, sampleLedFrame} from '../led/sampler'
 import {usePrevizStore} from './previz'
 
 const FAMILY_ID = 'ws-fanout'
+
+export type ChaseMode = 'pixel' | 'line'
 
 export const useLedStore = defineStore('addsub:led', () => {
 	const project = useProjectStore()
@@ -204,6 +206,126 @@ export const useLedStore = defineStore('addsub:led', () => {
 	}
 
 	//--------------------------------------------------------------------------
+	// Manual per-face colours and wiring checks (ADDSUB.md §3.3)
+
+	/** Lines of a face, in ws-fanout line order L1 L2 B1 B2 R1 R2 F1 F2. */
+	function linesOfFace(face: LedFace): number[] {
+		const n = info.value?.lines.length ?? layout.value.lineCounts.length
+		const per = Math.max(1, Math.round(n / LED_FACES.length))
+		const i = LED_FACES.indexOf(face)
+		return Array.from({length: per}, (_, k) => i * per + k).filter(l => l < n)
+	}
+
+	function hexToRgb(hex: string): [number, number, number] {
+		const m = /^#?([0-9a-f]{6})/i.exec(hex.trim())
+		const v = m ? parseInt(m[1], 16) : 0xffffff
+		return [(v >> 16) & 255, (v >> 8) & 255, v & 255]
+	}
+
+	/** Fill each face with its colour from the project settings and latch. */
+	async function showFaces(): Promise<ShowResult> {
+		const led = requireDevice()
+		for (const face of LED_FACES) {
+			const [r, g, b] = hexToRgb(project.addsub.led.faceColors[face] ?? '#ffffff')
+			for (const line of linesOfFace(face)) led.clear(r, g, b, line)
+		}
+		power.value = led.estimatePower()
+		try {
+			const result = await led.show()
+			shown.value = null
+			lastError.value = null
+			return result
+		} catch (e) {
+			lastError.value = e instanceof Error ? e.message : String(e)
+			throw e
+		}
+	}
+
+	/** Manual per-face colours instead of the frame's lighting. */
+	const faceLight = ref(false)
+
+	interface ChaseState {
+		mode: ChaseMode
+		/** Current line and (pixel mode) index. */
+		line: number
+		index: number
+		total: number
+	}
+	const chasing = ref<ChaseState | null>(null)
+	let chaseAbort: AbortController | null = null
+
+	/**
+	 * Wiring check: light the wall in order. `pixel` walks one white pixel
+	 * through every line (ws-fanout line order, each line from its first
+	 * pixel); `line` lights whole lines one after another. Everything else on
+	 * the wall is off while it runs; the normal state comes back after.
+	 */
+	async function startChase(opts: {mode?: ChaseMode; stepMs?: number; line?: number | null} = {}) {
+		const led = requireDevice()
+		stopChase()
+		const abort = new AbortController()
+		chaseAbort = abort
+		const mode = opts.mode ?? 'pixel'
+		const stepMs = Math.max(20, opts.stepMs ?? 80)
+		const lines =
+			opts.line === null || opts.line === undefined
+				? Array.from({length: led.lineCount}, (_, i) => i)
+				: [opts.line]
+		const sleep = (ms: number) =>
+			new Promise<void>(resolve => {
+				if (abort.signal.aborted) return resolve()
+				const t = setTimeout(resolve, ms)
+				abort.signal.addEventListener(
+					'abort',
+					() => {
+						clearTimeout(t)
+						resolve()
+					},
+					{once: true}
+				)
+			})
+		try {
+			await led.fill(LINE_ALL, 0, 0, 0)
+			for (const line of lines) {
+				if (abort.signal.aborted) break
+				const count = led.getLine(line).length / 3
+				if (mode === 'line') {
+					chasing.value = {mode, line, index: 0, total: count}
+					led.clear(0, 0, 0, LINE_ALL)
+					led.clear(255, 255, 255, line)
+					await led.show()
+					await sleep(stepMs * 10)
+					continue
+				}
+				for (let i = 0; i < count; i++) {
+					if (abort.signal.aborted) break
+					chasing.value = {mode, line, index: i, total: count}
+					if (i > 0) led.setPixel(line, i - 1, 0, 0, 0)
+					else led.clear(0, 0, 0, LINE_ALL)
+					led.setPixel(line, i, 255, 255, 255)
+					await led.show()
+					await sleep(stepMs)
+				}
+			}
+			if (!abort.signal.aborted) await led.fill(LINE_ALL, 0, 0, 0)
+		} catch (e) {
+			lastError.value = e instanceof Error ? e.message : String(e)
+		} finally {
+			if (chaseAbort === abort) {
+				chaseAbort = null
+				chasing.value = null
+				shownKey = null
+				applyState()
+			}
+		}
+	}
+
+	function stopChase() {
+		// Only signal; the running chase clears its own state in its finally.
+		chaseAbort?.abort()
+	}
+
+	//--------------------------------------------------------------------------
 	// Follow the capture frame (ADDSUB.md: 撮影コマに移ったら自動的にその照明) with
 	// a temporary all-white work light on top.
 
@@ -248,33 +370,48 @@ export const useLedStore = defineStore('addsub:led', () => {
 		workLight.value = on
 	}
 
+	/** Put on the wall whatever the current mode says (work > faces > frame). */
+	function applyState() {
+		if (!connected.value) {
+			shownKey = null
+			return
+		}
+		if (chasing.value) return
+		if (workLight.value) {
+			void enqueue(async () => {
+				await fill(255, 255, 255)
+				shownKey = 'work'
+			}).catch(() => {})
+			return
+		}
+		if (faceLight.value) {
+			const key = `faces|${LED_FACES.map(f => project.addsub.led.faceColors[f]).join(',')}`
+			if (shownKey === key) return
+			void enqueue(async () => {
+				await showFaces()
+				shownKey = key
+			}).catch(() => {})
+			return
+		}
+		if (followCapture.value) void ensureFrame(project.captureShot.frame).catch(() => {})
+	}
+
 	// Any of these changing re-evaluates what should be on the wall.
 	watch(
 		() =>
 			[
 				connected.value,
 				workLight.value,
+				faceLight.value,
 				followCapture.value,
 				project.captureShot.frame,
 				lift.value,
 				project.addsub.led.gain,
 				project.addsub.led.topFilmY,
 				previz.lastModified,
+				...LED_FACES.map(f => project.addsub.led.faceColors[f]),
 			] as const,
-		([isConnected, work, follow, frame]) => {
-			if (!isConnected) {
-				shownKey = null
-				return
-			}
-			if (work) {
-				void enqueue(async () => {
-					await fill(255, 255, 255)
-					shownKey = 'work'
-				}).catch(() => {})
-				return
-			}
-			if (follow) void ensureFrame(frame).catch(() => {})
-		},
+		() => applyState(),
 		{immediate: true}
 	)
 
@@ -304,6 +441,12 @@ export const useLedStore = defineStore('addsub:led', () => {
 		followCapture,
 		workLight,
 		setWorkLight,
+		faceLight,
+		showFaces,
+		linesOfFace,
+		chasing: readonly(chasing),
+		startChase,
+		stopChase,
 		ensureFrame,
 	}
 })

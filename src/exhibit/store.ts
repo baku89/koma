@@ -1,17 +1,24 @@
 /**
- * Exhibition screen data (ADDSUB.md §15.2): reads the shooting machine's koma
- * project folder — synced to this machine by Dropbox — directly through the
- * File System Access API. Read-only. The folder handle is persisted in
- * IndexedDB so a reboot only needs the one-time (or "always allow")
- * permission, never a picker.
+ * Exhibition screen data (ADDSUB.md §15.2). Read-only view of the koma
+ * project, from one of two sources (see source.ts):
  *
- * project.json is polled; a half-synced file fails to parse and is retried.
+ * - the display copy the shooting machine pushes to koma-relay — the normal
+ *   case: the kiosk opens the page from the relay, nothing to pick or grant;
+ *   a `file` message from the relay re-reads project.json at once;
+ * - a folder through the File System Access API (handle persisted in
+ *   IndexedDB), or an OPFS folder for tests.
+ *
+ * project.json is polled as well (a relay may be missing, a synced folder
+ * may change under us); a half-written file fails to parse and is retried.
  * Frame images are the project's `_lv` previews, read lazily around the
- * playhead and detached from the file (Dropbox may replace it under us).
+ * playhead.
  */
 
 import {del, get, set} from 'idb-keyval'
 import {computed, reactive, readonly, ref, shallowRef} from 'vue'
+
+import {useExhibitRelay} from './relay'
+import {DirSource, HttpSource, type ProjectSource} from './source'
 
 const HANDLE_KEY = 'com.baku89.koma.exhibit.projectDir'
 const POLL_MS = 4000
@@ -85,10 +92,11 @@ function refFilename(r: BlobRef | undefined): string | null {
 	return typeof r === 'string' ? r : r.filename
 }
 
-const dir = shallowRef<FileSystemDirectoryHandle | null>(null)
+const source = shallowRef<ProjectSource | null>(null)
+/** For a folder source: whether it can be read right now. */
 const permission = ref<'granted' | 'prompt' | 'denied' | 'none'>('none')
 const project = shallowRef<RawProject | null>(null)
-const lastModified = ref<number | null>(null)
+const projectVersion = ref<string | null>(null)
 
 /** previz/frames.json (what Houdini wrote next to the project), if present. */
 interface PrevizFile {
@@ -96,6 +104,8 @@ interface PrevizFile {
 	frames: {frame: number; gcode?: string; cut?: boolean}[]
 }
 const previzFile = shallowRef<PrevizFile | null>(null)
+const previzVersion = ref<string | null>(null)
+/** Bumped whenever previz/frames.json changed (consumers re-read G-code). */
 const previzModified = ref<number | null>(null)
 const textCache = new Map<string, Promise<string | null>>()
 const error = ref<string | null>(null)
@@ -105,6 +115,8 @@ const state = reactive({polling: false})
 const shownIndex = ref(0)
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const relay = useExhibitRelay()
 
 /**
  * Which storage layers the exhibition shows: the layers of a preset named
@@ -241,7 +253,36 @@ const fps = computed(() => project.value?.fps ?? 18)
 const shown = computed<ExhibitFrame | null>(() => frames.value[shownIndex.value] ?? null)
 
 //------------------------------------------------------------------------------
-// Folder
+// Source selection
+
+function useSource(s: ProjectSource) {
+	source.value = s
+	permission.value = 'granted'
+	project.value = null
+	projectVersion.value = null
+	previzFile.value = null
+	previzVersion.value = null
+	textCache.clear()
+	startPolling()
+}
+
+/**
+ * The relay to use, if any: `?relay=<http://host:port>`, else the page's own
+ * origin when it is served by koma-relay (probed with /api/status).
+ */
+async function detectRelay(): Promise<string | null> {
+	const params = new URLSearchParams(location.search)
+	const explicit = params.get('relay')
+	if (explicit) return explicit.replace(/\/+$/, '')
+	if (location.protocol !== 'http:' && location.protocol !== 'https:') return null
+	try {
+		const res = await fetch('/api/status', {cache: 'no-store'})
+		if (res.ok) return location.origin
+	} catch {
+		// not served by the relay
+	}
+	return null
+}
 
 /**
  * Dev / kiosk aid: `?opfs=<name>` reads the project from that folder in the
@@ -264,9 +305,7 @@ async function restoreFromQuery(): Promise<boolean> {
 			error.value = `seed failed: ${e instanceof Error ? e.message : String(e)}`
 		}
 	}
-	dir.value = h
-	permission.value = 'granted'
-	startPolling()
+	useSource(new DirSource(h))
 	return true
 }
 
@@ -356,12 +395,26 @@ async function writeInto(root: FileSystemDirectoryHandle, rel: string, blob: Blo
 	await w.close()
 }
 
+async function getFileHandle(root: FileSystemDirectoryHandle, rel: string) {
+	const parts = rel.split('/').filter(Boolean)
+	let d = root
+	for (const part of parts.slice(0, -1)) d = await d.getDirectoryHandle(part)
+	return d.getFileHandle(parts[parts.length - 1])
+}
+
+/** Pick the source at startup: relay → OPFS query → remembered folder. */
 async function restore() {
+	const relayBase = await detectRelay()
+	if (relayBase) {
+		relay.connect(relayBase)
+		useSource(new HttpSource(`${relayBase}/project/`))
+		return
+	}
 	if (await restoreFromQuery().catch(() => false)) return
 	try {
 		const h = (await get(HANDLE_KEY)) as FileSystemDirectoryHandle | undefined
 		if (!h) return
-		dir.value = h
+		source.value = new DirSource(h)
 		permission.value = await h.queryPermission({mode: 'read'})
 		if (permission.value === 'granted') startPolling()
 	} catch (e) {
@@ -369,11 +422,16 @@ async function restore() {
 	}
 }
 
+// A pushed project.json / frames.json: don't wait for the poll.
+relay.onFile(({rel}) => {
+	if (rel === 'project.json' || rel === PREVIZ_FRAMES) void poll()
+})
+
 /** Needs a user gesture. */
 async function requestPermission() {
-	const h = dir.value
-	if (!h) return
-	permission.value = await h.requestPermission({mode: 'read'})
+	const s = source.value
+	if (!(s instanceof DirSource)) return
+	permission.value = await s.handle.requestPermission({mode: 'read'})
 	if (permission.value === 'granted') startPolling()
 }
 
@@ -382,11 +440,8 @@ async function pick() {
 	try {
 		const h = await window.showDirectoryPicker({id: 'exhibit', mode: 'read'})
 		await set(HANDLE_KEY, h)
-		dir.value = h
-		permission.value = 'granted'
-		project.value = null
-		lastModified.value = null
-		startPolling()
+		relay.disconnect()
+		useSource(new DirSource(h))
 	} catch {
 		// cancelled
 	}
@@ -395,7 +450,7 @@ async function pick() {
 async function forget() {
 	stopPolling()
 	await del(HANDLE_KEY)
-	dir.value = null
+	source.value = null
 	project.value = null
 	permission.value = 'none'
 }
@@ -411,18 +466,20 @@ function stopPolling() {
 	pollTimer = null
 }
 
-async function pollPreviz(h: FileSystemDirectoryHandle) {
+async function pollPreviz(s: ProjectSource) {
 	try {
-		const fh = await getFileHandle(h, PREVIZ_FRAMES)
-		const f = await fh.getFile()
-		if (f.lastModified === previzModified.value) return
-		previzFile.value = JSON.parse(await f.text()) as PrevizFile
-		previzModified.value = f.lastModified
+		const r = await s.text(PREVIZ_FRAMES, previzVersion.value)
+		if (r === 'unchanged') return
+		if (r === null) throw new Error('missing')
+		previzFile.value = JSON.parse(r.text) as PrevizFile
+		previzVersion.value = r.version
+		previzModified.value = Date.now()
 		textCache.clear()
 	} catch {
 		if (previzFile.value) {
 			previzFile.value = null
-			previzModified.value = null
+			previzVersion.value = null
+			previzModified.value = Date.now()
 		}
 	}
 }
@@ -457,11 +514,11 @@ function readText(rel: string): Promise<string | null> {
 	let p = textCache.get(rel)
 	if (!p) {
 		p = (async () => {
-			const h = dir.value
-			if (!h) return null
+			const s = source.value
+			if (!s) return null
 			try {
-				const fh = await getFileHandle(h, rel)
-				return await (await fh.getFile()).text()
+				const r = await s.text(rel)
+				return r && r !== 'unchanged' ? r.text : null
 			} catch {
 				return null
 			}
@@ -472,23 +529,25 @@ function readText(rel: string): Promise<string | null> {
 }
 
 async function poll() {
-	const h = dir.value
-	if (!h || state.polling) return
+	const s = source.value
+	if (!s || state.polling) return
 	state.polling = true
-	await pollPreviz(h)
 	try {
-		const fh = await h.getFileHandle('project.json')
-		const f = await fh.getFile()
-		if (f.lastModified === lastModified.value) return
+		await pollPreviz(s)
 		for (let attempt = 0; attempt < 4; attempt++) {
 			try {
-				const text = await (attempt === 0 ? f : await fh.getFile()).text()
-				project.value = JSON.parse(text) as RawProject
-				lastModified.value = f.lastModified
+				const r = await s.text('project.json', attempt === 0 ? projectVersion.value : null)
+				if (r === 'unchanged') return
+				if (r === null) {
+					error.value = 'project.json not found'
+					return
+				}
+				project.value = JSON.parse(r.text) as RawProject
+				projectVersion.value = r.version
 				error.value = null
 				return
 			} catch (e) {
-				// Probably mid-sync — wait a moment and read again.
+				// Probably mid-write — wait a moment and read again.
 				error.value = 'project.json is being written… retrying'
 				await new Promise(r => setTimeout(r, 500))
 				if (e instanceof DOMException) break
@@ -519,12 +578,9 @@ async function frameUrl(filename: string): Promise<string | null> {
 	const pending = inflight.get(filename)
 	if (pending) return pending
 	const p = (async () => {
-		const h = dir.value
-		if (!h) return null
 		try {
-			const fh = await getFileHandle(h, filename)
-			const f = await fh.getFile()
-			const blob = new Blob([await f.arrayBuffer()], {type: f.type || 'image/jpeg'})
+			const blob = await frameBlob(filename)
+			if (!blob) return null
 			const url = URL.createObjectURL(blob)
 			urlCache.set(filename, url)
 			while (urlCache.size > CACHE_LIMIT) {
@@ -543,21 +599,12 @@ async function frameUrl(filename: string): Promise<string | null> {
 	return p
 }
 
-async function getFileHandle(root: FileSystemDirectoryHandle, rel: string) {
-	const parts = rel.split('/').filter(Boolean)
-	let d = root
-	for (const part of parts.slice(0, -1)) d = await d.getDirectoryHandle(part)
-	return d.getFileHandle(parts[parts.length - 1])
-}
-
 /** Read a take's preview bytes (not cached as a URL). */
 async function frameBlob(filename: string): Promise<Blob | null> {
-	const h = dir.value
-	if (!h) return null
+	const s = source.value
+	if (!s) return null
 	try {
-		const fh = await getFileHandle(h, filename)
-		const f = await fh.getFile()
-		return new Blob([await f.arrayBuffer()], {type: f.type || 'image/jpeg'})
+		return await s.blob(filename)
 	} catch {
 		return null
 	}
@@ -565,7 +612,7 @@ async function frameBlob(filename: string): Promise<Blob | null> {
 
 export function useExhibitStore() {
 	return {
-		dir: readonly(dir),
+		source: readonly(source),
 		permission: readonly(permission),
 		project: readonly(project),
 		frames,

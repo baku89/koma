@@ -11,6 +11,7 @@ import {
 	DEFAULT_CALIBRATION,
 	DEFAULT_LED_LAYOUT,
 	LED_LAYOUT_VERSION,
+	type LedFace,
 	type LedLayoutParams,
 	RIG_TRAVEL,
 } from './config'
@@ -107,6 +108,8 @@ export interface AddsubProjectData {
 		gain: number
 		/** 0–1 brightness cap sent to the firmware on connect. */
 		brightnessCap: number
+		/** Manual per-face colours (hex), for the "Faces" light mode. */
+		faceColors: Record<LedFace, string>
 	}
 	sequence: SequenceProgress | null
 	/** Per-frame shooting plans, by layer id then timeline frame (plan.ts). §13 */
@@ -140,6 +143,7 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 		topFilmY: DEFAULT_LED_LAYOUT.topY,
 		gain: 1,
 		brightnessCap: 0.8,
+		faceColors: {L: '#ffffff', B: '#ffffff', R: '#ffffff', F: '#ffffff'},
 	},
 	sequence: null,
 	plan: {},

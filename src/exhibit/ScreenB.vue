@@ -5,12 +5,14 @@
  */
 import {onUnmounted, ref} from 'vue'
 
+import {useExhibitRelay} from './relay'
 import SplitNode, {type LayoutNode} from './SplitNode.vue'
 import {useExhibitStore} from './store'
 
 const props = defineProps<{follow: boolean}>()
 
 const store = useExhibitStore()
+const relay = useExhibitRelay()
 
 // Follow screen A's playhead: in its own window via the broadcast, side by
 // side with A through the shared store (A writes shownIndex directly).
@@ -40,14 +42,14 @@ const layout: LayoutNode = {
 						{pane: 'sequence', ratio: 1},
 					],
 				},
-				{pane: 'scene', ratio: 3},
+				{pane: 'live', ratio: 3},
 			],
 		},
 		{
 			split: 'row',
 			ratio: 2,
 			children: [
-				{pane: 'live', ratio: 3},
+				{pane: 'scene', ratio: 3},
 				{pane: 'gcode', ratio: 2},
 				{pane: 'qr', ratio: 1},
 			],
@@ -64,6 +66,9 @@ const clockTimer = setInterval(() => (clock.value = new Date()), 1000)
 		<header class="head mono">
 			<span>MILLING STOP-MOTION</span>
 			<span>{{ store.project.value?.name ?? '—' }}</span>
+			<span :class="{live: relay.captureOnline.value}" class="link">
+				{{ relay.captureOnline.value ? '● LIVE' : '○ OFFLINE' }}
+			</span>
 			<span>{{ clock.toLocaleString('ja-JP', {hour12: false}) }}</span>
 		</header>
 		<div class="grid">
@@ -90,6 +95,14 @@ const clockTimer = setInterval(() => (clock.value = new Date()), 1000)
 	color: #fff;
 	border-bottom: 1px solid #fff;
 	padding: 0.7rem 1rem;
+}
+
+.link {
+	color: rgba(255, 255, 255, 0.45);
+}
+
+.link.live {
+	color: #fff;
 }
 
 /* Pane borders (top + left of each pane) are the only lines: shift the grid

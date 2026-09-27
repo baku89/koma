@@ -446,7 +446,8 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 ### 15.2 実装
 
 - koma の別ルートとして作る
-- **撮影データの受け渡し**: 撮影機の koma プロジェクトフォルダを Dropbox などで Mac mini に同期し、展示画面から Chrome の File System Access API（`showDirectoryPicker()`）で直接読む
+- **撮影データの受け渡し**: （2026-09-27 に変更、実装メモ「koma-relay」参照）Mac mini 常駐の koma-relay へ撮影機の koma が表示用コピーを push し、展示画面はそれを HTTP で読む。以下の Dropbox + フォルダピッカー方式はフォールバックとして残る
+- （旧案）撮影機の koma プロジェクトフォルダを Dropbox などで Mac mini に同期し、展示画面から Chrome の File System Access API（`showDirectoryPicker()`）で直接読む
   - 撮影側の koma は実フォルダの project を使う（13.1）
   - フォルダのハンドルは IndexedDB に保存して、再起動後も開き直せるようにする。再起動のたびに許可を求められると毎朝の立ち上げが手間なので、Chrome の「毎回許可」（persistent permission）を使う
   - Dropbox は「オフラインで使用可能」にしておく（オンラインのみのファイルは読めない）
@@ -567,7 +568,39 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 ### 展示画面（§15）
 - `/exhibit.html`。`?screen=a`（ループ再生、BroadcastChannel で再生位置を配信）/ `?screen=b`（グリッド）/ 無指定で並列表示。フォルダハンドルは IndexedDB、`project.json` を 4 秒ポーリング。全体モノスペース（Fira Code）。
 - **画面 A は「全テイク」**: 全レイヤー（本編・テスト・再演・park）のショットと `_trash` のミスコマを **撮影日時順**に並べ、ブラウザ内で **WebCodecs（H.264）+ mp4-muxer で MP4 に変換**して `<video loop>` で滑らかにループ再生する（ffmpeg 相当をネイティブ依存なしで）。動画は OPFS にキャッシュ（テイク一覧の署名がキー）、新しいテイクが増えると 10 分に 1 回を上限にバックグラウンドで作り直す。エンコード中や WebCodecs が無い環境は `_lv` の画像差し替えで再生。再生位置（動画時間 → テイク index）を画面 B に配信。
-- **画面 B**: 分割グリッド（FRAME = 今映っているテイクのメタデータ: 番号・撮影日時・レイヤー名 / 破棄テイク・露出・k・リグ軸、SEQUENCE、DEVLOG の QR、ライブビュー / G-code / 3D はリレー未実装でプレースホルダ）。
+- **画面 B**: 分割グリッド（FRAME = 今映っているテイクのメタデータ: 番号・撮影日時・レイヤー名 / 破棄テイク・露出・k・リグ軸、SEQUENCE、DEVLOG の QR、LIVE VIEW（上段右の大区画）、BOX RIG / MILL の座標、G-CODE）。ヘッダに `● LIVE / ○ OFFLINE`（撮影機の接続）。
+
+### 展示機への受け渡し: koma-relay（2026-09-27）
+Dropbox 同期とフォルダピッカー方式をやめ、**常時稼働する展示機（Mac mini）側に小さな Node サーバー `dev_modules/koma-relay` を置き、撮影 PC の koma はそこへ push する客**にした。撮影 PC が居なくても展示機は最後に push されたコピーで回り続け、居れば同じ経路でライブ状態が届く。2 台は Ethernet 直結（link-local + Bonjour、`koma-exhibit.local` のようなホスト名。保険に固定 IP も可）。
+
+- **サーバー** (`yarn relay -- --dir <表示用コピー> [--port 7777] [--static dist] [--token …]`): (1) ビルド済み koma（`dist/`）を静的配信 → キオスクは `http://localhost:7777/exhibit.html` を開くだけ（ピッカー・権限プロンプト無し）、(2) `PUT /api/file/<rel>`（tmp+rename で原子的、`X-Mtime` を mtime に反映）/ `GET /api/manifest`（rel → size,mtime）/ `GET /project/<rel>`（ETag = size-mtime、条件付き GET）、(3) WebSocket `/ws?role=capture|exhibit`: capture の `{type:'state',topic,data}` を保持して全 exhibit に配信（後から繋いだ exhibit にも hello で再生）、`signal` を capture ↔ exhibit で中継、`file` で push 完了を通知、ping で死活監視。capture は常に 1 本（新しい接続が古いのを置き換える）。
+- **koma 側 `src/stores/relay.ts`（汎用）**: 接続先は app config（`relay.url` / `relay.token`、プロジェクトでなく機械の設定）。タイトルバーの `TitleBarRelayConnection`（モニタ共有アイコン）で URL 入力・状態・Sync now。
+  - **表示用コピーの push**: `project.onSaved`（`saveProject` 後に発火する新フック）ごとに、`_lv`（live + `_trash`）と登録された extra files（`previz/frames.json`・`set.json`・参照 G-code・`layerGcode`）を差分 push、最後に `project.json`。差分判定は **タグ**（プレビューはアセット id、previz は `lastModified` スタンプ）→ タグが変わったものだけ **ローカル stat（size+mtime）と manifest を比較**して違えば送る。リロード後は id が振り直されるが stat 比較で既送分は送らない（実測: 再読込後の再同期は project.json 4 KB のみ）。フル解像 jpg / RAW は送らない = 展示機のコピーは「表示用」、原本のバックアップは別途。
+  - **ライブ状態 publish**（`src/addsub/relayPublish.ts`）: `machine:mill` / `machine:rig`（state・mpos・wpos・alarm・streamProgress、100 ms スロットル）、`sequence`（running・step・message・progress・kBase・captureFrame・**cutting = {frame, path, index, total}**）。`sequence.cutting` は `stepCut` が `mill.stream` の間だけ立てる。
+  - **ライブビュー = WebRTC**: Tethr の `camera.liveview`（`MediaStream`。PTP は `CanvasMediaStream`、webcam は getUserMedia）をそのまま `addTrack`。exhibit の `want-live` ごとに RTCPeerConnection を 1 本（`iceServers: []`、直結なので host candidate のみ）。`degradationPreference: 'maintain-resolution'`、`maxBitrate 6 Mbps`、`contentHint 'detail'`。Tethr がライブビュー再開で新 stream を返すので `replaceTrack` で差し替え（再ネゴ無し）。ライブビュー停止時は `replaceTrack(null)` → 受信側は track の `mute` を見て「off」表示（最後のフレームを暗く残す）。
+- **exhibit 側**: `source.ts`（`HttpSource` = relay の `/project/`、`DirSource` = 従来のフォルダ/OPFS）、`relay.ts`（WS 購読 + WebRTC answerer）。起動時 `?relay=<url>` → 同一オリジンの `/api/status` 探査 → `?opfs=` → IndexedDB のフォルダ、の順で決める。push 完了の `file` 通知で即 `project.json` を読み直す（4 秒ポーリングは保険）。開発時は `exhibit.html?relay=http://localhost:7799`（CORS 許可済み）。
+- 検証済（2026-09-27、mock と canvas.captureStream で）: 接続・push（新規/削除→`_trash`/リロード後の無再送）・WS の状態配信・WebRTC のオファー/差し替え/停止・キオスク経路（relay が配る `exhibit.html` から自動検出）。実カメラ・実 Ethernet 直結は未。
+- **ビルド**: `public/_dev-*`（開発用シンボリックリンク）を dist にコピーしないよう vite.config に `publicWithoutDevLinks` プラグイン（`copyPublicDir:false` + 自前コピー）。1.2 GB のテストプロジェクトが dist に入る/ダングリングでビルドが落ちるのを防ぐ。
+- `exhibit.html` は Google Fonts を CDN から読むので、館内 LAN に外向きが無い場合は Fira Code を self-host する。
+
+**展示機のセットアップ（macOS 素の状態から、git 運用）** — ユーザー希望: ちょこちょこ改修するので展示機にも repo を置いて `git pull` で更新する。
+
+1. Node.js: https://nodejs.org の LTS `.pkg` を入れる（`/usr/local/bin/node`）。yarn は `sudo npm i -g yarn`（この repo は yarn classic 1.x）。git はターミナルで `git` と打つと Command Line Tools の導入ダイアログが出るのでそれで入れる。
+2. GitHub 認証: `dev_modules/ws-fanout` は private なので `git clone` 時に user 名 + Personal Access Token（repo 読み取り）を入れる。macOS の git は osxkeychain に保存するので 1 回で済む。
+3. `git clone --recursive -b addsub https://github.com/baku89/koma ~/koma && cd ~/koma && yarn install && yarn build`（`yarn install` は electron のバイナリも落とすので数分）。
+4. `sh dev_modules/koma-relay/exhibit-machine/install-launchd.sh`（relay を login 時に常駐、落ちたら再起動。ログは `~/Library/Logs/koma-relay.log`）。Chrome を入れて `--kiosk` も付ければ Chrome キオスク（画面 B 単独）も登録。2 面構成では Chrome を普通に起動して `http://localhost:7777/exhibit.html?setup` の「Open A and B on two screens」を使う（Window Management の許可が 1 回要る）。
+   - 環境変数で変更: `KOMA_RELAY_DIR`（表示用コピーの置き場、既定 `~/koma-exhibit-project`）、`KOMA_RELAY_PORT`（7777）、`KOMA_RELAY_TOKEN`。plist を書き直すのが面倒なら `start.sh` の既定値を直接編集。
+5. macOS 側: システム設定 > 一般 > 共有 の「ローカルホスト名」を `koma-exhibit` に（→ `koma-exhibit.local`）。ファイアウォールが有効なら初回に node の受信許可を聞かれるので許可。省エネルギー: ディスプレイ/コンピュータのスリープを「しない」、「停電後に自動的に起動」を ON。ユーザ > ログインオプションで自動ログイン。
+6. 撮影 PC の koma: タイトルバーの relay ポップアップに `http://koma-exhibit.local:7777`（token を付けたなら同じ文字列）。Wi-Fi 経由でも同じ（同じ SSID にいること。mDNS を通さない Wi-Fi なら Mac mini の IP を直接。`ipconfig getifaddr en0` で確認）。
+7. 更新: 展示機で `cd ~/koma && git pull && git submodule update --init --recursive && yarn install && yarn build`。relay は配信する dist を読み直すだけなので再起動不要（relay 自体を直したときだけ `launchctl kickstart -k gui/$(id -u)/com.baku89.koma-relay`）。Chrome はリロード。
+
+Node を入れられない／repo を置きたくない機械向けには `yarn pack:exhibit`（`scripts/pack-exhibit.sh`）で `build/koma-exhibit/`（dist + relay + ws + 同じ start.sh / install-launchd.sh）を作ってコピーする経路も残してある。
+
+### LED Wall の手動出力（2026-09-27）
+- **Faces**: 面ごと（L/B/R/F、各面の 2 ライン = ws-fanout のライン順 L1 L2 B1 B2 R1 R2 F1 F2 を index で 4 等分）に 1 色。色は `project.addsub.led.faceColors`（hex）に保存、スイッチ `led.faceLight` で「コマの照明」の代わりに出す。優先順位は work light > faces > follow。
+- タイトルバー右のデバイス一覧に LED Wall も入れた（`src/addsub/components/TitleBarLedConnection.vue`、リグの隣・relay の前）: 接続状態、Connect/Disconnect、White/Off、Work light / Faces / Follow のトグル、いま出ている照明・latency・電流見積り。
+- **Chase**（配線チェック、`led.startChase({mode, stepMs, line?})` / `stopChase()`）: `pixel` = 白 1 粒をライン順に走らせる、`line` = ライン丸ごとを順に点灯。実行中は他のモードを止め、終了/停止で元の状態に戻す。モードと step は app config。ws-fanout の `scripts/chase.ts` と同じ手順（全消灯 → 走らせ → 消灯）。
+- ブラウザの**バックグラウンドタブはタイマーが ~1 Hz に絞られる**ので、chase を裏タブで走らせると 1 粒/秒になる（バグではない。sequence も同じなので撮影中の koma タブは前面に）。ハード無しの確認は `dev_modules/ws-fanout/sender/test/mock-device.ts` の `MockDevice` を `WsFanout.fromTransport` に渡して `led.device` に差す。
 ### テストデータ: 2021 年の VICE 撮影（Dragonframe）の取り込み
 - `scripts/import-dragonframe.mjs <dgn-root> <dest> --name …` で Dragonframe の `.dgn` を koma プロジェクトに変換（テイクごとに名前付きレイヤー、フレーム 0 始まり。EDL から外れたコマは `_trash` に「撮影されたフレーム」つきで入る。EXIF + take.xml のメタデータ、meta.txt の FIRST FRAME でカメラ時計を補正。jpg は 3000px に縮小、lv は 1920px、RAW はコピーせず名前だけ）。
 - 生成済み: `~/Dropbox/Works/2024/10_addsub/capture/vice-tests-2021`（"VICE tests 2021"、14 テイク = 440 コマ + 破棄 145、1.2 GB）。プリセット "All takes" / "Main only"。
@@ -581,4 +614,4 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - 同じ板に `dev_modules/ws-fanout/firmware` を焼けば（NodeMCU は BOOT 長押し個体あり）、LED 未接続でも INFO / SHOW ACK まで通る。
 
 ### 未実装（仕様にあるもの）
-- §8.1 AE リアルタイムプレビュー、§9 ライブビューのキャスト、§12 校正ウィザード、§13.2 Houdini とのリアルタイム通信、§14 レイヤー種別と保存フォルダ、§15 のリレー依存パネルと `_lv` キャッシュ、揺れ収束のライブビュー判定、脱調検知。
+- §8.1 AE リアルタイムプレビュー、§9 館外へのキャスト（館内は koma-relay の WebRTC で済む）、§12 校正ウィザード、§13.2 Houdini とのリアルタイム通信、§14 レイヤー種別と保存フォルダ、§15 の 3D 区画（今は座標の数値表示）と `_lv` キャッシュ、relay の launchd / キオスク起動手順、揺れ収束のライブビュー判定、脱調検知。

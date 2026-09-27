@@ -47,7 +47,7 @@ import {
 } from '../projectData'
 import {useLedStore} from './led'
 import {useMillStore, useRigStore} from './machines'
-import {usePrevizStore} from './previz'
+import {PREVIZ_DIR, usePrevizStore} from './previz'
 
 export interface CaptureRequest {
 	/** Timeline frame being shot. */
@@ -84,6 +84,12 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	const currentStep = ref<SequenceStep | null>(null)
 	const message = ref<string | null>(null)
 	const warnings = ref<string[]>([])
+	/**
+	 * The G-code being streamed to the mill right now (path relative to the
+	 * project folder), for the screens' "current line" display. Null between
+	 * cuts.
+	 */
+	const cutting = ref<{frame: number; path: string} | null>(null)
 
 	let abort: AbortController | null = null
 	let capture: CaptureHandler | null = null
@@ -281,8 +287,13 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		const origin = filmOriginMill(kBase, calibration.filmOriginWorld, calibration.millOffset)
 		await mill.send(setWorkOffsetLine(1, {x: origin[0], y: origin[1], z: origin[2]}))
 		message.value = `Cutting frame ${frame} (${lines.length} lines)`
-		await mill.stream(lines, {signal: signal()})
-		await mill.waitIdle({signal: signal()})
+		cutting.value = {frame, path: `${PREVIZ_DIR}/${pf.gcode}`}
+		try {
+			await mill.stream(lines, {signal: signal()})
+			await mill.waitIdle({signal: signal()})
+		} finally {
+			cutting.value = null
+		}
 	}
 
 	/**
@@ -695,6 +706,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		currentStep: readonly(currentStep),
 		message: readonly(message),
 		warnings: readonly(warnings),
+		cutting: readonly(cutting),
 		progress,
 		stackHeight,
 		registerCapture,

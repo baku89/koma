@@ -13,6 +13,7 @@ import AddsubVisualizer from '@/addsub/components/AddsubVisualizer.vue'
 import LedPanel from '@/addsub/components/LedPanel.vue'
 import SequencePanel from '@/addsub/components/SequencePanel.vue'
 import {linearRigPlan, setPlan} from '@/addsub/plan'
+import {setupAddsubRelay} from '@/addsub/relayPublish'
 import {useLedStore} from '@/addsub/stores/led'
 import {useMillStore, useRigStore} from '@/addsub/stores/machines'
 import {usePrevizStore} from '@/addsub/stores/previz'
@@ -67,6 +68,9 @@ const rig = useRigStore()
 const led = useLedStore()
 const previz = usePrevizStore()
 const sequence = useSequenceStore()
+
+// Exhibition screens: live state + display copy of the project (§15.2).
+setupAddsubRelay()
 
 // Warn before unload if a save is in flight (e.g. re-sequencing files on disk
 // after a frame edit) or there are still-unsaved changes — interrupting a

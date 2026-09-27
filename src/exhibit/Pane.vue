@@ -9,6 +9,7 @@ import {computed, onUnmounted, ref, watch} from 'vue'
 
 import {parseToolpath, prepareGCode} from '@/utils/fluidnc'
 
+import {useExhibitRelay} from './relay'
 import type {PaneKind} from './SplitNode.vue'
 import {useExhibitStore} from './store'
 import {ToolpathRenderer, type ToolpathScene} from './toolpathView'
@@ -16,6 +17,45 @@ import {ToolpathRenderer, type ToolpathScene} from './toolpathView'
 const props = defineProps<{kind: PaneKind}>()
 
 const store = useExhibitStore()
+const relay = useExhibitRelay()
+
+//------------------------------------------------------------------------------
+// Live state from the shooting machine (null while it is offline)
+
+interface MachineLive {
+	connected: boolean
+	state: string | null
+	mpos: Record<string, number>
+	wpos: Record<string, number>
+	alarm: {code: number; message: string} | null
+	busy: boolean
+	progress: {index: number; total: number} | null
+	t: number
+}
+
+interface SequenceLive {
+	running: boolean
+	continuous: boolean
+	step: string | null
+	message: string | null
+	progress: {frame: number; step: string; done: string[]; status: string; error?: string; updatedAt: number} | null
+	kBase: number
+	captureFrame: number
+	captureLayer: number
+	gcode: {frame: number; path: string; index: number; total: number} | null
+	t: number
+}
+
+const online = relay.captureOnline
+const liveMill = relay.topic<MachineLive>('machine:mill')
+const liveRig = relay.topic<MachineLive>('machine:rig')
+const liveSequence = relay.topic<SequenceLive>('sequence')
+const live = <T,>(entry: {value: {data: T} | null}) => (online.value ? (entry.value?.data ?? null) : null)
+
+const lastSeen = computed(() => {
+	const t = relay.captureLastSeen.value
+	return t ? new Date(t).toLocaleString('ja-JP', {hour12: false}) : null
+})
 const DEVLOG_URL = 'https://baku89.com/assembling-anew'
 
 const titles: Record<PaneKind, string> = {
@@ -57,9 +97,14 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 
 const rig = computed(() => shown.value?.rig ?? null)
 
-const sequence = computed(() => store.project.value?.addsub?.sequence ?? null)
-const kBase = computed(() => store.project.value?.addsub?.kBase ?? 0)
-const captureFrame = computed(() => store.project.value?.captureShot?.frame ?? null)
+const sequence = computed(
+	() => live(liveSequence)?.progress ?? store.project.value?.addsub?.sequence ?? null
+)
+const kBase = computed(() => live(liveSequence)?.kBase ?? store.project.value?.addsub?.kBase ?? 0)
+const captureFrame = computed(
+	() => live(liveSequence)?.captureFrame ?? store.project.value?.captureShot?.frame ?? null
+)
+const sequenceMessage = computed(() => live(liveSequence)?.message ?? null)
 
 const STEPS = [
 	'cut',
@@ -73,6 +118,13 @@ const STEPS = [
 ]
 
 function stepState(step: string) {
+	const ls = live(liveSequence)
+	if (ls?.running) {
+		const s = ls.progress
+		if (s?.done.includes(step)) return 'done'
+		if (ls.step === step) return 'current'
+		return 'todo'
+	}
 	const s = sequence.value
 	if (!s) return 'todo'
 	if (s.done.includes(step)) return 'done'
@@ -86,11 +138,16 @@ function stepState(step: string) {
 const $gcode = ref<HTMLCanvasElement | null>(null)
 const $gcodeLabels = ref<HTMLCanvasElement | null>(null)
 const gcodeScene = ref<ToolpathScene | null>(null)
-const gcodePath = computed(() =>
-	shown.value
+/** The cut being streamed right now, when the shooting machine is cutting. */
+const liveCut = computed(() => live(liveSequence)?.gcode ?? null)
+const gcodePath = computed(() => {
+	if (liveCut.value) return liveCut.value.path
+	return shown.value
 		? store.gcodePathFor(shown.value.frame, shown.value.take === 'previz' ? 0 : shown.value.layer)
 		: null
-)
+})
+/** Lines already sent to the mill (−1 = not cutting: draw the whole path plain). */
+const sentLines = computed(() => liveCut.value?.index ?? -1)
 const sceneCache = new Map<string, ToolpathScene | null>()
 
 watch(
@@ -132,16 +189,42 @@ function ensureRenderer() {
 	return renderer
 }
 
-watch(gcodeScene, scene => {
-	ensureRenderer()?.setScene(scene)
+watch([gcodeScene, sentLines], ([scene, sent]) => {
+	ensureRenderer()?.setScene(scene, sent)
 })
 
 function tickGcode() {
 	raf = requestAnimationFrame(tickGcode)
 	const r = ensureRenderer()
 	if (!r || !gcodeScene.value) return
-	r.render((performance.now() - t0) / 1000)
+	r.render((performance.now() - t0) / 1000, sentLines.value)
 }
+
+//------------------------------------------------------------------------------
+// LIVE VIEW: the camera's MediaStream over WebRTC
+
+const $video = ref<HTMLVideoElement | null>(null)
+let releaseLive: (() => void) | null = null
+if (props.kind === 'live') releaseLive = relay.requestLive()
+watch(
+	[$video, relay.liveStream],
+	([video, stream]) => {
+		if (video && video.srcObject !== stream) video.srcObject = stream
+	},
+	{immediate: true}
+)
+onUnmounted(() => releaseLive?.())
+
+//------------------------------------------------------------------------------
+// BOX RIG / MILL: live positions, else the pose of the shown take
+
+const fmtAxis = (k: string, v: number | undefined) =>
+	v === undefined ? '—' : v.toFixed(k === 'a' || k === 'b' || k === 'c' ? 2 : 1)
+
+const rigLive = computed(() => live(liveRig))
+const millLive = computed(() => live(liveMill))
+const RIG_AXES = ['x', 'y', 'z', 'a', 'b', 'c']
+const MILL_AXES = ['x', 'y', 'z']
 if (props.kind === 'gcode') raf = requestAnimationFrame(tickGcode)
 onUnmounted(() => {
 	cancelAnimationFrame(raf)
@@ -205,12 +288,14 @@ watch(
 				<li v-for="s in STEPS" :key="s" :class="stepState(s)">{{ s }}</li>
 			</ol>
 			<div class="mono small dim">
-				<template v-if="sequence">
+				<template v-if="sequenceMessage">{{ sequenceMessage }}</template>
+				<template v-else-if="sequence">
 					{{ sequence.status }}
 					<template v-if="sequence.error"> — {{ sequence.error }}</template>
 					· {{ new Date(sequence.updatedAt).toLocaleTimeString('ja-JP', {hour12: false}) }}
 				</template>
 				<template v-else>idle</template>
+				<template v-if="!online"> · offline</template>
 			</div>
 		</div>
 
@@ -226,23 +311,64 @@ watch(
 			<div v-if="gcodeScene && gcodePath" class="mono small dim caption">
 				{{ gcodePath.replace(/^previz\//, '') }} · {{ gcodeScene.lines.length }} lines ·
 				{{ gcodeScene.toolpath.cutLength.toFixed(0) }} mm
+				<template v-if="liveCut">
+					· <span class="bright">cutting frame {{ liveCut.frame + 1 }} · line {{ liveCut.index }} / {{ liveCut.total }}</span>
+				</template>
 			</div>
 		</div>
 
-		<!-- SCENE (needs relay for live positions; last shot's pose is shown) -->
-		<div v-else-if="kind === 'scene'" class="placeholder mono">
-			<div v-if="rig" class="scene-axes">
-				<div v-for="(v, k) in rig" :key="k" class="axis">
-					<span class="dim">{{ String(k).toUpperCase() }}</span>
-					<span>{{ fmt(v, k === 'a' || k === 'b' || k === 'c' ? 2 : 1) }}</span>
+		<!-- SCENE: live machine positions from the relay, else the shown take's pose -->
+		<div v-else-if="kind === 'scene'" class="machines mono">
+			<div class="machine">
+				<div class="machine-head">
+					<span>BOX RIG</span>
+					<span class="dim small">
+						{{ rigLive ? (rigLive.connected ? (rigLive.state ?? '…') : 'not connected') : 'offline' }}
+					</span>
+				</div>
+				<div class="scene-axes">
+					<div v-for="k in RIG_AXES" :key="k" class="axis">
+						<span class="dim">{{ k.toUpperCase() }}</span>
+						<span :class="{dim: !rigLive}">
+							{{ fmtAxis(k, rigLive?.connected ? rigLive.mpos[k] : rig?.[k]) }}
+						</span>
+					</div>
 				</div>
 			</div>
-			<div class="dim small">live positions arrive over the relay</div>
+			<div class="machine">
+				<div class="machine-head">
+					<span>MILL</span>
+					<span class="dim small">
+						{{ millLive ? (millLive.connected ? (millLive.state ?? '…') : 'not connected') : 'offline' }}
+						<template v-if="millLive?.progress"> · {{ millLive.progress.index }} / {{ millLive.progress.total }}</template>
+					</span>
+				</div>
+				<div class="scene-axes">
+					<div v-for="k in MILL_AXES" :key="k" class="axis">
+						<span class="dim">{{ k.toUpperCase() }}</span>
+						<span :class="{dim: !millLive?.connected}">
+							{{ fmtAxis(k, millLive?.connected ? millLive.mpos[k] : undefined) }}
+						</span>
+					</div>
+				</div>
+			</div>
+			<div v-if="!online" class="dim small">
+				shooting machine offline<template v-if="lastSeen"> · last seen {{ lastSeen }}</template>
+				<template v-if="rig"> · showing the pose of the frame on screen A</template>
+			</div>
 		</div>
 
-		<!-- LIVE VIEW (needs relay) -->
-		<div v-else-if="kind === 'live'" class="placeholder mono">
-			<div class="dim">live view — waiting for the shooting machine…</div>
+		<!-- LIVE VIEW: WebRTC from the shooting machine -->
+		<div v-else-if="kind === 'live'" class="live">
+			<video ref="$video" class="live-video" autoplay muted playsinline :class="{off: !relay.liveActive.value}" />
+			<div v-if="!relay.liveActive.value" class="placeholder mono live-overlay">
+				<div class="dim">
+					<template v-if="!online">
+						shooting machine offline<template v-if="lastSeen"><br />last seen {{ lastSeen }}</template>
+					</template>
+					<template v-else>live view is off on the shooting machine</template>
+				</div>
+			</div>
 		</div>
 
 		<!-- QR -->
@@ -368,8 +494,59 @@ dd {
 
 .scene-axes {
 	display: flex;
-	gap: 1.2rem;
+	flex-wrap: wrap;
+	gap: 0.6rem 1.2rem;
 	font-size: 1.1rem;
+}
+
+.machines {
+	flex: 1 1 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 1.2rem;
+}
+
+.machine {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+.machine-head {
+	display: flex;
+	justify-content: space-between;
+	font-size: 0.8rem;
+	letter-spacing: 0.15em;
+}
+
+.bright {
+	color: #fff;
+}
+
+.live {
+	flex: 1 1 0;
+	min-height: 0;
+	position: relative;
+	display: flex;
+}
+
+.live-video {
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	background: #000;
+}
+
+.live-video.off {
+	opacity: 0.25;
+}
+
+.live-overlay {
+	position: absolute;
+	inset: 0;
+	text-align: center;
 }
 
 .axis {

@@ -3,6 +3,7 @@ import * as Bndr from 'bndr-js'
 import * as Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 
+import TitleBarLedConnection from '@/addsub/components/TitleBarLedConnection.vue'
 import {useMillStore, useRigStore} from '@/addsub/stores/machines'
 import {useSequenceStore} from '@/addsub/stores/sequence'
 import {useDmxStore} from '@/stores/dmx'
@@ -13,6 +14,7 @@ import {toTime} from '@/utils'
 
 import TitleBarCameraConnection from './TitleBarCameraConnection.vue'
 import TitleBarMachineConnection from './TitleBarMachineConnection.vue'
+import TitleBarRelayConnection from './TitleBarRelayConnection.vue'
 
 const {actions} = Tq.useTweeq()
 
@@ -153,6 +155,8 @@ const saveStatus = computed(() => {
 			/>
 			<TitleBarMachineConnection :machine="mill" icon="mdi:saw-blade" />
 			<TitleBarMachineConnection :machine="rig" icon="game-icons:mechanical-arm" />
+			<TitleBarLedConnection />
+			<TitleBarRelayConnection />
 			<button
 				v-tooltip="'Emergency stop: feed-hold the mill and the Box Rig, stop the spindle (shift+esc)'"
 				class="estop"
