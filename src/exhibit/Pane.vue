@@ -5,14 +5,14 @@
  * placeholder until the relay exists (§15.2).
  */
 import QRCode from 'qrcode'
-import {computed, onUnmounted, ref, watch} from 'vue'
-
-import {parseToolpath, prepareGCode} from '@/utils/fluidnc'
+import {computed, onUnmounted, ref, shallowRef, watch} from 'vue'
 
 import {useExhibitRelay} from './relay'
 import type {PaneKind} from './SplitNode.vue'
 import {useExhibitStore} from './store'
-import {ToolpathRenderer, type ToolpathScene} from './toolpathView'
+import type {CompactToolpath} from './toolpath.worker'
+import {clearToolpathCache, parseToolpathCached} from './toolpathParser'
+import {ToolpathRenderer} from './toolpathView'
 
 const props = defineProps<{kind: PaneKind}>()
 
@@ -39,7 +39,7 @@ interface SequenceLive {
 	step: string | null
 	message: string | null
 	progress: {frame: number; step: string; done: string[]; status: string; error?: string; updatedAt: number} | null
-	kBase: number
+	filmLift: number
 	captureFrame: number
 	captureLayer: number
 	gcode: {frame: number; path: string; index: number; total: number} | null
@@ -100,7 +100,10 @@ const rig = computed(() => shown.value?.rig ?? null)
 const sequence = computed(
 	() => live(liveSequence)?.progress ?? store.project.value?.addsub?.sequence ?? null
 )
-const kBase = computed(() => live(liveSequence)?.kBase ?? store.project.value?.addsub?.kBase ?? 0)
+const filmLift = computed(() => {
+	const a = store.project.value?.addsub
+	return live(liveSequence)?.filmLift ?? a?.filmLift ?? (a?.kBase === undefined ? 0 : 60 * a.kBase)
+})
 const captureFrame = computed(
 	() => live(liveSequence)?.captureFrame ?? store.project.value?.captureShot?.frame ?? null
 )
@@ -137,7 +140,11 @@ function stepState(step: string) {
 // project, drawn as an annotated wireframe.
 const $gcode = ref<HTMLCanvasElement | null>(null)
 const $gcodeLabels = ref<HTMLCanvasElement | null>(null)
-const gcodeScene = ref<ToolpathScene | null>(null)
+// shallowRef: the parsed path is tens of thousands of numbers — never make
+// it deeply reactive.
+const gcodeScene = shallowRef<CompactToolpath | null>(null)
+/** The path whose toolpath `gcodeScene` holds (for the caption). */
+const gcodeShownPath = ref<string | null>(null)
 /** The cut being streamed right now, when the shooting machine is cutting. */
 const liveCut = computed(() => live(liveSequence)?.gcode ?? null)
 const gcodePath = computed(() => {
@@ -148,31 +155,58 @@ const gcodePath = computed(() => {
 })
 /** Lines already sent to the mill (−1 = not cutting: draw the whole path plain). */
 const sentLines = computed(() => liveCut.value?.index ?? -1)
-const sceneCache = new Map<string, ToolpathScene | null>()
 
-watch(
-	() => [gcodePath.value, store.previzModified.value] as const,
-	async ([rel]) => {
-		if (!rel) {
-			gcodeScene.value = null
-			return
-		}
-		let scene = sceneCache.get(rel)
-		if (scene === undefined) {
-			const text = await store.readText(rel)
-			if (text) {
-				const lines = prepareGCode(text).map(l => l.line)
-				scene = {toolpath: parseToolpath(lines), lines}
-			} else {
-				scene = null
-			}
-			if (sceneCache.size > 40) sceneCache.clear()
-			sceneCache.set(rel, scene)
-		}
-		if (gcodePath.value === rel) gcodeScene.value = scene
-	},
-	{immediate: true}
-)
+/**
+ * Screen A plays at 18 fps and every film frame has its own cut; swapping
+ * the view that often is unreadable and, worse, made the page stutter
+ * (fetch + parse + GPU upload per frame). Follow the shown frame at most
+ * every SWAP_MS instead — leading edge, then the latest frame at the
+ * trailing edge — and parse in a worker.
+ */
+const SWAP_MS = 400
+let swapTimer: ReturnType<typeof setTimeout> | null = null
+let lastSwapAt = 0
+let swapGeneration = 0
+
+async function loadGcode(rel: string | null) {
+	const gen = ++swapGeneration
+	lastSwapAt = performance.now()
+	if (!rel) {
+		gcodeScene.value = null
+		gcodeShownPath.value = null
+		return
+	}
+	const scene = await parseToolpathCached(rel, () => store.readText(rel))
+	if (gen !== swapGeneration) return
+	gcodeScene.value = scene
+	gcodeShownPath.value = rel
+}
+
+function requestGcode(rel: string | null) {
+	if (rel === gcodeShownPath.value && rel !== null) {
+		if (swapTimer) clearTimeout(swapTimer)
+		swapTimer = null
+		return
+	}
+	const wait = SWAP_MS - (performance.now() - lastSwapAt)
+	if (wait <= 0 && !swapTimer) {
+		void loadGcode(rel)
+		return
+	}
+	if (swapTimer) return
+	swapTimer = setTimeout(() => {
+		swapTimer = null
+		void loadGcode(gcodePath.value)
+	}, Math.max(0, wait))
+}
+
+watch(gcodePath, rel => requestGcode(rel), {immediate: true})
+// previz/frames.json (and so the G-code files) changed: drop parsed paths.
+watch(store.previzModified, () => {
+	clearToolpathCache()
+	gcodeShownPath.value = null
+	requestGcode(gcodePath.value)
+})
 
 let renderer: ToolpathRenderer | null = null
 let raf = 0
@@ -186,18 +220,23 @@ function ensureRenderer() {
 		dim: '#707070',
 		accent: '#ffffff',
 	})
+	// A scene may have arrived before the canvases were mounted.
+	renderer.setScene(gcodeScene.value, sentLines.value)
 	return renderer
 }
 
-watch([gcodeScene, sentLines], ([scene, sent]) => {
-	ensureRenderer()?.setScene(scene, sent)
+watch(gcodeScene, scene => {
+	ensureRenderer()?.setScene(scene, sentLines.value)
+})
+watch(sentLines, sent => {
+	ensureRenderer()?.setSent(sent)
 })
 
 function tickGcode() {
 	raf = requestAnimationFrame(tickGcode)
 	const r = ensureRenderer()
 	if (!r || !gcodeScene.value) return
-	r.render((performance.now() - t0) / 1000, sentLines.value)
+	r.render((performance.now() - t0) / 1000)
 }
 
 //------------------------------------------------------------------------------
@@ -228,6 +267,8 @@ const MILL_AXES = ['x', 'y', 'z']
 if (props.kind === 'gcode') raf = requestAnimationFrame(tickGcode)
 onUnmounted(() => {
 	cancelAnimationFrame(raf)
+	if (swapTimer) clearTimeout(swapTimer)
+	swapGeneration++
 	renderer?.dispose()
 })
 
@@ -265,8 +306,8 @@ watch(
 			<dd class="mono">{{ shown ? shown.frame + 1 : '—' }}</dd>
 			<dt>Exposure</dt>
 			<dd class="mono">{{ exposure }}</dd>
-			<dt>Block</dt>
-			<dd class="mono">k = {{ shown?.kBase ?? '—' }}</dd>
+			<dt>Lift</dt>
+			<dd class="mono">{{ shown?.filmLift === undefined ? '—' : `${shown.filmLift} mm` }}</dd>
 			<dt>Rig</dt>
 			<dd class="mono small">
 				<template v-if="rig">
@@ -282,7 +323,7 @@ watch(
 			<div class="mono">
 				capture frame
 				<span class="big">{{ captureFrame === null ? '—' : captureFrame + 1 }}</span>
-				<span class="dim"> · k_base {{ kBase }}</span>
+				<span class="dim"> · lift {{ filmLift }} mm</span>
 			</div>
 			<ol class="steps mono">
 				<li v-for="s in STEPS" :key="s" :class="stepState(s)">{{ s }}</li>
@@ -308,9 +349,9 @@ watch(
 			<div v-if="!gcodeScene" class="placeholder mono">
 				<div class="dim">{{ gcodePath ? 'loading…' : 'no cut on this frame' }}</div>
 			</div>
-			<div v-if="gcodeScene && gcodePath" class="mono small dim caption">
-				{{ gcodePath.replace(/^previz\//, '') }} · {{ gcodeScene.lines.length }} lines ·
-				{{ gcodeScene.toolpath.cutLength.toFixed(0) }} mm
+			<div v-if="gcodeScene && gcodeShownPath" class="mono small dim caption">
+				{{ gcodeShownPath.replace(/^previz\//, '') }} · {{ gcodeScene.lineCount }} lines ·
+				{{ gcodeScene.cutLength.toFixed(0) }} mm
 				<template v-if="liveCut">
 					· <span class="bright">cutting frame {{ liveCut.frame + 1 }} · line {{ liveCut.index }} / {{ liveCut.total }}</span>
 				</template>

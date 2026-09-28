@@ -10,6 +10,7 @@ import {computed, onMounted, onUnmounted, ref} from 'vue'
 import {useExhibitRelay} from './relay'
 import ScreenA from './ScreenA.vue'
 import ScreenB from './ScreenB.vue'
+import {useExhibitSound} from './sound'
 import {useExhibitStore} from './store'
 
 const store = useExhibitStore()
@@ -17,6 +18,9 @@ const relay = useExhibitRelay()
 
 const params = new URLSearchParams(location.search)
 const screen = (params.get('screen') ?? 'ab') as 'a' | 'b' | 'ab'
+
+// Looped click stem while screen A is on this window (§15, sound.ts).
+const sound = useExhibitSound(screen !== 'b')
 
 const needsGesture = computed(
 	() => !store.source.value || store.permission.value !== 'granted'
@@ -118,12 +122,21 @@ async function placeOnScreens() {
 	screenCount.value = screens.length
 	const [first, second] = screens
 	const base = location.pathname
-	const openOn = (s: any, which: 'a' | 'b') =>
+	// Keep how this page found its project (?relay=, ?opfs=, ?seed=).
+	const carry = new URLSearchParams(location.search)
+	carry.delete('setup')
+	const openOn = (s: any, which: 'a' | 'b') => {
+		const p = new URLSearchParams(carry)
+		p.set('screen', which)
+		// noopener: a separate browsing context group, so Chrome may give the
+		// window its own renderer — B's WebGL and decoding never stall A's
+		// video (same-origin popups otherwise share one main thread).
 		window.open(
-			`${base}?screen=${which}`,
+			`${base}?${p}`,
 			`koma-exhibit-${which}`,
-			`left=${s.availLeft},top=${s.availTop},width=${s.availWidth},height=${s.availHeight}`
+			`noopener,left=${s.availLeft},top=${s.availTop},width=${s.availWidth},height=${s.availHeight}`
 		)
+	}
 	openOn(first, 'a')
 	if (second) openOn(second, 'b')
 }
@@ -160,8 +173,9 @@ async function goFullscreen() {
 					project folder (the one holding <code>project.json</code>).
 				</p>
 				<p v-else-if="store.permission.value !== 'granted'">
-					<strong>{{ sourceName }}</strong> needs read permission again.
-					Choose “Allow on every visit” to skip this after a restart.
+					<strong>{{ sourceName }}</strong> needs read permission again —
+					click anywhere (or press a key). Choose “Allow on every visit” in
+					Chrome's prompt to skip this after a restart.
 				</p>
 				<p v-else>
 					<strong>{{ sourceName }}</strong>
@@ -180,6 +194,12 @@ async function goFullscreen() {
 						Grant access
 					</button>
 					<button @click="store.pick()">Choose folder…</button>
+					<button
+						v-if="store.source.value?.kind === 'dir' && store.relayBase.value"
+						@click="store.useRelay()"
+					>
+						Use relay instead
+					</button>
 					<button v-if="store.source.value?.kind === 'dir'" @click="store.forget()">Forget folder</button>
 				</div>
 				<h2>This window</h2>
@@ -188,6 +208,29 @@ async function goFullscreen() {
 					<button :class="{on: screen === 'b'}" @click="setScreen('b')">Screen B (data)</button>
 					<button :class="{on: screen === 'ab'}" @click="setScreen('ab')">Both</button>
 					<button @click="goFullscreen">Fullscreen</button>
+				</div>
+				<h2 v-if="sound.active">Sound (screen A)</h2>
+				<div v-if="sound.active" class="buttons sound">
+					<button :class="{on: sound.enabled.value}" @click="sound.enabled.value = !sound.enabled.value">
+						{{ sound.enabled.value ? 'On' : 'Off' }}
+					</button>
+					<label>
+						Volume
+						<input
+							v-model.number="sound.volume.value"
+							type="range"
+							min="0"
+							max="1"
+							step="0.01"
+						/>
+						{{ Math.round(sound.volume.value * 100) }}%
+					</label>
+					<span class="hint">
+						<template v-if="sound.muted">muted by ?mute</template>
+						<template v-else-if="sound.blocked.value">autoplay blocked — click anywhere to start</template>
+						<template v-else-if="sound.playing.value">playing</template>
+						<template v-else>stopped</template>
+					</span>
 				</div>
 				<h2>Monitors</h2>
 				<div class="buttons">
@@ -275,6 +318,21 @@ button.on {
 	background: #fff;
 	color: #000;
 	border-color: #fff;
+}
+
+.sound {
+	align-items: center;
+}
+
+.sound label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.sound input[type='range'] {
+	width: 10rem;
+	accent-color: #fff;
 }
 
 .corner {

@@ -13,7 +13,7 @@ import {
 	readCachedVideo,
 	writeCachedVideo,
 } from './encode'
-import {useExhibitStore} from './store'
+import {type ExhibitFrame, useExhibitStore} from './store'
 
 const props = defineProps<{broadcast: boolean}>()
 
@@ -27,6 +27,14 @@ const REENCODE_MIN_INTERVAL = 10 * 60 * 1000
 
 const videoUrl = ref<string | null>(null)
 const videoSignature = ref<string | null>(null)
+/**
+ * The take list the playing video was encoded from, and its rate. The store's
+ * list may move on while this video still plays (a new take, a re-encode in
+ * progress), so the playhead is mapped through this list and matched to the
+ * current one by filename.
+ */
+let videoFrames: ExhibitFrame[] = []
+let videoFps = 18
 const encoding = ref<{done: number; total: number} | null>(null)
 const $video = ref<HTMLVideoElement | null>(null)
 
@@ -57,15 +65,23 @@ function tick() {
 		if (n > 0) {
 			index.value = (index.value + 1) % n
 			void showFrame(index.value)
-			announce(index.value)
+			announce()
 		}
 	}
 	timer = setTimeout(tick, 1000 / store.fps.value)
 }
 
-function announce(i: number) {
+/** Tell screen B (in its own window) what is on screen, by index and identity. */
+function announce() {
 	if (!props.broadcast) return
-	channel.postMessage({type: 'frame', index: i, total: frames.value.length})
+	const f = frames.value[index.value]
+	if (!f) return
+	channel.postMessage({
+		type: 'frame',
+		index: index.value,
+		filename: f.filename,
+		total: frames.value.length,
+	})
 }
 
 //------------------------------------------------------------------------------
@@ -82,7 +98,7 @@ async function ensureVideo() {
 
 	const cached = await readCachedVideo(sig)
 	if (cached) {
-		setVideo(cached, sig)
+		setVideo(cached, sig, list, store.fps.value)
 		return
 	}
 	if (encoding.value) return
@@ -90,11 +106,12 @@ async function ensureVideo() {
 
 	encodeAbort = new AbortController()
 	encoding.value = {done: 0, total: list.length}
+	const fps = store.fps.value
 	try {
 		const blob = await encodeTakesToMp4(
 			list.map(f => ({blob: () => store.frameBlob(f.filename)})),
 			{
-				fps: store.fps.value,
+				fps,
 				width: 1920,
 				height: 1280,
 				signal: encodeAbort.signal,
@@ -105,7 +122,7 @@ async function ensureVideo() {
 		)
 		await writeCachedVideo(sig, blob)
 		lastEncodeAt = Date.now()
-		setVideo(blob, sig)
+		setVideo(blob, sig, list, fps)
 	} catch (e) {
 		// eslint-disable-next-line no-console
 		console.warn('[exhibit] encode failed', e)
@@ -115,36 +132,46 @@ async function ensureVideo() {
 	}
 }
 
-function setVideo(blob: Blob, sig: string) {
+function setVideo(blob: Blob, sig: string, list: ExhibitFrame[], fps: number) {
 	if (videoUrl.value) URL.revokeObjectURL(videoUrl.value)
 	videoUrl.value = URL.createObjectURL(blob)
 	videoSignature.value = sig
+	videoFrames = list
+	videoFps = fps
 }
 
-/** Map the video time to the take being shown, for screen B. */
+/** Map the video time to the take being shown, for the counter and screen B. */
 function onTimeUpdate() {
 	const v = $video.value
-	if (!v) return
-	const i = Math.min(frames.value.length - 1, Math.floor(v.currentTime * store.fps.value))
+	if (!v || videoFrames.length === 0) return
+	const k = Math.min(videoFrames.length - 1, Math.floor(v.currentTime * videoFps))
+	if (k < 0) return
+	const take = videoFrames[k]
+	const i = store.indexByFilename.value.get(take.filename) ?? Math.min(k, frames.value.length - 1)
 	if (i >= 0 && i !== index.value) {
 		index.value = i
-		announce(i)
+		announce()
 	}
 }
 
 let timeTimer: ReturnType<typeof setInterval> | null = null
+let heartbeat: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
 	void showFrame(0)
 	timer = setTimeout(tick, 1000 / store.fps.value)
 	// `timeupdate` is too coarse (~4 Hz); poll at frame rate.
 	timeTimer = setInterval(onTimeUpdate, 1000 / store.fps.value)
+	// Heartbeat so a screen B opened later (or one that missed a message)
+	// catches up within a second.
+	heartbeat = setInterval(announce, 1000)
 })
 
 onUnmounted(() => {
 	stopped = true
 	if (timer) clearTimeout(timer)
 	if (timeTimer) clearInterval(timeTimer)
+	if (heartbeat) clearInterval(heartbeat)
 	encodeAbort?.abort()
 	channel.close()
 })
@@ -198,12 +225,17 @@ const current = computed(() => frames.value[index.value] ?? null)
 	overflow: hidden;
 }
 
+/*
+ * Absolutely sized: as a grid item, `height: 100%` resolved against an
+ * auto row, so a 3:2 video in a wider pane took its height from the width
+ * and overflowed the bottom.
+ */
 .frame {
-	max-width: 100%;
-	max-height: 100%;
+	position: absolute;
+	inset: 0;
 	width: 100%;
 	height: 100%;
-	object-fit: contain;
+	object-fit: cover;
 }
 
 .empty {

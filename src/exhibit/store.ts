@@ -15,12 +15,19 @@
  */
 
 import {del, get, set} from 'idb-keyval'
-import {computed, reactive, readonly, ref, shallowRef} from 'vue'
+import {computed, reactive, readonly, ref, shallowRef, watch} from 'vue'
 
 import {useExhibitRelay} from './relay'
 import {DirSource, HttpSource, type ProjectSource} from './source'
 
 const HANDLE_KEY = 'com.baku89.koma.exhibit.projectDir'
+/**
+ * Which source the user chose last: a picked folder ('dir') or the relay.
+ * A folder picked on purpose must survive reloads even when a relay is
+ * reachable (e.g. `?relay=` in the URL), otherwise it looks as if the
+ * folder was never remembered. localStorage: cheap and synchronous.
+ */
+const SOURCE_PREF_KEY = 'com.baku89.koma.exhibit.sourcePref'
 const POLL_MS = 4000
 const PREVIZ_FRAMES = 'previz/frames.json'
 
@@ -34,6 +41,8 @@ interface RawShot {
 	cameraConfigs?: Record<string, unknown>
 	rig?: Record<string, number>
 	mill?: Record<string, number>
+	filmLift?: number
+	/** Pre-filmLift files: base block index (lift = 60·kBase). */
 	kBase?: number
 	previzFrame?: number
 	led?: {file: string}
@@ -56,6 +65,7 @@ interface RawProject {
 	layers?: {id?: string; name?: string}[]
 	layerPresets?: {id: string; name: string; layers: {layerId: string}[]}[]
 	addsub?: {
+		filmLift?: number
 		kBase?: number
 		parkLayer?: number
 		sequence?: {
@@ -82,7 +92,7 @@ export interface ExhibitFrame {
 	captureDate?: number
 	cameraConfigs?: Record<string, unknown>
 	rig?: Record<string, number>
-	kBase?: number
+	filmLift?: number
 	previzFrame?: number
 	led?: string
 }
@@ -107,7 +117,13 @@ const previzFile = shallowRef<PrevizFile | null>(null)
 const previzVersion = ref<string | null>(null)
 /** Bumped whenever previz/frames.json changed (consumers re-read G-code). */
 const previzModified = ref<number | null>(null)
+/**
+ * Text files read through `readText` (G-code shown on screen B). LRU: every
+ * shown take has its own NC file (tens to hundreds of KB), and a loop over
+ * thousands of takes would otherwise keep all of them.
+ */
 const textCache = new Map<string, Promise<string | null>>()
+const TEXT_CACHE_LIMIT = 100
 const error = ref<string | null>(null)
 const state = reactive({polling: false})
 
@@ -192,7 +208,7 @@ const frames = computed<ExhibitFrame[]>(() => {
 			captureDate: shot.captureDate,
 			cameraConfigs: shot.cameraConfigs,
 			rig: shot.rig,
-			kBase: shot.kBase,
+			filmLift: shot.filmLift ?? (shot.kBase === undefined ? undefined : 60 * shot.kBase),
 			previzFrame: shot.previzFrame,
 			led: shot.led?.file,
 		})
@@ -252,6 +268,40 @@ const fps = computed(() => project.value?.fps ?? 18)
 
 const shown = computed<ExhibitFrame | null>(() => frames.value[shownIndex.value] ?? null)
 
+/** Take filename → index into `frames`, to follow screen A by identity. */
+const indexByFilename = computed(() => {
+	const m = new Map<string, number>()
+	frames.value.forEach((f, i) => {
+		if (!m.has(f.filename)) m.set(f.filename, i)
+	})
+	return m
+})
+
+/** What screen A last said it was showing (screen B resolves it by filename). */
+export interface Playhead {
+	index: number
+	filename: string
+}
+
+const lastPlayhead = shallowRef<Playhead | null>(null)
+
+/**
+ * Follow screen A. The take is matched by filename — the two windows may
+ * hold different versions of project.json (a take was just added, or A is
+ * still playing the video it encoded from an older list), in which case the
+ * bare index would point at the wrong take.
+ */
+function syncTo(head: Playhead) {
+	lastPlayhead.value = head
+	const i = indexByFilename.value.get(head.filename)
+	shownIndex.value = i ?? Math.min(head.index, Math.max(0, frames.value.length - 1))
+}
+
+// The take list changed under us (project.json re-read): re-resolve.
+watch(frames, () => {
+	if (lastPlayhead.value) syncTo(lastPlayhead.value)
+})
+
 //------------------------------------------------------------------------------
 // Source selection
 
@@ -277,7 +327,12 @@ async function detectRelay(): Promise<string | null> {
 	if (location.protocol !== 'http:' && location.protocol !== 'https:') return null
 	try {
 		const res = await fetch('/api/status', {cache: 'no-store'})
-		if (res.ok) return location.origin
+		// A dev server answers any path with index.html (200): insist on the
+		// relay's JSON shape.
+		if (res.ok && /json/i.test(res.headers.get('content-type') ?? '')) {
+			const body = await res.json()
+			if (body && typeof body === 'object' && 'capture' in body) return location.origin
+		}
 	} catch {
 		// not served by the relay
 	}
@@ -402,24 +457,88 @@ async function getFileHandle(root: FileSystemDirectoryHandle, rel: string) {
 	return d.getFileHandle(parts[parts.length - 1])
 }
 
-/** Pick the source at startup: relay → OPFS query → remembered folder. */
+type SourcePref = 'dir' | 'relay'
+
+function sourcePref(): SourcePref | null {
+	try {
+		const v = localStorage.getItem(SOURCE_PREF_KEY)
+		return v === 'dir' || v === 'relay' ? v : null
+	} catch {
+		return null
+	}
+}
+
+function setSourcePref(v: SourcePref | null) {
+	try {
+		if (v) localStorage.setItem(SOURCE_PREF_KEY, v)
+		else localStorage.removeItem(SOURCE_PREF_KEY)
+	} catch {
+		// private mode etc.
+	}
+}
+
+/** The relay found at startup (its live state is used with either source). */
+const relayBase = ref<string | null>(null)
+
+async function rememberedHandle(): Promise<FileSystemDirectoryHandle | null> {
+	try {
+		return ((await get(HANDLE_KEY)) as FileSystemDirectoryHandle | undefined) ?? null
+	} catch (e) {
+		error.value = e instanceof Error ? e.message : String(e)
+		return null
+	}
+}
+
+/** Use a remembered folder handle; polls at once when it is still readable. */
+async function useRememberedDir(h: FileSystemDirectoryHandle) {
+	source.value = new DirSource(h)
+	project.value = null
+	projectVersion.value = null
+	previzFile.value = null
+	previzVersion.value = null
+	textCache.clear()
+	try {
+		permission.value = await h.queryPermission({mode: 'read'})
+	} catch (e) {
+		// A handle from another profile / a removed volume.
+		permission.value = 'denied'
+		error.value = e instanceof Error ? e.message : String(e)
+		return
+	}
+	if (permission.value === 'granted') startPolling()
+	else armGesturePermission()
+}
+
+/**
+ * Pick the source at startup. A relay, when reachable, always supplies the
+ * live state; the project comes from the folder the user picked last if
+ * they did, else from the relay, else from `?opfs=`, else from a
+ * remembered folder.
+ */
 async function restore() {
-	const relayBase = await detectRelay()
-	if (relayBase) {
-		relay.connect(relayBase)
-		useSource(new HttpSource(`${relayBase}/project/`))
+	// Ask the browser not to evict our storage (the folder handle in
+	// IndexedDB, the encoded loop in OPFS) under pressure.
+	void navigator.storage?.persist?.().catch(() => false)
+
+	const base = await detectRelay()
+	relayBase.value = base
+	if (base) relay.connect(base)
+
+	const pref = sourcePref()
+	if (pref === 'dir') {
+		const h = await rememberedHandle()
+		if (h) {
+			await useRememberedDir(h)
+			return
+		}
+	}
+	if (base) {
+		useSource(new HttpSource(`${base}/project/`))
 		return
 	}
 	if (await restoreFromQuery().catch(() => false)) return
-	try {
-		const h = (await get(HANDLE_KEY)) as FileSystemDirectoryHandle | undefined
-		if (!h) return
-		source.value = new DirSource(h)
-		permission.value = await h.queryPermission({mode: 'read'})
-		if (permission.value === 'granted') startPolling()
-	} catch (e) {
-		error.value = e instanceof Error ? e.message : String(e)
-	}
+	const h = await rememberedHandle()
+	if (h) await useRememberedDir(h)
 }
 
 // A pushed project.json / frames.json: don't wait for the poll.
@@ -431,8 +550,40 @@ relay.onFile(({rel}) => {
 async function requestPermission() {
 	const s = source.value
 	if (!(s instanceof DirSource)) return
-	permission.value = await s.handle.requestPermission({mode: 'read'})
+	try {
+		permission.value = await s.handle.requestPermission({mode: 'read'})
+	} catch {
+		return
+	}
 	if (permission.value === 'granted') startPolling()
+}
+
+/**
+ * After a browser restart Chrome needs one gesture before a remembered
+ * folder can be read again (unless "Allow on every visit" was chosen). Any
+ * click or key on the page is enough — hook the first one so the person
+ * doesn't have to find the button.
+ */
+let gestureArmed = false
+function armGesturePermission() {
+	if (gestureArmed || typeof window === 'undefined') return
+	gestureArmed = true
+	const onGesture = () => {
+		if (permission.value === 'granted' || !(source.value instanceof DirSource)) {
+			disarm()
+			return
+		}
+		void requestPermission().then(() => {
+			if (permission.value === 'granted') disarm()
+		})
+	}
+	const disarm = () => {
+		gestureArmed = false
+		window.removeEventListener('pointerdown', onGesture)
+		window.removeEventListener('keydown', onGesture)
+	}
+	window.addEventListener('pointerdown', onGesture)
+	window.addEventListener('keydown', onGesture)
 }
 
 /** Needs a user gesture. */
@@ -440,19 +591,29 @@ async function pick() {
 	try {
 		const h = await window.showDirectoryPicker({id: 'exhibit', mode: 'read'})
 		await set(HANDLE_KEY, h)
-		relay.disconnect()
+		setSourcePref('dir')
 		useSource(new DirSource(h))
 	} catch {
 		// cancelled
 	}
 }
 
+/** Read the project from the relay again (the folder stays remembered). */
+function useRelay() {
+	const base = relayBase.value
+	if (!base) return
+	setSourcePref('relay')
+	useSource(new HttpSource(`${base}/project/`))
+}
+
 async function forget() {
 	stopPolling()
 	await del(HANDLE_KEY)
+	setSourcePref(null)
 	source.value = null
 	project.value = null
 	permission.value = 'none'
+	if (relayBase.value) useSource(new HttpSource(`${relayBase.value}/project/`))
 }
 
 function startPolling() {
@@ -512,7 +673,11 @@ function gcodePathFor(timelineFrame: number, layer = 0): string | null {
 
 function readText(rel: string): Promise<string | null> {
 	let p = textCache.get(rel)
-	if (!p) {
+	if (p) {
+		// Refresh LRU order.
+		textCache.delete(rel)
+		textCache.set(rel, p)
+	} else {
 		p = (async () => {
 			const s = source.value
 			if (!s) return null
@@ -524,6 +689,10 @@ function readText(rel: string): Promise<string | null> {
 			}
 		})()
 		textCache.set(rel, p)
+		while (textCache.size > TEXT_CACHE_LIMIT) {
+			const oldest = textCache.keys().next().value as string
+			textCache.delete(oldest)
+		}
 	}
 	return p
 }
@@ -620,10 +789,14 @@ export function useExhibitStore() {
 		fps,
 		shownIndex,
 		shown,
+		indexByFilename,
+		syncTo,
+		relayBase: readonly(relayBase),
 		error: readonly(error),
 		restore,
 		requestPermission,
 		pick,
+		useRelay,
 		forget,
 		frameUrl,
 		frameBlob,

@@ -14,11 +14,15 @@ const props = defineProps<{follow: boolean}>()
 const store = useExhibitStore()
 const relay = useExhibitRelay()
 
-// Follow screen A's playhead: in its own window via the broadcast, side by
-// side with A through the shared store (A writes shownIndex directly).
+// Follow screen A's playhead: in its own window via the broadcast (matched
+// by take filename, see store.syncTo), side by side with A through the
+// shared store (A writes shownIndex directly).
 const channel = new BroadcastChannel('koma-exhibit')
 channel.onmessage = e => {
-	if (props.follow && e.data?.type === 'frame') store.shownIndex.value = e.data.index
+	const d = e.data
+	if (!props.follow || d?.type !== 'frame') return
+	if (typeof d.filename === 'string') store.syncTo({index: d.index, filename: d.filename})
+	else store.shownIndex.value = d.index
 }
 
 onUnmounted(() => {

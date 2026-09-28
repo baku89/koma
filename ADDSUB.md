@@ -136,7 +136,7 @@ koma 全体のプロジェクト知識（Tethr、アセット保存、Preview、
 - 集塵: PiBot の MOSFET 出力 → 集塵機キットの J7 フォトカプラ入力。FluidNC の coolant 出力（M8/M9）か user output（M62/M63）に割り当て、切削の G-code の中で on/off する。撮影シーケンスでは扱わない
 - ワーク固定: ミスミ TAKPS8 偏心クランプを使った自作バイス
 - コレット: Φ4/6/8（最大 Φ8）
-- 被写体: 高さ 60mm に切り揃えたブロック。材料は固定しない（スタイロフォーム、レジン、蝋、アルミ、木など。異素材の積層に限らない）。ブロックの継ぎ足しは 7章
+- 被写体: ブロック（目安 60mm 高、揃えなくてよい）。材料は固定しない（スタイロフォーム、レジン、蝋、アルミ、木など。異素材の積層に限らない）。ブロックの継ぎ足しは 7章
 - エンドミルは荒削りに安価な超硬アップカット、仕上げに国産ボールエンドミル
 
 ### 3.3 LED 照明（Box Rig の周囲4面）
@@ -209,19 +209,19 @@ koma 全体のプロジェクト知識（Tethr、アセット保存、Preview、
 ## 7. ブロックの継ぎ足し
 
 - フライス盤の切削高さは 100mm が限度なので、盤上には常に2段までしか載せない
-- ブロックの高さは **60mm** に揃える。LED のピッチ（33.3mm）とは揃えない。LED の段ずらしは展開図からのサンプル位置をずらして表すので（8章）、整数粒である必要はない
-- 次のブロックを載せられるのは、上段の残りが 40mm 以下になってから（残り + 60 ≤ 100）。交換のしきい値は運用で決める（目安 20〜40mm）
+- ブロックの高さは揃えなくてよい（目安 60mm）。座標に効くのはブロックの枚数ではなく、A の下に継ぎ足したブロックの **高さの合計 = film lift（mm）** だけ。LED の段ずらしも展開図からのサンプル位置を lift ぶんずらして表すので（8章）、LED のピッチ（33.3mm）と揃える必要も、整数粒である必要もない
+- 次のブロックを載せられるのは、上段の残り + 次のブロックの高さ ≤ 100 になってから。交換のしきい値は運用で決める（目安 20〜40mm）
 
 ### 7.1 座標系
 
 - **film 座標**: world と同じ向き（Y-up）で、最初のブロック A の底面の角を原点にする。切削が進むと、作業面は film 座標の中を **下へ** 下がっていく
-- 2つ目のブロック B は A の下（Y = −60〜0）。k 番目は Y = −60k 〜 −60(k−1)
-- **world Y = film Y + 60 · k_base + ブロック底面の高さ**（k_base は盤上の最下段のブロック番号）。盤上から見ると、段を足すたびに film の世界が1ブロックぶん持ち上がる。カメラと LED が world 座標で上がっていくのはこのため
-- LED は段ごとに 60mm · k_base ぶんずらす（8章）
+- 2つ目のブロック B は A の下（Y = −h_B〜0）。以降も順に下へ積む
+- **world Y = film Y + filmLift + film 原点の高さ**。`filmLift` は A の下に継ぎ足したブロックの高さの合計（mm）で、`project.addsub.filmLift` に持つ。盤上から見ると、段を足すたびに film の世界がそのブロックの高さぶん持ち上がる。カメラと LED が world 座標で上がっていくのはこのため
+- LED は filmLift ぶんずらす（8章）
 - 切削パスも film 座標で持つ
   - CAM は Fusion 360。書き出した G-code には手を入れない
   - Fusion のセットアップの WCS 原点を film 座標の原点（ブロック A の底面の角）に置き、軸の向きはフライス盤に合わせる（3.0 の対応）。G-code は WCS 基準の座標と `G54` の選択だけを含む
-  - koma は各コマの G-code を流す前に、別のコマンドとして `G10 L2 P1 X.. Y.. Z..` を送り、G54 の原点を「film 原点がいまフライス盤のどこにあるか」に合わせる。段を継ぎ足すと、この Z が 60mm ずつ上がる
+  - koma は各コマの G-code を流す前に、別のコマンドとして `G10 L2 P1 X.. Y.. Z..` を送り、G54 の原点を「film 原点がいまフライス盤のどこにあるか」に合わせる。段を継ぎ足すと、この Z が filmLift ぶん上がる
   - そのため、継ぎ足しても G-code を書き出し直す必要はない
   - Fusion のポストプロセッサが `G10` などで原点を書き換えないことは確認しておく
 
@@ -229,13 +229,14 @@ koma 全体のプロジェクト知識（Tethr、アセット保存、Preview、
 
 1. 上段の残りが 20mm 未満になったら止める
 2. 次のブロックの完全体だけを盤上に載せる
-3. **再演パス**: 既存の全コマを、記録済みのカメラ姿勢・露出・LED で、k_base だけ更新して自動で撮り直す
+3. **再演パス**: 既存の全コマを、記録済みのカメラ姿勢・露出・LED で、filmLift の差分だけ持ち上げて自動で撮り直す
 4. 上段の残りを接ぐ
-5. 続きのコマから再開する（カメラは 60mm 上から）
+5. 続きのコマから再開する（カメラは継ぎ足したブロックの高さぶん上から）
 
 ### 7.3 koma 側でやること
 
 - 再演パスは 1ブロック = 1レイヤーとして持つ（14章の「再撮影」レイヤー）
+- filmLift の更新は「Append Block…」（高さを入力して足す）か、millOffset 校正済みの状態で工具先端を接合面（= 今の film 原点）に当てて実測する照準ボタン。実測のほうが接着層や寸法誤差を吸収できる
 - 再演パスの所要時間を見積もる
 - Box Rig の縦軸（Y）のストロークの範囲で何段まで行けるか確認する
 - 途中で止まったときに再開できるよう、進行状況を project に残す
@@ -245,12 +246,12 @@ koma 全体のプロジェクト知識（Tethr、アセット保存、Preview、
 ## 8. LED ライティングの記録と再現
 
 - 各コマの LED は **4面の展開図の画像** で持つ。これがそのコマのライティングの元データ
-- 画像は film 座標で描く。段ずらし（7章）のぶん、物理的な LED の範囲より下に長くしておく（余白は予定ブロック数 × 60mm）
-- 実機に送るときは、画像を縦に 60mm × k_base ずらして、各粒の位置の色を拾う
+- 画像は film 座標で描く。段ずらし（7章）のぶん、物理的な LED の範囲より下に長くしておく（余白は予定する filmLift の最大値）
+- 実機に送るときは、画像を縦に filmLift ぶんずらして、各粒の位置の色を拾う
   - 粒の位置はピクセルの中心と揃わないので、程よく補間する（バイリニア、または LED のピッチ程度の範囲の平均）
-  - ブロックの高さ（60mm）と LED のピッチ（33.3mm）は揃っていないが、補間で拾うので問題ない
+  - ブロックの高さと LED のピッチ（33.3mm）は揃っていないが、補間で拾うので問題ない
 - **配置マップ**: 各粒の展開図上の座標（面、水平位置、film Y）を ws-fanout のライン順に並べた表。テープ 1400mm、100mm 間隔のジグザグ、33.3mm ピッチ、折り返し位置から生成する
-- 送った RGB は画像・配置マップ・k_base から再計算できるので、保存するのは画像と、配置マップのバージョンだけでよい
+- 送った RGB は画像・配置マップ・filmLift から再計算できるので、保存するのは画像と、配置マップのバージョンだけでよい
 - AE のコンポジションは4面の展開図として作り、コマごとの画像として書き出す
 
 ### 8.1 AE からのリアルタイムプレビュー（候補）
@@ -298,7 +299,7 @@ koma 全体のプロジェクト知識（Tethr、アセット保存、Preview、
 
 - o = (0, 0, −d)（カメラ座標での投影中心のずれ。d > 0 なら回転中心より前）
 - 回転中心 c = p − R · o（p は previz の投影中心、R はカメラの姿勢）
-- Box Rig の XYZ = c + (0, 60 · k_base, 0) + 機械オフセット（12章の手順3で求める）
+- Box Rig の XYZ = c + (0, filmLift, 0) + 機械オフセット（12章の手順3で求める）
 
 o と機械オフセットの求め方は 12章。同じキューブは park frame の位置ずれ検出にも使える。解析は OpenCV.js などでブラウザ内で完結させる。
 
@@ -485,6 +486,11 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 
 `addsub` ブランチの現状。仕様（上の章）との差分と、実機で確認が要る仮定を残す。
 
+### filmLift（2026-09-28、k_base を廃止）
+- 旧 `kBase`（最下段ブロックの番号、lift = 60·kBase）は、ブロック高さが一定でないと成り立たないので **`project.addsub.filmLift`（mm）** に置き換えた。座標・LED・G54 原点・再演・recall はすべてこの mm 値だけを使う。ショットは `shot.filmLift` を記録（旧 `shot.kBase` は読み込み時 `migrateAddsubData` で 60·kBase に変換、`_trash` も含む）。
+- `project.addsub.blockHeight` は「次に足すブロックの高さ」の既定値（Append Block… の初期値、3D の表示用キューブ）。
+- exhibit の relay / project.json 読みは `filmLift` を見て、無ければ旧 `kBase` から換算する。
+
 ### コミットの分け方
 - `main` に戻せる汎用: `src/utils/fluidnc/`（WebSerial クライアント・status/`$I` パース・G-code ビルダ・vitest）、`src/utils/serialDiscovery.ts`、`src/stores/machine.ts`（`defineMachineStore` ファクトリ）、`src/components/MachinePanel.vue`、`TitleBarMachineConnection.vue`、project ストアの `directoryHandle` 公開と open 時の既定値 cloneDeep。
 - 作品固有（このブランチに閉じる）: `src/addsub/**`、`src/exhibit/**` + `exhibit.html`、`App.vue`/`TitleBar.vue` の組み込み、`dev_modules/ws-fanout` submodule、Tracker UI の撤去。
@@ -516,18 +522,18 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 
 ### シーケンス（§2）
 - `src/addsub/stores/sequence.ts`。ステップ: `cut → extend → (rig ∥ led) → settle → capture → park → retract`（主軸停止・退避は CAM の G-code に含まれるので `cut` の一部。rig 移動と LED は別機器なので並列）。各ステップ完了ごとに `project.addsub.sequence` に進行を保存（frame / step / done / status / returnPosition）。パネルの「Resume」でステップを選んで再開。
-- `cut` は先に `G10 L2 P1` で G54 原点を `filmOriginMill(kBase)` に合わせてから G-code を流す。`extend` 前の table 位置を `returnPosition` に保存し `retract` で戻す。
+- `cut` は先に `G10 L2 P1` で G54 原点を `filmOriginMill(filmLift)` に合わせてから G-code を流す。`extend` 前の table 位置を `returnPosition` に保存し `retract` で戻す。
 - `stop()` = abort + 両機に feed hold。**ESTOP**（タイトルバーの赤ボタン / コマンド `estop` / `shift+escape`）= シーケンス実行中でなくても両機を同時に feed hold + 主軸停止（0x9E）。復帰（`~`/`$X`/reset）は機械パネルから。
 - Sigma fp の撮影は App.vue の `shoot()` をそのまま使う（`sequence.registerCapture`）。park 参照ショットは kind `park` のレイヤー（無ければ作る）に入る。
-- **再演パス（§7.2）**: `startReplay(range)`。記録済みショットの rig 軸を `60·Δk_base` だけ持ち上げ、LED 画像を現在の lift で再サンプル、露出を再適用して kind `replay`・ラベル `replay k<n>` のレイヤーに撮り直す（rig ∥ led → settle → capture）。
+- **再演パス（§7.2）**: `startReplay(range)`。記録済みショットの rig 軸を `Δlift`（現在の filmLift − 撮影時の `shot.filmLift`）だけ持ち上げ、LED 画像を現在の lift で再サンプル、露出を再適用して kind `replay`・ラベル `Replay +<lift>mm` のレイヤーに撮り直す（rig ∥ led → settle → capture）。
 - **レイヤー（§14.1 の実装）**: レイヤーは「名前付きの独立したタイムライン（本編とフレーム番号を共有）」で、いくつでも作れる（`project.layers[i] = {id, name}`、index = `koma.shots[]` のスロット。追加のみで並べ替え・削除はしない）。機能の割り当ては無く、テストも再演も park もただの名前付きレイヤー。**表示情報はプリセット** `project.layerPresets[]`（`{id, name, layers: [{layerId, opacity, mixBlendMode}]}`、配列順 = 表示順（下→上）、載っていないレイヤーは非表示）で、`activeLayerPreset` で切替。Layers ダイアログ（`command+shift+L` / Timeline 左端のレイヤー名クリック）でプリセットの作成・改名・削除、レイヤーの表示/順序/ブレンド/不透明度、追加、撮影先の指定。タイムライン・プレビューはアクティブなプリセットの順で合成（`compositeLayers`）。**「画像の下をクリックするとレイヤーが増える」挙動は廃止**（↑↓は表示順で移動）。旧ファイルはレイヤーの opacity/blend を "Default" プリセットへ移行。
-- **テストショット**: 「New Test Shot…」で名前付きレイヤーを作り、撮影スロットをそのレイヤーの現在コマに移す。手動撮影もシーケンスもそのレイヤーに沿って進む。park ショットの行き先は Shot Sequence 設定の「Park layer」（未指定なら "Park" を自動作成）、再演パスは `Replay k<n>` を作って進行に id を保存。§14.2 のフォルダ分けと移行は未実装。
+- **テストショット**: 「New Test Shot…」で名前付きレイヤーを作り、撮影スロットをそのレイヤーの現在コマに移す。手動撮影もシーケンスもそのレイヤーに沿って進む。park ショットの行き先は Shot Sequence 設定の「Park layer」（未指定なら "Park" を自動作成）、再演パスは `Replay +<lift>mm` を作って進行に id を保存。§14.2 のフォルダ分けと移行は未実装。
 - **LED 追従**: LED ストアは撮影コマ（`captureShot.frame`）に合わせて自動でその照明を出す（`followCapture`）。`workLight` で一時的に全白、戻すとコマの照明に復帰。シーケンスの `led` ステップは「出ていることを確認して ACK を待つ」だけ。
 - 揺れ判定はまだ固定待ち（`settleMs`）。ライブビュー差分は未実装。
 
 ### 作業座標（cncjs 風）
 - MachinePanel は軸ごとに **Machine（MPos）と Work（WPos）** を並べ、Work 側に「ここをゼロ」「値を指定」（どちらも `G10 L20 P1`、動かずにオフセットだけ変わる）と「Work 0 へ移動」。「Zero all here」「Go to 0」も。リグは撮影で機械座標しか使わないので作業座標はジョグの目安用。フライス盤の G54 はシーケンスが毎コマ `G10 L2 P1` で film 原点に合わせ直すので、手でゼロを切ってもコマ撮り時には上書きされる。
-- 校正の近道: Shot Sequence 設定「Mill offset」の照準ボタン = 工具先端が film 原点（ブロック A の底面角、テーブルは撮影位置）にある状態で押すと `millOffset = filmOriginWorld + [0, 60·k, 0] − cycle(mpos)` を確定。
+- 校正の近道: Shot Sequence 設定「Mill offset」の照準ボタン = 工具先端が film 原点（ブロック A の底面角、テーブルは撮影位置）にある状態で押すと `millOffset = filmOriginWorld + [0, filmLift, 0] − cycle(mpos)` を確定。「Film lift」の照準ボタンはその逆で、millOffset 確定後に接合面へ当てて `filmLift = mpos.z + millOffset.y − filmOriginWorld.y` を実測。
 
 ### 切削パス（G-code）の表示
 - パーサ `src/utils/fluidnc/toolpath.ts`（G0–G3・平面・G90/91・G20/21・G53 はスキップ、円弧は折れ線化、行番号つき、vitest あり）。
@@ -559,7 +565,7 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
   ]
 }
 ```
-- `pixels` は粒ごとに **world 座標 [x, y, z]（mm）と展開図上の横位置 u（mm, 左端から）**。縦は koma が粒の world Y から film lift（60·k_base + film 原点 Y）を引いて展開図の `topFilmY` 基準に変換するので、`set.json` は k_base に依存しない。`imageWidth` は展開図の幅（mm）で、画像の px スケールはこれから決まる。
+- `pixels` は粒ごとに **world 座標 [x, y, z]（mm）と展開図上の横位置 u（mm, 左端から）**。縦は koma が粒の world Y から film lift（filmLift + film 原点 Y）を引いて展開図の `topFilmY` 基準に変換するので、`set.json` は filmLift に依存しない。`imageWidth` は展開図の幅（mm）で、画像の px スケールはこれから決まる。
 - `geometry` は表示専用の glTF（Houdini の ROP glTF、mm 単位）。リグ・壁・フライス盤など任意。無い間はパラメータ生成の立方体外形を出す。
 - `set.json` が無いときだけ `led/layout.ts` の生成器にフォールバック。**実測（2026-09-25）: 壁は X 1831 × Y 1400 × Z 1991 mm、テープ 1400 mm = 高さなので縦置き、粒ピッチ 33.3 mm、テープ間隔 100 mm。** L/R 面（1991）に 19 本（ライン 1 = 10 本、ライン 2 = 9 本）、B/F 面（1831）に 18 本（10 + 8）を中央寄せで並べ、ライン内は上→下→上のジグザグ。開始側（`startSide`）と壁の上端 Y（`topY` = 1400 と仮定）は要確認。
 - **Box Rig の可動域（2026-09-25）**: X 1200・Z 1200・Y 900（上でホーミング、負方向）。Y 下げ切りで高さ 400（仮）→ 既定の `rigOffset = [−600, −1300, −600]`（X/Z は可動域中心 = world 原点と仮定）、`rigLimits = x [0,1200], y [−900,0], z [0,1200]`。
@@ -569,6 +575,20 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - `/exhibit.html`。`?screen=a`（ループ再生、BroadcastChannel で再生位置を配信）/ `?screen=b`（グリッド）/ 無指定で並列表示。フォルダハンドルは IndexedDB、`project.json` を 4 秒ポーリング。全体モノスペース（Fira Code）。
 - **画面 A は「全テイク」**: 全レイヤー（本編・テスト・再演・park）のショットと `_trash` のミスコマを **撮影日時順**に並べ、ブラウザ内で **WebCodecs（H.264）+ mp4-muxer で MP4 に変換**して `<video loop>` で滑らかにループ再生する（ffmpeg 相当をネイティブ依存なしで）。動画は OPFS にキャッシュ（テイク一覧の署名がキー）、新しいテイクが増えると 10 分に 1 回を上限にバックグラウンドで作り直す。エンコード中や WebCodecs が無い環境は `_lv` の画像差し替えで再生。再生位置（動画時間 → テイク index）を画面 B に配信。
 - **画面 B**: 分割グリッド（FRAME = 今映っているテイクのメタデータ: 番号・撮影日時・レイヤー名 / 破棄テイク・露出・k・リグ軸、SEQUENCE、DEVLOG の QR、LIVE VIEW（上段右の大区画）、BOX RIG / MILL の座標、G-CODE）。ヘッダに `● LIVE / ○ OFFLINE`（撮影機の接続）。
+- **A→B の同期（2026-09-28）**: A は BroadcastChannel に `{index, filename}` を流し（変化時 + 1 秒ごとの heartbeat）、B は **ファイル名で**自分の一覧に照合する（`store.syncTo`）。2 窓は project.json の版が違い得る（テイク追加直後、A が古い一覧でエンコードした動画を再生中）ので index だけだと本編に 1 コマ増えた時点でずれる。A 側も動画を「エンコード時のテイク一覧」（`videoFrames`）で時間→テイクに直してから現一覧に照合する。「Open A and B on two screens」は `noopener` で開く（同一オリジンの popup は opener と同じレンダラ = 同じメインスレッドを共有し、B の WebGL/デコードが A の動画を止めるため）。`?relay=` / `?opfs=` は新窓に引き継ぐ。
+- **G-CODE 区画の負荷（2026-09-28）**: 以前は A が 18fps で進むたびに B がその NC を fetch → メインスレッドで parse → `ref()` で deep reactive 化（数万要素の segments が Proxy 越しになる）→ geometry 再構築、で毎コマ数十 ms 落ちていた。今は `toolpath.worker.ts` が Worker で parse して three.js 軸の Float32Array（transferable）を返し、`toolpathParser.ts` が path キーで LRU(60) キャッシュ、Pane は `shallowRef` で受け、差し替えは **400 ms スロットル**（leading + trailing）。切削中の進捗ハイライトは色属性の書き換えだけ（`setSent`）。実測（vice-tests、Playwright）: 18fps でテイクを流して 12 s に 12 ファイル差し替え、rAF 60fps、longtask 0。
+- **ソースの選択と復元（2026-09-28）**: 起動時は relay を探し（**`/api/status` が JSON で `capture` を持つ時だけ relay と見なす** — vite dev は任意パスに index.html を 200 で返すので、以前は dev で常に relay 扱いになり `?opfs=` も記憶フォルダも効かなかった）、`localStorage` の `sourcePref` が `dir` なら IndexedDB のフォルダハンドルを優先、無ければ relay → `?opfs=` → 記憶フォルダ。relay が見つかれば live 状態はどのソースでも購読する（フォルダを選んでも relay を切らない）。Setup の「Use relay instead」で戻せる。再起動後の `prompt` 状態はページ上の最初の click / key で `requestPermission` を呼ぶ（ボタンを探さなくてよい）。Chrome の "Allow on every visit" を選べば以後不要（Chrome 122+、IndexedDB から復元したハンドルの再プロンプトで出る）。`navigator.storage.persist()` も要求。
+
+### 画面 A の環境音（2026-09-28）
+- Max Cooper のトラックから **クリック/パーカッション成分だけ**を抜いたステム `public/sound/exhibit-clicks.mp3`（4:59、320 kbps、ピーク −3.9 dB / 平均 −37 dB。疎な音なので静か）を、画面 A が載っている窓（`?screen=a` と両方表示）で `<audio loop>` ループ再生する。`src/exhibit/sound.ts`（`useExhibitSound`）、Exhibit.vue の Setup に On/Off と音量（localStorage `exhibit.sound.*`、展示機ごと）、`?mute` で強制無音。映像との同期はしない（独立ループ）。
+- autoplay: キオスク Chrome は `--autoplay-policy=no-user-gesture-required` で起動するので即再生。ブロックされる環境では Setup に "autoplay blocked" と出て、ページ上の最初の click / key で始まる（headless Chromium で両経路確認済み）。
+- 抜き出し方（再現用）: `demucs -n htdemucs -d mps --mp3` で 4 ステム → `other` を librosa の HPSS（`margin=(1.0, 3.0)`）で percussive 側だけ取ったもの。drums ステムではなく other の percussive がクリックだった。demucs は `pipx install --python python3.11 demucs` + `pipx inject demucs numpy librosa soundfile`（Python 3.14 は torch 不可）。
+
+### 展示画面の堅牢化メモ（2026-09-28）
+- **画面 A の `<video>`/`<img>` は絶対配置 + `object-fit: cover`**（ユーザー指定）。以前は grid 内の `height:100%` が auto 行に対して解決できず、3:2 の動画が幅から高さを取って下にはみ出していた（1600×1000 のペインで縦 1066 px を実測）。
+- `store.readText` のテキストキャッシュを LRU(100) に（画面 B は表示コマごとに NC を読むので、以前は全コマ分を保持し続けた）。
+- koma-relay: WebSocket 毎に `error` リスナー（無いと不正フレーム 1 つで Node ごと落ちる。予約 opcode を送る probe で生存確認済み）、`server.on('error')`、`unhandledRejection` のログ化。
+- **Chrome 自体が落ちる件（dev、2026-09-24〜）**: ブラウザプロセスの `partition_alloc_support.cc: Detected dangling raw_ptr in unretained`（Chrome 153 内部のバグ検出）。ダンプに WebUSB スレッドがあり koma 本体（Tethr/WebSerial）と同居していた。別プロファイルで exhibit と本体を 65 回リロードしても再現せず。切り分けは「exhibit を別プロファイルで開く」（本番のキオスクと同じ構成）。
 
 ### 展示機への受け渡し: koma-relay（2026-09-27）
 Dropbox 同期とフォルダピッカー方式をやめ、**常時稼働する展示機（Mac mini）側に小さな Node サーバー `dev_modules/koma-relay` を置き、撮影 PC の koma はそこへ push する客**にした。撮影 PC が居なくても展示機は最後に push されたコピーで回り続け、居れば同じ経路でライブ状態が届く。2 台は Ethernet 直結（link-local + Bonjour、`koma-exhibit.local` のようなホスト名。保険に固定 IP も可）。
@@ -576,7 +596,7 @@ Dropbox 同期とフォルダピッカー方式をやめ、**常時稼働する�
 - **サーバー** (`yarn relay -- --dir <表示用コピー> [--port 7777] [--static dist] [--token …]`): (1) ビルド済み koma（`dist/`）を静的配信 → キオスクは `http://localhost:7777/exhibit.html` を開くだけ（ピッカー・権限プロンプト無し）、(2) `PUT /api/file/<rel>`（tmp+rename で原子的、`X-Mtime` を mtime に反映）/ `GET /api/manifest`（rel → size,mtime）/ `GET /project/<rel>`（ETag = size-mtime、条件付き GET）、(3) WebSocket `/ws?role=capture|exhibit`: capture の `{type:'state',topic,data}` を保持して全 exhibit に配信（後から繋いだ exhibit にも hello で再生）、`signal` を capture ↔ exhibit で中継、`file` で push 完了を通知、ping で死活監視。capture は常に 1 本（新しい接続が古いのを置き換える）。
 - **koma 側 `src/stores/relay.ts`（汎用）**: 接続先は app config（`relay.url` / `relay.token`、プロジェクトでなく機械の設定）。タイトルバーの `TitleBarRelayConnection`（モニタ共有アイコン）で URL 入力・状態・Sync now。
   - **表示用コピーの push**: `project.onSaved`（`saveProject` 後に発火する新フック）ごとに、`_lv`（live + `_trash`）と登録された extra files（`previz/frames.json`・`set.json`・参照 G-code・`layerGcode`）を差分 push、最後に `project.json`。差分判定は **タグ**（プレビューはアセット id、previz は `lastModified` スタンプ）→ タグが変わったものだけ **ローカル stat（size+mtime）と manifest を比較**して違えば送る。リロード後は id が振り直されるが stat 比較で既送分は送らない（実測: 再読込後の再同期は project.json 4 KB のみ）。フル解像 jpg / RAW は送らない = 展示機のコピーは「表示用」、原本のバックアップは別途。
-  - **ライブ状態 publish**（`src/addsub/relayPublish.ts`）: `machine:mill` / `machine:rig`（state・mpos・wpos・alarm・streamProgress、100 ms スロットル）、`sequence`（running・step・message・progress・kBase・captureFrame・**cutting = {frame, path, index, total}**）。`sequence.cutting` は `stepCut` が `mill.stream` の間だけ立てる。
+  - **ライブ状態 publish**（`src/addsub/relayPublish.ts`）: `machine:mill` / `machine:rig`（state・mpos・wpos・alarm・streamProgress、100 ms スロットル）、`sequence`（running・step・message・progress・filmLift・captureFrame・**cutting = {frame, path, index, total}**）。`sequence.cutting` は `stepCut` が `mill.stream` の間だけ立てる。
   - **ライブビュー = WebRTC**: Tethr の `camera.liveview`（`MediaStream`。PTP は `CanvasMediaStream`、webcam は getUserMedia）をそのまま `addTrack`。exhibit の `want-live` ごとに RTCPeerConnection を 1 本（`iceServers: []`、直結なので host candidate のみ）。`degradationPreference: 'maintain-resolution'`、`maxBitrate 6 Mbps`、`contentHint 'detail'`。Tethr がライブビュー再開で新 stream を返すので `replaceTrack` で差し替え（再ネゴ無し）。ライブビュー停止時は `replaceTrack(null)` → 受信側は track の `mute` を見て「off」表示（最後のフレームを暗く残す）。
 - **exhibit 側**: `source.ts`（`HttpSource` = relay の `/project/`、`DirSource` = 従来のフォルダ/OPFS）、`relay.ts`（WS 購読 + WebRTC answerer）。起動時 `?relay=<url>` → 同一オリジンの `/api/status` 探査 → `?opfs=` → IndexedDB のフォルダ、の順で決める。push 完了の `file` 通知で即 `project.json` を読み直す（4 秒ポーリングは保険）。開発時は `exhibit.html?relay=http://localhost:7799`（CORS 許可済み）。
 - 検証済（2026-09-27、mock と canvas.captureStream で）: 接続・push（新規/削除→`_trash`/リロード後の無再送）・WS の状態配信・WebRTC のオファー/差し替え/停止・キオスク経路（relay が配る `exhibit.html` から自動検出）。実カメラ・実 Ethernet 直結は未。
@@ -601,6 +621,20 @@ Node を入れられない／repo を置きたくない機械向けには `yarn 
 - タイトルバー右のデバイス一覧に LED Wall も入れた（`src/addsub/components/TitleBarLedConnection.vue`、リグの隣・relay の前）: 接続状態、Connect/Disconnect、White/Off、Work light / Faces / Follow のトグル、いま出ている照明・latency・電流見積り。
 - **Chase**（配線チェック、`led.startChase({mode, stepMs, line?})` / `stopChase()`）: `pixel` = 白 1 粒をライン順に走らせる、`line` = ライン丸ごとを順に点灯。実行中は他のモードを止め、終了/停止で元の状態に戻す。モードと step は app config。ws-fanout の `scripts/chase.ts` と同じ手順（全消灯 → 走らせ → 消灯）。
 - ブラウザの**バックグラウンドタブはタイマーが ~1 Hz に絞られる**ので、chase を裏タブで走らせると 1 粒/秒になる（バグではない。sequence も同じなので撮影中の koma タブは前面に）。ハード無しの確認は `dev_modules/ws-fanout/sender/test/mock-device.ts` の `MockDevice` を `WsFanout.fromTransport` に渡して `led.device` に差す。
+### LED の壁バッファ（2026-09-28）
+`led.wall`（ライン毎の RGB `Uint8Array[]`、`layout.lineCounts` 由来）+ `led.wallVersion` が「壁に出ているべき色」の正。全モード（コマの照明 / faces / Houdini live / work light / chase の各ステップ）はまずここに書き、デバイスが繋がっていれば `pushWall()` で LINE→SHOW する。**デバイス無しでも 3D ビュー（`AddsubVisualizer` の LED 点群）に色が出る**（以前は `device.getLine` を読んでいたので未接続だと灰色、`fill()` は show イベントを出さないので work light も反映されなかった）。`showImage`/`showColors`/`showFaces` は未接続時 `null` を返す（throw しない。sequence は事前に `led.connected` を見る）。接続した瞬間に `shownKey` をリセットしてバッファ全体を送る。Houdini の `led:frame` も未接続で preview に乗る。
+
+### Houdini からの直接制御（2026-09-28、§13.2 の実装）
+Houdini の LED 点群（1 点 = 1 粒、ws-fanout のライン順、`Cd` = 0-1 RGB、`face` 属性 = ライン名 L1…F2、P は Box Rig 機械座標 m）を、ファイル経由（配置）とリアルタイム（色・カメラ・フレーム）の両方で koma に流す。
+
+- **配置 = `previz/set.json`**: `led.frame: "rig"`（既定 `world`）と `led.unit: "m"`（既定 mm）を追加。koma が `rigOffset` で world に直すので、LED はリグと一体の物理座標のまま書ける（校正し直しても set.json は不変）。`u`（展開図の横位置）は Houdini 側で付ける（§8 の VEX、`imageWidth` = 2·(1831+1991) = 7644）。書き出しは `scripts/houdini/koma_bridge.py` の `export_set_json()`。
+- **リアルタイム = koma-relay の `role=control`**: 第三のクライアント種。`{type:'control', topic, data}` を capture（koma）へそのまま転送、state 配信は exhibit と同じく受け取れる。token は capture と同じものが要る。koma 側は `relay.onControl(topic, handler)`（汎用）→ `src/addsub/stores/houdini.ts` がトピックを配線、`HoudiniPanel.vue`（右ペイン "Houdini Live"）にスイッチ。**Houdini が繋がっただけでは何も動かない**（各トピックにスイッチ）。
+  - `led:frame` `{rgb: base64（全ライン連結・3 byte/粒）, layoutVersion}` → `led.pushLiveFrame()`。LED ストアの **`liveLight`**（優先順位 work light > live > faces > follow）。latch 中に来たフレームは最新だけ残す（スクラブで遅れない）。`led.showColors()` が粒色を直接出す汎用 API（画像サンプル無し、gain は適用）。
+  - `rig:pose` `{position, rotation|angles, frame: film|world|rig, unit}` または `{axes:{x,y,z,a,b,c}}` → IK → `rigLimits` 内・シーケンス停止中・Idle/Jog のときだけ、`$J=G90 G53` の絶対ジョグ（直前のジョグは 0x85 でキャンセル、200 ms 間隔、`addsub.houdini.rigFollowFeed` 既定 600 mm/min）。**`rigFollow` は永続化せず起動時 off**、シーケンス開始で自動 off。
+  - `timeline:frame` `{frame}`（previz 番号）→ `previzFrameOffset` を引いてプレビューフレームへ（`followTimeline`、既定 on）。
+- **Houdini 側 `scripts/houdini/koma_bridge.py`**: 依存なし（標準ライブラリだけの最小 WebSocket クライアント、relay の ping に pong を返すリーダースレッド付き）。`KomaBridge(url).send_led(geo)` / `send_camera(cam)` / `send_pose()` / `send_axes()` / `send_frame()`、`follow_playbar(led_node=, camera=)` で playbar 連動。動作確認済（relay + 偽 capture + Python、3 トピックの転送と ping 生存）。ブラウザ側（koma 本体でのスイッチ→LED/リグ）は実機・ハード無し mock ともに未確認。
+- 本番の照明はこれまでどおり展開図 PNG（filmLift 非依存、再演で再サンプル可）。直接色は lookdev / スクラブ確認用で、filmLift のシフトは Houdini が知っている前提。
+
 ### テストデータ: 2021 年の VICE 撮影（Dragonframe）の取り込み
 - `scripts/import-dragonframe.mjs <dgn-root> <dest> --name …` で Dragonframe の `.dgn` を koma プロジェクトに変換（テイクごとに名前付きレイヤー、フレーム 0 始まり。EDL から外れたコマは `_trash` に「撮影されたフレーム」つきで入る。EXIF + take.xml のメタデータ、meta.txt の FIRST FRAME でカメラ時計を補正。jpg は 3000px に縮小、lv は 1920px、RAW はコピーせず名前だけ）。
 - 生成済み: `~/Dropbox/Works/2024/10_addsub/capture/vice-tests-2021`（"VICE tests 2021"、14 テイク = 440 コマ + 破棄 145、1.2 GB）。プリセット "All takes" / "Main only"。
