@@ -79,7 +79,7 @@ const stateClass = computed(() => {
 		:class="stateClass"
 		@click="onTriggerClick"
 	>
-		<Tq.IconIndicator :icon="icon" :active="machine.connected" />
+		<Tq.IconIndicator :icon="icon" :active="machine.connected" glow />
 	</button>
 	<Tq.Popover
 		:reference="trigger ?? null"

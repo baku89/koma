@@ -29,6 +29,11 @@
  *    (new stream), the track is swapped in with replaceTrack — no
  *    renegotiation.
  *
+ * 4. **Control messages.** A third kind of client (`role=control`, e.g.
+ *    Houdini) can send `{topic, data}` messages that the relay forwards here;
+ *    `onControl(topic, handler)` hands them to whoever owns the topic (the LED
+ *    store, the rig…). This store never acts on them itself.
+ *
  * The server address is a per-machine setting (app config, not the
  * project): `http://koma-exhibit.local:7777`. Empty = off.
  */
@@ -96,6 +101,9 @@ export const useRelayStore = defineStore('relay', () => {
 	let generation = 0
 
 	const signalHook = createEventHook<{from: string; data: any}>()
+	const controlHandlers = new Map<string, Set<(data: any, from: string) => void>>()
+	/** Last control message per topic (for the popover / debugging). */
+	const lastControl = ref<{topic: string; from: string; t: number} | null>(null)
 	const peerHook = createEventHook<{id: string; online: boolean}>()
 	const connectedHook = createEventHook<void>()
 
@@ -167,6 +175,18 @@ export const useRelayStore = defineStore('relay', () => {
 					break
 				case 'signal':
 					signalHook.trigger({from: msg.from, data: msg.data})
+					break
+				case 'control':
+					if (typeof msg.topic !== 'string') break
+					lastControl.value = {topic: msg.topic, from: String(msg.from ?? ''), t: Date.now()}
+					controlHandlers.get(msg.topic)?.forEach(h => {
+						try {
+							h(msg.data, String(msg.from ?? ''))
+						} catch (e) {
+							// eslint-disable-next-line no-console
+							console.error(`relay control ${msg.topic}:`, e)
+						}
+					})
 					break
 			}
 		}
@@ -243,6 +263,19 @@ export const useRelayStore = defineStore('relay', () => {
 
 	function signal(to: string, data: unknown) {
 		send({type: 'signal', to, data})
+	}
+
+	/**
+	 * Receive control messages of a topic sent by a `role=control` client
+	 * (Houdini). Returns the unsubscribe function.
+	 */
+	function onControl(topic: string, handler: (data: any, from: string) => void) {
+		let set = controlHandlers.get(topic)
+		if (!set) controlHandlers.set(topic, (set = new Set()))
+		set.add(handler)
+		return () => {
+			set.delete(handler)
+		}
 	}
 
 	//--------------------------------------------------------------------------
@@ -563,6 +596,8 @@ export const useRelayStore = defineStore('relay', () => {
 		syncNow: scheduleSync,
 		publish,
 		publishThrottled,
+		onControl,
+		lastControl: readonly(lastControl),
 		registerExtraFiles,
 		setLiveStream,
 		onConnected: connectedHook.on,

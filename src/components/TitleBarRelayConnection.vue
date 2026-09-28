@@ -66,6 +66,7 @@ const stateClass = computed(() => {
 		<Tq.IconIndicator
 			:icon="relay.syncing ? 'eos-icons:bubble-loading' : 'mdi:monitor-share'"
 			:active="relay.enabled ? relay.connected : undefined"
+			glow
 		/>
 	</button>
 	<Tq.Popover

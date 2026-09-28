@@ -24,15 +24,21 @@
  *   GET  /api/manifest          {files: {rel: {size, mtime}}}
  *   PUT  /api/file/<rel>        write a file (atomic: tmp + rename); X-Mtime header
  *   DELETE /api/file/<rel>
- *   WS   /ws?role=capture|exhibit
+ *   WS   /ws?role=capture|exhibit|control
  *
  * WebSocket protocol (JSON text frames):
  *   capture → server : {type:'state', topic, data}   latest per topic is kept
  *                      {type:'signal', to, data}     WebRTC signalling
  *   exhibit → server : {type:'signal', data}         (to the capture)
+ *   control → server : {type:'control', topic, data} forwarded to the capture
+ *                      (Houdini driving the LED wall / the rig live, §13.2;
+ *                      the capture decides what it accepts)
  *   server  → capture: {type:'hello', id, peers:[exhibitId…]}
  *                      {type:'peer', id, online}
  *                      {type:'signal', from, data}
+ *                      {type:'control', topic, data, from}
+ *   server  → control: {type:'hello', id, role, capture:bool, state:{…}}
+ *                      {type:'capture', online}  /  {type:'state', topic, data, t}
  *   server  → exhibit: {type:'hello', id, capture:bool, state:{topic:{data,t}}}
  *                      {type:'capture', online}      capture came / went
  *                      {type:'state', topic, data, t}
@@ -298,6 +304,9 @@ const wss = new WebSocketServer({noServer: true})
 let capture = null
 /** @type {Map<string, import('ws').WebSocket>} */
 const exhibits = new Map()
+/** Controllers (Houdini…): they see the state like exhibits, and may send `control`. */
+/** @type {Map<string, import('ws').WebSocket>} */
+const controls = new Map()
 /** Latest published state per topic, replayed to exhibits when they connect. */
 const latest = {}
 
@@ -308,8 +317,10 @@ function sendTo(ws, msg) {
 }
 
 function broadcast(role, msg) {
-	if (role === 'exhibit') for (const ws of exhibits.values()) sendTo(ws, msg)
-	else sendTo(capture, msg)
+	if (role === 'exhibit') {
+		for (const ws of exhibits.values()) sendTo(ws, msg)
+		for (const ws of controls.values()) sendTo(ws, msg)
+	} else sendTo(capture, msg)
 }
 
 server.on('upgrade', (req, socket, head) => {
@@ -319,11 +330,11 @@ server.on('upgrade', (req, socket, head) => {
 		return
 	}
 	const role = url.searchParams.get('role')
-	if (role !== 'capture' && role !== 'exhibit') {
+	if (role !== 'capture' && role !== 'exhibit' && role !== 'control') {
 		socket.destroy()
 		return
 	}
-	if (role === 'capture' && TOKEN && url.searchParams.get('token') !== TOKEN) {
+	if (role !== 'exhibit' && TOKEN && url.searchParams.get('token') !== TOKEN) {
 		socket.destroy()
 		return
 	}
@@ -334,6 +345,9 @@ function onConnection(ws, role, req) {
 	const id = newId()
 	ws.isAlive = true
 	ws.on('pong', () => (ws.isAlive = true))
+	// Without a listener an 'error' (invalid frame, oversized message…) is an
+	// unhandled EventEmitter error and takes the whole relay down.
+	ws.on('error', e => log(`ws ${role} ${id} error: ${e?.message ?? e}`))
 	const from = req.socket.remoteAddress
 
 	if (role === 'capture') {
@@ -365,6 +379,25 @@ function onConnection(ws, role, req) {
 			capture = null
 			log('capture disconnected')
 			broadcast('exhibit', {type: 'capture', online: false, t: Date.now()})
+		})
+	} else if (role === 'control') {
+		controls.set(id, ws)
+		log(`control ${id} connected from ${from}`)
+		sendTo(ws, {type: 'hello', id, role, capture: capture !== null, state: latest})
+		ws.on('message', raw => {
+			let msg
+			try {
+				msg = JSON.parse(String(raw))
+			} catch {
+				return
+			}
+			if (msg.type === 'control' && typeof msg.topic === 'string') {
+				sendTo(capture, {type: 'control', topic: msg.topic, data: msg.data, from: id})
+			}
+		})
+		ws.on('close', () => {
+			controls.delete(id)
+			log(`control ${id} disconnected`)
 		})
 	} else {
 		exhibits.set(id, ws)
@@ -403,6 +436,11 @@ setInterval(() => {
 		ws.ping()
 	}
 }, PING_MS).unref()
+
+server.on('error', e => log('error', 'server', e?.message ?? e))
+// A stray rejection would end the process (Node ≥ 15); the exhibit machine
+// should keep serving instead.
+process.on('unhandledRejection', e => log('error', 'unhandled rejection', e?.message ?? e))
 
 server.listen(PORT, () => {
 	log(`koma-relay listening on http://0.0.0.0:${PORT}`)
