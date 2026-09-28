@@ -9,8 +9,12 @@ import type {vec3} from 'linearly'
 
 import type {MachineDefinition} from '@/stores/machine'
 
-/** Block height (mm), all blocks are cut to this. ADDSUB.md §7 */
-export const BLOCK_HEIGHT = 60
+/**
+ * Nominal block height (mm): the default for "Append block" and the display
+ * cube. Blocks need not all be this tall — what the coordinates use is the
+ * project's `filmLift`, the summed height of the blocks added under A. §7
+ */
+export const DEFAULT_BLOCK_HEIGHT = 60
 
 /** Max stack on the mill table: two blocks. */
 export const MILL_MAX_HEIGHT = 100
@@ -112,8 +116,9 @@ export interface AddsubCalibration {
 	 */
 	pupilOffset: number
 	/**
-	 * World position of the film origin (block A's bottom corner) when
-	 * k_base = 0. Its Y is the mill table / vise floor height in world.
+	 * World position of the film origin (block A's bottom corner) with no
+	 * blocks added underneath (filmLift = 0). Its Y is the mill table / vise
+	 * floor height in world.
 	 */
 	filmOriginWorld: vec3
 	/** Rig machine coords = world + rigOffset. Ideally ≈ 0 after homing setup. */

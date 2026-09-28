@@ -12,10 +12,10 @@
  *
  * In both, the vertical sample position is derived from the pixel's world Y
  * minus the current film lift (the wall is fixed; the film frame rises with
- * every appended block), so the map never changes with k_base.
+ * every appended block), so the map never changes with the film lift.
  */
 
-import type {vec3} from 'linearly'
+import {vec3} from 'linearly'
 
 import {LED_FACES, type LedFace, type LedLayoutParams} from '../config'
 
@@ -54,24 +54,45 @@ export interface LedLayout {
 export interface LedSetData {
 	/** Bump when the placement changes. Default 1. */
 	layoutVersion?: number
-	/** Width of the unwrapped image in mm. */
+	/**
+	 * Frame of the pixel positions. `world` (default) = the previz frame;
+	 * `rig` = the Box Rig's machine coordinates (its origin is the homed
+	 * head: centre of X/Z, top of Y), converted with the calibrated
+	 * `rigOffset`. The wall is bolted to the rig, so `rig` is the natural
+	 * frame to measure it in — the file stays valid when the offset is
+	 * recalibrated.
+	 */
+	frame?: 'world' | 'rig'
+	/** Unit of the pixel positions and of `imageWidth`/`pitch`. Default mm. */
+	unit?: 'mm' | 'm'
+	/** Width of the unwrapped image (mm unless `unit`). */
 	imageWidth: number
-	/** LED pitch in mm (default 1400 / 42). */
+	/** LED pitch (default 1400 / 42 mm). */
 	pitch?: number
 	/** In ws-fanout data-line order (L1 L2 B1 B2 R1 R2 F1 F2). */
 	lines: {
 		name?: string
-		/** `[x, y, z, u]` per pixel: world mm and horizontal image mm. */
+		/** `[x, y, z, u]` per pixel: position and horizontal image position. */
 		pixels: [number, number, number, number][]
 	}[]
 }
 
-export function ledLayoutFromSet(data: LedSetData): LedLayout {
+export function ledLayoutFromSet(
+	data: LedSetData,
+	opts: {
+		/** Rig machine coords = world + rigOffset (mm). Needed for `frame: 'rig'`. */
+		rigOffset?: vec3
+	} = {}
+): LedLayout {
+	const scale = data.unit === 'm' ? 1000 : 1
+	const shift: vec3 =
+		data.frame === 'rig' && opts.rigOffset ? vec3.scale(opts.rigOffset, -1) : [0, 0, 0]
 	const pixels: LedPixel[] = []
 	const lineCounts: number[] = []
 	data.lines.forEach((ln, line) => {
 		ln.pixels.forEach(([x, y, z, u], index) => {
-			pixels.push({line, index, world: [x, y, z], u, y})
+			const world = vec3.add([x * scale, y * scale, z * scale], shift)
+			pixels.push({line, index, world, u: u * scale, y: world[1]})
 		})
 		lineCounts.push(ln.pixels.length)
 	})
@@ -80,8 +101,8 @@ export function ledLayoutFromSet(data: LedSetData): LedLayout {
 		version: data.layoutVersion ?? 1,
 		pixels,
 		lineCounts,
-		pitch: data.pitch ?? 1400 / 42,
-		imageWidth: data.imageWidth,
+		pitch: data.pitch !== undefined ? data.pitch * scale : 1400 / 42,
+		imageWidth: data.imageWidth * scale,
 	}
 }
 

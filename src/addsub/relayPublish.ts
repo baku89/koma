@@ -70,7 +70,7 @@ export function setupAddsubRelay() {
 				step: sequence.currentStep,
 				message: sequence.message,
 				progress: project.addsub.sequence,
-				kBase: project.addsub.kBase,
+				filmLift: project.addsub.filmLift,
 				captureFrame: project.captureShot.frame,
 				captureLayer: project.captureShot.layer,
 				gcode: cutting ? {frame: cutting.frame, path: cutting.path, index: p?.index ?? 0, total: p?.total ?? 0} : null,

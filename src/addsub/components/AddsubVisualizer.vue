@@ -30,7 +30,6 @@ import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 import type {Axis} from '@/utils/fluidnc'
 
-import {BLOCK_HEIGHT} from '../config'
 import {filmToWorld, millToWorld, tableShiftWorld} from '../coords'
 import {rigAxesToCameraPose} from '../kinematics'
 import {ledBottomY} from '../led/layout'
@@ -52,16 +51,16 @@ const sequence = useSequenceStore()
 const S = 0.001 // mm → m
 
 const cal = computed(() => project.addsub.calibration)
-const kBase = computed(() => project.addsub.kBase)
+const filmLift = computed(() => project.addsub.filmLift)
 
 //------------------------------------------------------------------------------
 // Poses
 
 /** Current camera pose (world) from the rig's reported axes. */
 const cameraPoseWorld = computed(() => {
-	const pose = rigAxesToCameraPose(rig.mpos, kBase.value, cal.value)
+	const pose = rigAxesToCameraPose(rig.mpos, filmLift.value, cal.value)
 	return {
-		position: filmToWorld(pose.position, kBase.value, cal.value.filmOriginWorld),
+		position: filmToWorld(pose.position, filmLift.value, cal.value.filmOriginWorld),
 		rotation: pose.rotation,
 	}
 })
@@ -88,9 +87,9 @@ const blockOriginWorld = computed(() =>
 	vec3.add(filmToWorld([0, 0, 0], 0, cal.value.filmOriginWorld), tableShift.value)
 )
 
-// Nominal block footprint for display (mm). Blocks are 60 mm tall; the
-// footprint isn't specified, so draw a cube.
-const BLOCK_W = BLOCK_HEIGHT
+// Nominal block for display (mm): the project's block height; the footprint
+// isn't specified, so draw a cube. Two blocks high = the mill's max stack.
+const blockHeight = computed(() => project.addsub.blockHeight)
 
 //------------------------------------------------------------------------------
 // LED wall outline
@@ -265,9 +264,9 @@ const shotPositions = computed(() => {
 	project.komas.forEach(koma => {
 		const shot = koma?.shots[0]
 		if (!shot?.rig) return
-		const k = shot.kBase ?? kBase.value
-		const pose = rigAxesToCameraPose(shot.rig, k, cal.value)
-		const w = filmToWorld(pose.position, k, cal.value.filmOriginWorld)
+		const lift = shot.filmLift ?? filmLift.value
+		const pose = rigAxesToCameraPose(shot.rig, lift, cal.value)
+		const w = filmToWorld(pose.position, lift, cal.value.filmOriginWorld)
 		pts.push(new THREE.Vector3(...vec3.scale(w, S)))
 	})
 	return pts
@@ -288,7 +287,7 @@ const previzPositions = computed(() => {
 	for (let f = from; f < from + 400; f++) {
 		const pf = previz.frameFor(f)
 		if (!pf?.pose) break
-		const w = filmToWorld(pf.pose.position, kBase.value, cal.value.filmOriginWorld)
+		const w = filmToWorld(pf.pose.position, filmLift.value, cal.value.filmOriginWorld)
 		pts.push(new THREE.Vector3(...vec3.scale(w, S)))
 	}
 	return pts
@@ -306,19 +305,19 @@ watch(
 const planPositions = computed(() => {
 	const pts: THREE.Vector3[] = []
 	const layer = project.captureShot.layer
-	const k = kBase.value
+	const lift = filmLift.value
 	for (const f of plannedFrames(project, layer)) {
 		const plan = planFor(project, f, layer)
 		if (!plan) continue
 		let pose: {position: vec3} | null = null
 		if (plan.rig) {
 			// Axes the plan leaves out stay where the rig is now.
-			pose = rigAxesToCameraPose({...rig.mpos, ...plan.rig}, k, cal.value)
+			pose = rigAxesToCameraPose({...rig.mpos, ...plan.rig}, lift, cal.value)
 		} else if (plan.camera) {
 			pose = plan.camera
 		}
 		if (!pose) continue
-		const w = filmToWorld(pose.position, k, cal.value.filmOriginWorld)
+		const w = filmToWorld(pose.position, lift, cal.value.filmOriginWorld)
 		pts.push(new THREE.Vector3(...vec3.scale(w, S)))
 	}
 	return pts
@@ -336,15 +335,16 @@ watch(
 	{immediate: true}
 )
 
-// LED pixels: positions from the layout, colours from the device buffer when
-// connected (dim grey otherwise).
+// LED pixels: positions from the layout, colours from the store's wall
+// buffer (what the wall shows, or would show — it is kept with or without
+// the hardware connected).
 watch(
-	() => [led.layout, led.lastShow, led.connected] as const,
+	() => [led.layout, led.wallVersion] as const,
 	([layout]) => {
 		const n = layout.pixels.length
 		const pos = new Float32Array(n * 3)
 		const col = new Float32Array(n * 3)
-		const dev = led.device
+		const wall = led.wall
 		layout.pixels.forEach((px, i) => {
 			pos[i * 3] = px.world[0] * S
 			pos[i * 3 + 1] = px.world[1] * S
@@ -352,8 +352,8 @@ watch(
 			let r = 0.25
 			let g = 0.25
 			let b = 0.25
-			if (dev && px.line < dev.lineCount) {
-				const buf = dev.getLine(px.line)
+			const buf = wall[px.line]
+			if (buf && px.index * 3 + 2 < buf.length) {
 				r = 0.1 + (buf[px.index * 3] / 255) * 0.9
 				g = 0.1 + (buf[px.index * 3 + 1] / 255) * 0.9
 				b = 0.1 + (buf[px.index * 3 + 2] / 255) * 0.9
@@ -659,7 +659,7 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 			<div class="block">
 				<div class="head">
 					<span class="name">Sequence</span>
-					<span class="state">k_base {{ kBase }}</span>
+					<span class="state">lift {{ filmLift }} mm</span>
 				</div>
 				<div class="seq">{{ sequence.currentStep ?? (sequence.message ?? 'idle') }}</div>
 			</div>
@@ -697,10 +697,10 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 				<!-- Block stack + tool tip -->
 				<Group :position="v3(blockOriginWorld)">
 					<Box
-						:width="BLOCK_W * S"
-						:height="BLOCK_HEIGHT * 2 * S"
-						:depth="BLOCK_W * S"
-						:position="{x: (BLOCK_W / 2) * S, y: BLOCK_HEIGHT * S, z: (BLOCK_W / 2) * S}"
+						:width="blockHeight * S"
+						:height="blockHeight * 2 * S"
+						:depth="blockHeight * S"
+						:position="{x: (blockHeight / 2) * S, y: blockHeight * S, z: (blockHeight / 2) * S}"
 					>
 						<BasicMaterial color="#c8a878" :props="{wireframe: true}" />
 					</Box>

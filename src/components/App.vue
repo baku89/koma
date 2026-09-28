@@ -10,10 +10,12 @@ import {initTweeq, useTweeq} from 'tweeq'
 import {markRaw, watch, watchEffect} from 'vue'
 
 import AddsubVisualizer from '@/addsub/components/AddsubVisualizer.vue'
+import HoudiniPanel from '@/addsub/components/HoudiniPanel.vue'
 import LedPanel from '@/addsub/components/LedPanel.vue'
 import SequencePanel from '@/addsub/components/SequencePanel.vue'
 import {linearRigPlan, setPlan} from '@/addsub/plan'
 import {setupAddsubRelay} from '@/addsub/relayPublish'
+import {useHoudiniStore} from '@/addsub/stores/houdini'
 import {useLedStore} from '@/addsub/stores/led'
 import {useMillStore, useRigStore} from '@/addsub/stores/machines'
 import {usePrevizStore} from '@/addsub/stores/previz'
@@ -71,6 +73,8 @@ const sequence = useSequenceStore()
 
 // Exhibition screens: live state + display copy of the project (§15.2).
 setupAddsubRelay()
+// Houdini → LED wall / rig / timeline over the relay's control channel (§13.2).
+useHoudiniStore()
 
 // Warn before unload if a save is in flight (e.g. re-sequencing files on disk
 // after a frame edit) or there are still-unsaved changes — interrupting a
@@ -328,7 +332,7 @@ const {fn: shoot} = preventConcurrentExecution(
 				// addsub: what the machines and the wall were doing (§13).
 				rig: rig.connected ? {...rig.mpos} : undefined,
 				mill: mill.connected ? {...mill.mpos} : undefined,
-				kBase: project.addsub.kBase,
+				filmLift: project.addsub.filmLift,
 				led: led.shown ? {...led.shown} : undefined,
 				previzFrame: frame + project.addsub.previzFrameOffset,
 			}
@@ -500,6 +504,17 @@ async function applyExposureFromShot(shot: Shot | null) {
 	)
 
 	await tethr.importConfigs(exposureConfigs)
+}
+
+// Recall commands for the selected shot (timeline context menu / palette).
+// A disconnected LED wall / Box Rig, a shot with nothing recorded, or a busy
+// sequence is a plain warning, not an uncaught rejection.
+async function recallForSelectedShot(run: () => Promise<void>) {
+	try {
+		await run()
+	} catch (e) {
+		alert(e instanceof Error ? e.message : String(e))
+	}
 }
 
 Tq.actions.register([
@@ -887,6 +902,24 @@ Tq.actions.register([
 				perform: () => sequence.goToPlan().catch(() => {}),
 			},
 			{
+				id: 'recall_shot_led',
+				label: 'Recall Shot Lighting (LED)',
+				icon: 'mdi:lightbulb-on-outline',
+				perform: () =>
+					recallForSelectedShot(() =>
+						sequence.recallLed(viewport.currentFrame, viewport.currentLayer)
+					),
+			},
+			{
+				id: 'move_rig_to_shot',
+				label: 'Move Rig to Shot Camera Position',
+				icon: 'mdi:camera-marker-outline',
+				perform: () =>
+					recallForSelectedShot(() =>
+						sequence.recallRig(viewport.currentFrame, viewport.currentLayer)
+					),
+			},
+			{
 				id: 'new_rig_move_test',
 				label: 'New Rig Move Test…',
 				icon: 'mdi:vector-line',
@@ -1205,6 +1238,7 @@ watchEffect(() => {
 									<MachinePanel :machine="rig" />
 									<MachinePanel :machine="mill" />
 									<LedPanel />
+									<HoudiniPanel />
 									<CameraControl />
 									<!-- DMX control hidden on the addsub branch (no DMX rig on this set). -->
 									<TrashPanel />

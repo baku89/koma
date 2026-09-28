@@ -7,7 +7,8 @@
  * `topFilmY`; it extends downward, and is drawn longer than the wall to make
  * room for the stack growing underneath.
  *
- * The LEDs are fixed in world; the film frame rises by BLOCK_HEIGHT·kBase, so
+ * The LEDs are fixed in world; the film frame rises with every block added
+ * underneath (the project's filmLift), so
  * each pixel's film Y = world Y − lift. The colour is a box average over a
  * pitch-sized square (LEDs don't align with pixels).
  *
@@ -26,7 +27,7 @@ export interface RgbaImage {
 export interface SampleOptions {
 	/** Film Y (mm) at the top edge of the image. */
 	topFilmY: number
-	/** BLOCK_HEIGHT · kBase (+ base height): world Y = film Y + lift. */
+	/** filmLift + film origin Y: world Y = film Y + lift. */
 	lift: number
 	/**
 	 * Side of the averaging box in mm. Default = one LED pitch. 0 = nearest

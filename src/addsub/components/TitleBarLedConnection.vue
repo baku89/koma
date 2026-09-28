@@ -40,6 +40,7 @@ const modeText = computed(() => {
 	if (!led.connected) return ''
 	if (led.chasing) return 'chase'
 	if (led.workLight) return 'work light'
+	if (led.liveLight) return led.liveInfo ? `live (Houdini) ${led.liveInfo.fps.toFixed(0)} fps` : 'live (waiting)'
 	if (led.faceLight) return 'faces'
 	if (led.shown) return led.shown.file
 	return led.followCapture ? 'follow (no lighting for this frame)' : 'manual'
@@ -63,7 +64,7 @@ const stateClass = computed(() => {
 		:class="stateClass"
 		@click="onTriggerClick"
 	>
-		<Tq.IconIndicator icon="mdi:led-strip-variant" :active="led.connected" />
+		<Tq.IconIndicator icon="mdi:led-strip-variant" :active="led.connected" glow />
 	</button>
 	<Tq.Popover
 		:reference="trigger ?? null"
@@ -104,6 +105,12 @@ const stateClass = computed(() => {
 					v-model="led.workLight"
 					label="Work light"
 					icon="mdi:ceiling-light"
+					:disabled="!led.connected"
+				/>
+				<Tq.InputButtonToggle
+					v-model="led.liveLight"
+					label="Live"
+					icon="mdi:video-3d"
 					:disabled="!led.connected"
 				/>
 				<Tq.InputButtonToggle

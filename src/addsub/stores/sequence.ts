@@ -8,7 +8,7 @@
  * different devices and run concurrently.)
  *
  * Replay mode (§7.2, after appending a block): rig ∥ led → settle → capture,
- * driven by what each *recorded* shot has (rig axes lifted by the k_base
+ * driven by what each *recorded* shot has (rig axes lifted by the film-lift
  * difference, its LED image re-sampled at the new lift, its exposure) into a
  * "replay" layer, one per pass.
  *
@@ -34,7 +34,6 @@ import {
 	setWorkOffsetLine,
 } from '@/utils/fluidnc'
 
-import {BLOCK_HEIGHT} from '../config'
 import {filmOriginMill} from '../coords'
 import {cameraPoseToRigAxes} from '../kinematics'
 import {type FramePlan, planFor as planForFrame, setPlan as setPlanFrame} from '../plan'
@@ -177,18 +176,19 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	function resolveSource(frame: number, mode: SequenceMode): FrameSource {
-		const {calibration, kBase} = project.addsub
+		const {calibration, filmLift} = project.addsub
 		if (mode === 'replay') {
 			const src = project.shot(frame, 0)
 			if (!src?.rig || src.rig.x === undefined) {
 				return {rigTarget: null, ledFile: null, ledFrame: frame}
 			}
-			const dk = kBase - (src.kBase ?? 0)
+			// Raise the recorded axes by the blocks added since (§7.2).
+			const dLift = filmLift - (src.filmLift ?? 0)
 			const r = src.rig
 			return {
 				rigTarget: {
 					x: r.x ?? 0,
-					y: (r.y ?? 0) + BLOCK_HEIGHT * dk,
+					y: (r.y ?? 0) + dLift,
 					z: r.z ?? 0,
 					a: r.a ?? 0,
 					b: r.b ?? 0,
@@ -206,9 +206,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		const rigTarget = plan?.rig
 			? {...plan.rig}
 			: plan?.camera
-				? cameraPoseToRigAxes(plan.camera, kBase, calibration)
+				? cameraPoseToRigAxes(plan.camera, filmLift, calibration)
 				: pf?.pose
-					? cameraPoseToRigAxes(pf.pose, kBase, calibration)
+					? cameraPoseToRigAxes(pf.pose, filmLift, calibration)
 					: null
 		return {
 			rigTarget,
@@ -245,11 +245,11 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		if (running.value) throw new SequenceError('rig', 'Sequence is running')
 		const plan = planFor(frame, layer)
 		if (!plan) throw new SequenceError('rig', `Frame ${frame}: no plan`)
-		const {calibration, kBase} = project.addsub
+		const {calibration, filmLift} = project.addsub
 		const target = plan.rig
 			? {...plan.rig}
 			: plan.camera
-				? cameraPoseToRigAxes(plan.camera, kBase, calibration)
+				? cameraPoseToRigAxes(plan.camera, filmLift, calibration)
 				: null
 		if (!target) throw new SequenceError('rig', `Frame ${frame}: plan has no pose`)
 		if (!rig.connected) throw new SequenceError('rig', 'Box Rig is not connected')
@@ -261,6 +261,83 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		} catch (e) {
 			message.value = e instanceof Error ? e.message : String(e)
 			throw e
+		}
+	}
+
+	//--------------------------------------------------------------------------
+	// Recall what a shot was taken with (timeline context menu / commands)
+
+	/**
+	 * Rig axes to reproduce a shot's camera position: the axes recorded at
+	 * capture, lifted by the blocks added since (§7.2). Falls back to the
+	 * frame's plan / previz pose when the shot recorded no axes (or there is no
+	 * shot on that cell yet).
+	 */
+	function rigTargetForShot(frame: number, layer: number): AxesPosition | null {
+		const {calibration, filmLift} = project.addsub
+		const shot = project.shot(frame, layer)
+		if (shot?.rig && shot.rig.x !== undefined) {
+			const dLift = filmLift - (shot.filmLift ?? 0)
+			const r = shot.rig
+			return {
+				x: r.x ?? 0,
+				y: (r.y ?? 0) + dLift,
+				z: r.z ?? 0,
+				a: r.a ?? 0,
+				b: r.b ?? 0,
+				c: r.c ?? 0,
+			}
+		}
+		const plan = planFor(frame, layer)
+		const pf = previz.frameFor(frame)
+		return plan?.rig
+			? {...plan.rig}
+			: plan?.camera
+				? cameraPoseToRigAxes(plan.camera, filmLift, calibration)
+				: pf?.pose
+					? cameraPoseToRigAxes(pf.pose, filmLift, calibration)
+					: null
+	}
+
+	/** Lighting image a shot was taken with, else the frame's previz lighting. */
+	function ledFileForShot(frame: number, layer: number): string | null {
+		return project.shot(frame, layer)?.led?.file ?? previz.frameFor(frame)?.led ?? null
+	}
+
+	/**
+	 * Move the rig to where the camera was for this shot, now. Same checks as
+	 * the sequence's rig step; refuses while the sequence runs.
+	 */
+	async function recallRig(frame: number, layer: number) {
+		if (running.value) throw new SequenceError('rig', 'Sequence is running')
+		const target = rigTargetForShot(frame, layer)
+		if (!target) throw new SequenceError('rig', `Frame ${frame}: no camera position recorded`)
+		if (!rig.connected) throw new SequenceError('rig', 'Box Rig is not connected')
+		rigLimitsCheck(target)
+		message.value = `Moving rig to the camera position of frame ${frame}`
+		try {
+			await rig.moveTo(target, {feed: project.addsub.rigFeed})
+			message.value = null
+		} catch (e) {
+			message.value = e instanceof Error ? e.message : String(e)
+			throw e
+		}
+	}
+
+	/**
+	 * Put the lighting this shot was taken with on the LED wall (sampled with
+	 * the current lift). Turns the work light off; the wall keeps showing it
+	 * until the capture frame or a lighting mode changes.
+	 */
+	async function recallLed(frame: number, layer: number) {
+		const file = ledFileForShot(frame, layer)
+		if (!file) throw new SequenceError('led', `Frame ${frame}: no LED image recorded`)
+		if (!led.connected) throw new SequenceError('led', 'LED wall is not connected')
+		led.setWorkLight(false)
+		try {
+			await led.showFile(file, {force: true})
+		} catch (e) {
+			throw new SequenceError('led', e instanceof Error ? e.message : String(e))
 		}
 	}
 
@@ -282,9 +359,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			warn(`Frame ${frame}: empty G-code — skipping cut`)
 			return
 		}
-		// Point G54 at the film origin for the current base block (§7.1).
-		const {calibration, kBase} = project.addsub
-		const origin = filmOriginMill(kBase, calibration.filmOriginWorld, calibration.millOffset)
+		// Point G54 at the film origin for the current lift (§7.1).
+		const {calibration, filmLift} = project.addsub
+		const origin = filmOriginMill(filmLift, calibration.filmOriginWorld, calibration.millOffset)
 		await mill.send(setWorkOffsetLine(1, {x: origin[0], y: origin[1], z: origin[2]}))
 		message.value = `Cutting frame ${frame} (${lines.length} lines)`
 		cutting.value = {frame, path: `${PREVIZ_DIR}/${pf.gcode}`}
@@ -402,7 +479,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 				const id = project.addsub.sequence?.replayLayerId
 				const idx = id ? project.layerIndexOf(id) : -1
 				if (idx !== -1) return idx
-				const created = project.addLayer(`Replay k${project.addsub.kBase}`)
+				const created = project.addLayer(`Replay +${project.addsub.filmLift}mm`)
 				patchProgress({replayLayerId: project.layers[created].id})
 				return created
 			}
@@ -670,7 +747,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	/**
 	 * Replay pass (§7.2): re-shoot every recorded frame in `range` (inclusive,
 	 * default = preview in/out) with its recorded pose lifted to the current
-	 * k_base, its LED image and exposure, into a "replay k<n>" layer.
+	 * film lift, its LED image and exposure, into a "Replay +<lift>mm" layer.
 	 */
 	function startReplay(range?: [number, number]) {
 		const r: [number, number] = range ?? [
@@ -687,17 +764,15 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	//--------------------------------------------------------------------------
-	// Block append helpers (§7)
+	// Block append (§7)
 
-	/** Remaining height of the top block: for the operator display. */
-	const stackHeight = computed(() => {
-		// The mill can hold two blocks (100 mm limit); we only know the stack
-		// from k_base, so report the nominal top of the current stack.
-		return BLOCK_HEIGHT * 2
-	})
-
-	function appendBlock() {
-		project.addsub.kBase += 1
+	/**
+	 * A block of `height` mm was glued under the stack: the film frame rises
+	 * by that much. Remembers the height as the default for the next one.
+	 */
+	function appendBlock(height = project.addsub.blockHeight) {
+		project.addsub.filmLift += height
+		project.addsub.blockHeight = height
 	}
 
 	return {
@@ -708,7 +783,6 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		warnings: readonly(warnings),
 		cutting: readonly(cutting),
 		progress,
-		stackHeight,
 		registerCapture,
 		start,
 		startReplay,
@@ -722,6 +796,10 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		setPlan,
 		hasSource,
 		goToPlan,
+		recallRig,
+		recallLed,
+		rigTargetForShot,
+		ledFileForShot,
 		steps: SEQUENCE_STEPS,
 		replaySteps: REPLAY_STEPS,
 	}

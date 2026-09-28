@@ -87,6 +87,9 @@ const powerText = computed(() => {
 		<Tq.Parameter label="Work light" icon="mdi:ceiling-light" hint="Temporary all-white; the frame's lighting comes back when off">
 			<Tq.InputSwitch :modelValue="led.workLight" @update:modelValue="led.setWorkLight($event)" />
 		</Tq.Parameter>
+		<Tq.Parameter label="Live" icon="mdi:video-3d" hint="Per-pixel colours pushed from Houdini (Houdini Live panel) instead of the frame's lighting">
+			<Tq.InputSwitch v-model="led.liveLight" />
+		</Tq.Parameter>
 		<Tq.Parameter label="Faces" icon="mdi:cube-outline" hint="One colour per face (both lines of a face together) instead of the frame's lighting">
 			<Tq.InputSwitch v-model="led.faceLight" />
 		</Tq.Parameter>

@@ -8,6 +8,7 @@ import type {AxesPosition} from '@/utils/fluidnc'
 
 import {
 	type AddsubCalibration,
+	DEFAULT_BLOCK_HEIGHT,
 	DEFAULT_CALIBRATION,
 	DEFAULT_LED_LAYOUT,
 	LED_LAYOUT_VERSION,
@@ -71,8 +72,14 @@ export interface SequenceProgress {
 }
 
 export interface AddsubProjectData {
-	/** Index of the lowest block on the mill (0 = block A). §7.1 */
-	kBase: number
+	/**
+	 * How far the film frame has risen above its original place (mm): the
+	 * summed height of the blocks glued under block A so far. world Y = film Y
+	 * + filmOriginWorld.y + filmLift. §7.1
+	 */
+	filmLift: number
+	/** Height (mm) of the next block to append — the default for the prompt. */
+	blockHeight: number
 	/** previz frame number = timeline frame + this offset. */
 	previzFrameOffset: number
 	/** Mill table position (machine coords) for shooting. `y` optional. §2 */
@@ -124,7 +131,8 @@ export interface AddsubProjectData {
 }
 
 export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
-	kBase: 0,
+	filmLift: 0,
+	blockHeight: DEFAULT_BLOCK_HEIGHT,
 	previzFrameOffset: 0,
 	shootPosition: {x: 0},
 	cutPosition: undefined,
@@ -155,10 +163,45 @@ export interface ShotMachineData {
 	rig?: AxesPosition
 	/** Mill axes (machine coords) at capture. */
 	mill?: AxesPosition
-	/** Base block index at capture. */
-	kBase?: number
+	/** Film lift (mm, see AddsubProjectData.filmLift) at capture. */
+	filmLift?: number
 	/** Which lighting image was shown, and with which placement map. §8 */
 	led?: {file: string; layoutVersion: number}
 	/** previz frame this shot realises (may differ from the timeline frame). */
 	previzFrame?: number
+}
+
+//------------------------------------------------------------------------------
+// Migration
+
+/** Block height the retired integer `kBase` (base block index) stood for. */
+const LEGACY_BLOCK_HEIGHT = 60
+
+/**
+ * Upgrade a loaded project in place from the `kBase` era (lift = 60·kBase, all
+ * blocks 60 mm) to `filmLift` (mm). Idempotent: files already on `filmLift`
+ * are untouched.
+ */
+type LegacyShot = ShotMachineData & {kBase?: number}
+
+export function migrateAddsubData(project: {
+	addsub: AddsubProjectData & {kBase?: number}
+	komas: ({shots: (LegacyShot | null | undefined)[]} | null | undefined)[]
+	trash?: {shot: LegacyShot}[]
+}) {
+	const a = project.addsub
+	if (a.kBase !== undefined) {
+		if (a.filmLift === undefined || a.filmLift === 0) a.filmLift = LEGACY_BLOCK_HEIGHT * a.kBase
+		delete a.kBase
+	}
+	const shots: LegacyShot[] = []
+	for (const koma of project.komas) {
+		for (const shot of koma?.shots ?? []) if (shot) shots.push(shot)
+	}
+	for (const t of project.trash ?? []) shots.push(t.shot)
+	for (const shot of shots) {
+		if (shot.kBase === undefined) continue
+		shot.filmLift ??= LEGACY_BLOCK_HEIGHT * shot.kBase
+		delete shot.kBase
+	}
 }

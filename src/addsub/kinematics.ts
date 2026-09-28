@@ -105,11 +105,11 @@ export type RigTarget = Required<Pick<AxesPosition, 'x' | 'y' | 'z' | 'a' | 'b' 
  */
 export function cameraPoseToRigAxes(
 	pose: CameraPose,
-	kBase: number,
+	lift: number,
 	cal: AddsubCalibration
 ): RigTarget {
 	const worldPose: CameraPose = {
-		position: filmToWorld(pose.position, kBase, cal.filmOriginWorld),
+		position: filmToWorld(pose.position, lift, cal.filmOriginWorld),
 		rotation: pose.rotation,
 	}
 	const centre = worldToRig(rotationCentre(worldPose, cal.pupilOffset), cal.rigOffset)
@@ -130,7 +130,7 @@ export function cameraPoseToRigAxes(
  */
 export function rigAxesToCameraPose(
 	axes: AxesPosition,
-	kBase: number,
+	lift: number,
 	cal: AddsubCalibration
 ): CameraPose {
 	const rotation = anglesToRotation({
@@ -144,7 +144,7 @@ export function rigAxesToCameraPose(
 	)
 	const pupilWorld = pupilFromCentre(centreWorld, rotation, cal.pupilOffset)
 	return {
-		position: worldToFilm(pupilWorld, kBase, cal.filmOriginWorld),
+		position: worldToFilm(pupilWorld, lift, cal.filmOriginWorld),
 		rotation,
 	}
 }

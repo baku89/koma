@@ -4,7 +4,7 @@ import {capital} from 'case'
 import dateformat from 'dateformat'
 import {ConfigNameList} from 'tethr'
 import * as Tq from 'tweeq'
-import {computed} from 'vue'
+import {computed, ref, useTemplateRef} from 'vue'
 
 import {formatAxes, planFor} from '@/addsub/plan'
 import {Shot, useProjectStore} from '@/stores/project'
@@ -73,6 +73,40 @@ function selectShot() {
 	viewport.selectShot()
 }
 
+// Right-click: select the cell, then offer the registered actions that act on
+// the selected shot (they read viewport.currentFrame / currentLayer). Listed by
+// action id so the menu stays in sync with labels, icons and shortcuts.
+const {actions} = Tq.useTweeq()
+
+const shotContextActionIds = ['recall_shot_led', 'move_rig_to_shot']
+
+const $root = useTemplateRef('$root')
+const menuOpen = ref(false)
+const menuPosition = ref<[number, number]>([0, 0])
+
+const contextMenuItems = computed<Tq.MenuItem[]>(() =>
+	shotContextActionIds.flatMap(id => {
+		const action = actions.allActions[id]
+		if (!action) return []
+		return [
+			{
+				label: action.label,
+				icon: action.icon,
+				bindIcon: action.bind?.icon,
+				perform: () => actions.perform(id),
+			},
+		]
+	})
+)
+
+function onContextMenu(e: MouseEvent) {
+	if (contextMenuItems.value.length === 0) return
+	e.preventDefault()
+	selectShot()
+	menuPosition.value = [e.clientX, e.clientY]
+	menuOpen.value = true
+}
+
 function printShotInfo(shot: Shot) {
 	const infos: [string, string][] = [
 		[
@@ -117,10 +151,12 @@ function printShotInfo(shot: Shot) {
 
 <template>
 	<div
+		ref="$root"
 		class="Shot"
 		:class="{selected}"
 		@click="selectShot"
 		@dblclick="project.captureShot = {frame, layer}"
+		@contextmenu="onContextMenu"
 	>
 		<div
 			v-if="
@@ -151,6 +187,17 @@ function printShotInfo(shot: Shot) {
 			class="in-between transition"
 			@click="insertEmptyFrame(frame)"
 		/>
+		<!-- Teleported out of the cell: its overflow hidden would clip the menu. -->
+		<Tq.Popover
+			v-if="menuOpen"
+			:reference="$root"
+			:placement="menuPosition"
+			:open="menuOpen"
+			teleport=".TqViewport"
+			@update:open="menuOpen = $event"
+		>
+			<Tq.Menu :items="contextMenuItems" @close="menuOpen = false" />
+		</Tq.Popover>
 	</div>
 </template>
 

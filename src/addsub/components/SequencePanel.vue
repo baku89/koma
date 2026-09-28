@@ -111,20 +111,44 @@ function setShootFromMill() {
 /**
  * Calibration shortcut: with the tool tip touching the film origin (block A's
  * bottom corner, table at the shoot position), solve millOffset so that
- * filmOriginMill(kBase) equals the current machine position:
- *   world = cycle(mill) + t  ⇒  t = filmOriginWorld + [0, 60·k, 0] − cycle(mpos)
+ * filmOriginMill(filmLift) equals the current machine position:
+ *   world = cycle(mill) + t  ⇒  t = filmOriginWorld + [0, lift, 0] − cycle(mpos)
  */
 function setMillOffsetFromHere() {
 	const m = mill.mpos
 	if (m.x === undefined || m.y === undefined || m.z === undefined) return
 	const {filmOriginWorld} = project.addsub.calibration
-	const lift = 60 * project.addsub.kBase
+	const lift = project.addsub.filmLift
 	const cycled = [m.y, m.z, m.x]
 	project.addsub.calibration.millOffset = [
 		filmOriginWorld[0] - cycled[0],
 		filmOriginWorld[1] + lift - cycled[1],
 		filmOriginWorld[2] - cycled[2],
 	]
+}
+
+/**
+ * The other way round, after gluing a block underneath: with millOffset
+ * already calibrated and the tool tip touching the joint plane (where the
+ * film origin is now), measure the lift instead of trusting the block's
+ * nominal height. Absorbs glue lines and cutting tolerances.
+ *   world Y = cycle(mpos).y + t.y = filmOriginWorld.y + lift
+ */
+function setFilmLiftFromHere() {
+	const m = mill.mpos
+	if (m.z === undefined) return
+	const {filmOriginWorld, millOffset} = project.addsub.calibration
+	project.addsub.filmLift = m.z + millOffset[1] - filmOriginWorld[1]
+}
+
+async function appendBlock() {
+	const result = await Tq.modal.prompt(
+		{height: project.addsub.blockHeight},
+		{height: {type: 'number', min: 0, max: 500, step: 1, label: 'Block height (mm)'}},
+		{title: 'Append Block'}
+	)
+	if (!result) return
+	sequence.appendBlock(result.height)
 }
 
 function setParkFromRig() {
@@ -240,7 +264,7 @@ function setParkFromRig() {
 				/>
 			</div>
 		</Tq.Parameter>
-		<Tq.Parameter label="Replay" icon="mdi:replay" hint="Re-shoot the preview range (in → out) at the current k_base into a replay layer">
+		<Tq.Parameter label="Replay" icon="mdi:replay" hint="Re-shoot the preview range (in → out) at the current film lift into a replay layer">
 			<Tq.InputButton
 				:label="`In → Out (${project.previewRange[0]}–${project.previewRange[1]})`"
 				icon="mdi:replay"
@@ -283,10 +307,18 @@ function setParkFromRig() {
 
 		<template v-if="showSettings">
 			<Tq.ParameterHeading>Blocks</Tq.ParameterHeading>
-			<Tq.Parameter label="k_base" icon="mdi:layers" hint="Index of the lowest block on the mill">
+			<Tq.Parameter label="Film lift" icon="mdi:layers" hint="How far the film frame has risen (mm): the summed height of the blocks glued under block A">
 				<div class="buttons">
-					<Tq.InputNumber v-model="project.addsub.kBase" :min="0" :max="100" :step="1" :precision="0" />
-					<Tq.InputButton label="Append Block" icon="mdi:plus-box" tooltip="k_base + 1 (after placing the next block underneath)" @click="sequence.appendBlock()" />
+					<Tq.InputNumber v-model="project.addsub.filmLift" :min="0" :max="2000" :precision="2" />
+					<Tq.InputButton
+						icon="mdi:crosshairs-gps"
+						subtle
+						narrow
+						tooltip="Tool tip is on the joint plane (the film origin) now → measure the lift"
+						:disabled="!mill.connected"
+						@click="setFilmLiftFromHere"
+					/>
+					<Tq.InputButton label="Append Block…" icon="mdi:plus-box" tooltip="A block was glued underneath: add its height to the lift" @click="appendBlock" />
 				</div>
 			</Tq.Parameter>
 			<Tq.Parameter label="Offset" icon="mdi:numeric" hint="previz frame = timeline frame + offset">
@@ -334,7 +366,7 @@ function setParkFromRig() {
 			<Tq.Parameter label="Pupil d" icon="mdi:eye" hint="Entrance pupil offset from the head's rotation centre (mm)">
 				<Tq.InputNumber v-model="project.addsub.calibration.pupilOffset" :precision="2" />
 			</Tq.Parameter>
-			<Tq.Parameter label="Film origin" icon="mdi:axis-arrow" hint="World position of block A's bottom corner (k_base = 0)">
+			<Tq.Parameter label="Film origin" icon="mdi:axis-arrow" hint="World position of block A's bottom corner before any block was added (lift = 0)">
 				<Tq.InputVec v-model="project.addsub.calibration.filmOriginWorld" />
 			</Tq.Parameter>
 			<Tq.Parameter label="Rig offset" icon="mdi:axis-arrow" hint="rig = world + offset">

@@ -16,19 +16,17 @@ import {vec3} from 'linearly'
 
 import type {AxesPosition} from '@/utils/fluidnc'
 
-import {BLOCK_HEIGHT} from './config'
-
-/** Vertical shift of the film frame for the current base block index. */
-export function filmLift(kBase: number): number {
-	return BLOCK_HEIGHT * kBase
+/**
+ * film → world. `lift` (mm) is how far the film frame has risen above its
+ * original place: the summed height of the blocks glued under block A (§7.1).
+ * world Y = film Y + filmOriginWorld.y + lift.
+ */
+export function filmToWorld(p: vec3, lift: number, filmOriginWorld: vec3): vec3 {
+	return vec3.add(p, filmOriginWorld, [0, lift, 0])
 }
 
-export function filmToWorld(p: vec3, kBase: number, filmOriginWorld: vec3): vec3 {
-	return vec3.add(p, filmOriginWorld, [0, filmLift(kBase), 0])
-}
-
-export function worldToFilm(p: vec3, kBase: number, filmOriginWorld: vec3): vec3 {
-	return vec3.sub(p, filmOriginWorld, [0, filmLift(kBase), 0])
+export function worldToFilm(p: vec3, lift: number, filmOriginWorld: vec3): vec3 {
+	return vec3.sub(p, filmOriginWorld, [0, lift, 0])
 }
 
 export function worldToRig(p: vec3, rigOffset: vec3): vec3 {
@@ -68,13 +66,13 @@ export function tableShiftWorld(
 
 /**
  * Where the film origin is in the mill's machine coordinates for the current
- * base block — what `G10 L2 P1` should be set to before streaming a frame's
- * G-code (§7.1). Appending a block raises it by BLOCK_HEIGHT.
+ * lift — what `G10 L2 P1` should be set to before streaming a frame's G-code
+ * (§7.1). Appending a block raises it by that block's height.
  */
 export function filmOriginMill(
-	kBase: number,
+	lift: number,
 	filmOriginWorld: vec3,
 	millOffset: vec3
 ): vec3 {
-	return worldToMill(filmToWorld([0, 0, 0], kBase, filmOriginWorld), millOffset)
+	return worldToMill(filmToWorld([0, 0, 0], lift, filmOriginWorld), millOffset)
 }

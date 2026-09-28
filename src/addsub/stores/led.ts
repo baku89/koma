@@ -5,6 +5,12 @@
  * params, and `showImage()` which samples an unwrapped lighting image into
  * the wall and resolves once the firmware has latched it (SHOW ack) — the
  * sequence waits on that before capturing.
+ *
+ * The colours the wall *should* show live in `wall` (one RGB buffer per data
+ * line) independently of the hardware: every mode (frame lighting, faces,
+ * live feed, work light) writes there first and the device, when connected,
+ * is brought up to date from it. So the 3D view previews the lighting with
+ * nothing plugged in, and plugging the wall in later just pushes the buffer.
  */
 
 import {defineStore} from 'pinia'
@@ -28,13 +34,17 @@ import {
 	type SerialFamily,
 } from '@/utils/serialDiscovery'
 
-import {BLOCK_HEIGHT, LED_FACES, type LedFace} from '../config'
+import {LED_FACES, type LedFace} from '../config'
 import {decodeImage} from '../led/decode'
 import {buildLedLayout, ledLayoutFromSet} from '../led/layout'
 import {type RgbaImage, sampleLedFrame} from '../led/sampler'
 import {usePrevizStore} from './previz'
 
 const FAMILY_ID = 'ws-fanout'
+
+function clamp255(v: number) {
+	return v < 0 ? 0 : v > 255 ? 255 : Math.round(v)
+}
 
 export type ChaseMode = 'pixel' | 'line'
 
@@ -56,13 +66,99 @@ export const useLedStore = defineStore('addsub:led', () => {
 	/** The real placement from previz/set.json when present, else the fallback. */
 	const layout = computed(() =>
 		previz.setLed
-			? ledLayoutFromSet(previz.setLed)
+			? ledLayoutFromSet(previz.setLed, {rigOffset: project.addsub.calibration.rigOffset})
 			: buildLedLayout(project.addsub.led.layout, project.addsub.led.layoutVersion)
 	)
 
-	/** world Y = film Y + lift, for the current base block. */
+	/** world Y = film Y + lift, for the current film lift. */
 	const lift = computed(
-		() => BLOCK_HEIGHT * project.addsub.kBase + project.addsub.calibration.filmOriginWorld[1]
+		() => project.addsub.filmLift + project.addsub.calibration.filmOriginWorld[1]
+	)
+
+	//--------------------------------------------------------------------------
+	// The wall buffer: what should be lit, per data line (layout line counts)
+
+	function emptyWall() {
+		return layout.value.lineCounts.map(n => new Uint8Array(n * 3))
+	}
+
+	/** RGB per data line, in ws-fanout line order. Read it with `wallVersion`. */
+	const wall = shallowRef<Uint8Array[]>(emptyWall())
+	/** Bumped on every change to `wall` (its arrays are mutated in place). */
+	const wallVersion = ref(0)
+
+	function touchWall() {
+		wallVersion.value++
+	}
+
+	/** Copy `lines` into the wall (per line, shorter/longer buffers clipped). */
+	function setWall(lines: readonly Uint8Array[]) {
+		wall.value.forEach((buf, i) => {
+			const src = lines[i]
+			if (!src) return
+			const n = Math.min(buf.length, src.length - (src.length % 3))
+			buf.set(src.subarray(0, n))
+		})
+		touchWall()
+	}
+
+	function fillWall(r: number, g: number, b: number, lines?: readonly number[]) {
+		const idx = lines ?? wall.value.map((_, i) => i)
+		for (const i of idx) {
+			const buf = wall.value[i]
+			if (!buf) continue
+			for (let o = 0; o < buf.length; o += 3) {
+				buf[o] = r
+				buf[o + 1] = g
+				buf[o + 2] = b
+			}
+		}
+		touchWall()
+	}
+
+	/** Mirror the device's local buffer into the wall (after direct writes). */
+	function syncWallFromDevice(led: WsFanout) {
+		wall.value.forEach((buf, i) => {
+			if (i >= led.lineCount) return
+			const src = led.getLine(i)
+			const n = Math.min(buf.length, src.length)
+			buf.set(src.subarray(0, n))
+		})
+		touchWall()
+	}
+
+	/**
+	 * Send the wall to the device and wait for the latch. Resolves null when
+	 * nothing is connected (the buffer is still the preview). Errors are
+	 * recorded in `lastError` and rethrown.
+	 */
+	async function pushWall(): Promise<ShowResult | null> {
+		const led = device.value
+		if (!led) return null
+		wall.value.forEach((buf, i) => {
+			if (i >= led.lineCount) return
+			const n = Math.min(buf.length, led.getLine(i).length)
+			led.setLine(i, buf.subarray(0, n))
+		})
+		power.value = led.estimatePower()
+		try {
+			const result = await led.show()
+			lastError.value = null
+			return result
+		} catch (e) {
+			lastError.value = e instanceof Error ? e.message : String(e)
+			throw e
+		}
+	}
+
+	// The placement changed (set.json, layout params): new line counts.
+	watch(
+		() => layout.value.lineCounts.join(','),
+		() => {
+			wall.value = emptyWall()
+			touchWall()
+			shownKey = null
+		}
 	)
 
 	//--------------------------------------------------------------------------
@@ -154,36 +250,22 @@ export const useLedStore = defineStore('addsub:led', () => {
 	//--------------------------------------------------------------------------
 	// Output
 
-	function requireDevice() {
-		const d = device.value
-		if (!d) throw new Error('LED wall is not connected')
-		return d
-	}
-
-	/** Sample `image` (film coordinates) into the wall and wait for the latch. */
+	/**
+	 * Sample `image` (film coordinates) into the wall and wait for the latch.
+	 * Null when no device is connected (the preview is still updated).
+	 */
 	async function showImage(
 		image: RgbaImage,
 		ref_: {file: string} | null = null
-	): Promise<ShowResult> {
-		const led = requireDevice()
+	): Promise<ShowResult | null> {
 		const lines = sampleLedFrame(layout.value, image, {
 			topFilmY: project.addsub.led.topFilmY,
 			lift: lift.value,
 			gain: project.addsub.led.gain,
 		})
-		lines.forEach((rgb, i) => {
-			if (i < led.lineCount) led.setLine(i, rgb)
-		})
-		power.value = led.estimatePower()
-		try {
-			const result = await led.show()
-			shown.value = ref_ ? {file: ref_.file, layoutVersion: layout.value.version} : null
-			lastError.value = null
-			return result
-		} catch (e) {
-			lastError.value = e instanceof Error ? e.message : String(e)
-			throw e
-		}
+		setWall(lines)
+		shown.value = ref_ ? {file: ref_.file, layoutVersion: layout.value.version} : null
+		return pushWall()
 	}
 
 	async function showImageBlob(blob: Blob, ref_: {file: string} | null = null) {
@@ -191,18 +273,57 @@ export const useLedStore = defineStore('addsub:led', () => {
 		return showImage(image, ref_)
 	}
 
+	/**
+	 * Put per-pixel colours straight on the wall (no image sampling): one RGB
+	 * buffer per data line in line order, or a single buffer of all lines
+	 * concatenated (split by the layout's line counts). Short buffers leave
+	 * the tail of a line untouched; long ones are truncated. Used by the live
+	 * feed from Houdini (§13.2) and by anything that already knows every
+	 * pixel's colour.
+	 */
+	async function showColors(
+		colors: Uint8Array | readonly Uint8Array[],
+		ref_: {file: string} | null = null
+	): Promise<ShowResult | null> {
+		const lines: Uint8Array[] = []
+		if (colors instanceof Uint8Array) {
+			let offset = 0
+			for (const buf of wall.value) {
+				lines.push(colors.subarray(offset, offset + buf.length))
+				offset += buf.length
+			}
+		} else lines.push(...colors)
+		const gain = project.addsub.led.gain
+		if (gain !== 1) {
+			lines.forEach((rgb, i) => {
+				const out = new Uint8Array(rgb.length)
+				for (let k = 0; k < rgb.length; k++) out[k] = clamp255(rgb[k] * gain)
+				lines[i] = out
+			})
+		}
+		setWall(lines)
+		shown.value = ref_ ? {file: ref_.file, layoutVersion: layout.value.version} : null
+		return pushWall()
+	}
+
 	async function blackout() {
-		const led = requireDevice()
-		await led.fill(LINE_ALL, 0, 0, 0)
-		shown.value = null
-		power.value = led.estimatePower()
+		await fill(0, 0, 0)
 	}
 
 	async function fill(r: number, g: number, b: number) {
-		const led = requireDevice()
-		await led.fill(LINE_ALL, r, g, b)
+		fillWall(r, g, b)
 		shown.value = null
-		power.value = led.estimatePower()
+		const led = device.value
+		if (!led) return
+		try {
+			await led.fill(LINE_ALL, r, g, b)
+			lastError.value = null
+		} catch (e) {
+			lastError.value = e instanceof Error ? e.message : String(e)
+			throw e
+		} finally {
+			power.value = led.estimatePower()
+		}
 	}
 
 	//--------------------------------------------------------------------------
@@ -210,7 +331,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 
 	/** Lines of a face, in ws-fanout line order L1 L2 B1 B2 R1 R2 F1 F2. */
 	function linesOfFace(face: LedFace): number[] {
-		const n = info.value?.lines.length ?? layout.value.lineCounts.length
+		const n = wall.value.length
 		const per = Math.max(1, Math.round(n / LED_FACES.length))
 		const i = LED_FACES.indexOf(face)
 		return Array.from({length: per}, (_, k) => i * per + k).filter(l => l < n)
@@ -223,26 +344,65 @@ export const useLedStore = defineStore('addsub:led', () => {
 	}
 
 	/** Fill each face with its colour from the project settings and latch. */
-	async function showFaces(): Promise<ShowResult> {
-		const led = requireDevice()
+	async function showFaces(): Promise<ShowResult | null> {
 		for (const face of LED_FACES) {
 			const [r, g, b] = hexToRgb(project.addsub.led.faceColors[face] ?? '#ffffff')
-			for (const line of linesOfFace(face)) led.clear(r, g, b, line)
+			fillWall(r, g, b, linesOfFace(face))
 		}
-		power.value = led.estimatePower()
-		try {
-			const result = await led.show()
-			shown.value = null
-			lastError.value = null
-			return result
-		} catch (e) {
-			lastError.value = e instanceof Error ? e.message : String(e)
-			throw e
-		}
+		shown.value = null
+		return pushWall()
 	}
 
 	/** Manual per-face colours instead of the frame's lighting. */
 	const faceLight = ref(false)
+
+	//--------------------------------------------------------------------------
+	// Live feed: per-pixel colours pushed from outside (Houdini over the relay)
+
+	/** Accept live frames; while on they replace faces / follow (work light wins). */
+	const liveLight = ref(false)
+	/** The last live frame received (kept so toggling live back on re-shows it). */
+	const liveFrame = shallowRef<Uint8Array | null>(null)
+	const liveInfo = ref<{t: number; fps: number; dropped: number} | null>(null)
+	let livePending: Uint8Array | null = null
+	let liveShowing = false
+	let liveDropped = 0
+	let liveLastT = 0
+
+	/**
+	 * Feed one frame (all lines concatenated, RGB). Frames that arrive while
+	 * one is still being latched are coalesced: only the newest is sent, so
+	 * the wall never lags behind a scrubbing timeline. With no device the
+	 * frame still goes to the preview buffer.
+	 */
+	function pushLiveFrame(rgb: Uint8Array) {
+		liveFrame.value = rgb
+		const now = performance.now()
+		const dt = now - liveLastT
+		liveLastT = now
+		liveInfo.value = {t: Date.now(), fps: dt > 0 ? 1000 / dt : 0, dropped: liveDropped}
+		if (!liveLight.value || workLight.value || chasing.value) return
+		if (livePending) liveDropped++
+		livePending = rgb
+		if (!liveShowing) void drainLive()
+	}
+
+	async function drainLive() {
+		liveShowing = true
+		try {
+			while (livePending && liveLight.value && !workLight.value) {
+				const frame = livePending
+				livePending = null
+				await enqueue(async () => {
+					await showColors(frame, {file: 'live'})
+					shownKey = 'live'
+				}).catch(() => {})
+			}
+		} finally {
+			liveShowing = false
+			livePending = null
+		}
+	}
 
 	interface ChaseState {
 		mode: ChaseMode
@@ -261,7 +421,8 @@ export const useLedStore = defineStore('addsub:led', () => {
 	 * the wall is off while it runs; the normal state comes back after.
 	 */
 	async function startChase(opts: {mode?: ChaseMode; stepMs?: number; line?: number | null} = {}) {
-		const led = requireDevice()
+		const led = device.value
+		if (!led) throw new Error('LED wall is not connected')
 		stopChase()
 		const abort = new AbortController()
 		chaseAbort = abort
@@ -286,6 +447,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 			})
 		try {
 			await led.fill(LINE_ALL, 0, 0, 0)
+			syncWallFromDevice(led)
 			for (const line of lines) {
 				if (abort.signal.aborted) break
 				const count = led.getLine(line).length / 3
@@ -294,6 +456,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 					led.clear(0, 0, 0, LINE_ALL)
 					led.clear(255, 255, 255, line)
 					await led.show()
+					syncWallFromDevice(led)
 					await sleep(stepMs * 10)
 					continue
 				}
@@ -304,10 +467,14 @@ export const useLedStore = defineStore('addsub:led', () => {
 					else led.clear(0, 0, 0, LINE_ALL)
 					led.setPixel(line, i, 255, 255, 255)
 					await led.show()
+					syncWallFromDevice(led)
 					await sleep(stepMs)
 				}
 			}
-			if (!abort.signal.aborted) await led.fill(LINE_ALL, 0, 0, 0)
+			if (!abort.signal.aborted) {
+				await led.fill(LINE_ALL, 0, 0, 0)
+				syncWallFromDevice(led)
+			}
 		} catch (e) {
 			lastError.value = e instanceof Error ? e.message : String(e)
 		} finally {
@@ -334,7 +501,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 	/** Temporary all-white for working on the set; restores the frame after. */
 	const workLight = ref(false)
 
-	/** Key of what's on the wall, to skip redundant re-shows. */
+	/** Key of what's in the wall buffer, to skip redundant re-shows. */
 	let shownKey: string | null = null
 	let chain: Promise<unknown> = Promise.resolve()
 
@@ -354,13 +521,23 @@ export const useLedStore = defineStore('addsub:led', () => {
 	 * frame has no LED image. The sequence awaits this before capturing.
 	 */
 	function ensureFrame(frame: number, opts: {force?: boolean} = {}): Promise<boolean> {
+		const pf = previz.frameFor(frame)
+		if (!pf?.led) return Promise.resolve(false)
+		return showFile(pf.led, opts)
+	}
+
+	/**
+	 * Put a lighting image (path relative to previz/) on the wall, sampled with
+	 * the current lift, and wait for the latch. Used to recall the lighting a
+	 * shot was taken with (`shot.led.file`), not just the capture frame's.
+	 * Without a device only the preview buffer is updated (still true).
+	 */
+	function showFile(file: string, opts: {force?: boolean} = {}): Promise<boolean> {
 		return enqueue(async () => {
-			const pf = previz.frameFor(frame)
-			if (!pf?.led || !device.value) return false
-			const key = frameKey(pf.led)
+			const key = frameKey(file)
 			if (!opts.force && shownKey === key && !workLight.value) return true
-			const blob = await previz.readBlob(pf.led)
-			await showImageBlob(blob, {file: pf.led})
+			const blob = await previz.readBlob(file)
+			await showImageBlob(blob, {file})
 			shownKey = key
 			return true
 		})
@@ -370,18 +547,19 @@ export const useLedStore = defineStore('addsub:led', () => {
 		workLight.value = on
 	}
 
-	/** Put on the wall whatever the current mode says (work > faces > frame). */
+	/** Put on the wall whatever the current mode says (work > live > faces > frame). */
 	function applyState() {
-		if (!connected.value) {
-			shownKey = null
-			return
-		}
 		if (chasing.value) return
 		if (workLight.value) {
+			if (shownKey === 'work') return
 			void enqueue(async () => {
 				await fill(255, 255, 255)
 				shownKey = 'work'
 			}).catch(() => {})
+			return
+		}
+		if (liveLight.value) {
+			if (liveFrame.value && shownKey !== 'live') pushLiveFrame(liveFrame.value)
 			return
 		}
 		if (faceLight.value) {
@@ -396,12 +574,18 @@ export const useLedStore = defineStore('addsub:led', () => {
 		if (followCapture.value) void ensureFrame(project.captureShot.frame).catch(() => {})
 	}
 
+	// A device that (re)appears gets the whole buffer, whatever the key says.
+	watch(connected, () => {
+		shownKey = null
+	})
+
 	// Any of these changing re-evaluates what should be on the wall.
 	watch(
 		() =>
 			[
 				connected.value,
 				workLight.value,
+				liveLight.value,
 				faceLight.value,
 				followCapture.value,
 				project.captureShot.frame,
@@ -409,6 +593,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 				project.addsub.led.gain,
 				project.addsub.led.topFilmY,
 				previz.lastModified,
+				layout.value,
 				...LED_FACES.map(f => project.addsub.led.faceColors[f]),
 			] as const,
 		() => applyState(),
@@ -430,12 +615,15 @@ export const useLedStore = defineStore('addsub:led', () => {
 		lastError,
 		power: readonly(power),
 		shown: readonly(shown),
+		wall: readonly(wall),
+		wallVersion: readonly(wallVersion),
 		layout,
 		lift,
 		connect,
 		disconnect,
 		showImage,
 		showImageBlob,
+		showColors,
 		blackout,
 		fill,
 		followCapture,
@@ -443,10 +631,15 @@ export const useLedStore = defineStore('addsub:led', () => {
 		setWorkLight,
 		faceLight,
 		showFaces,
+		liveLight,
+		liveFrame: readonly(liveFrame),
+		liveInfo: readonly(liveInfo),
+		pushLiveFrame,
 		linesOfFace,
 		chasing: readonly(chasing),
 		startChase,
 		stopChase,
 		ensureFrame,
+		showFile,
 	}
 })

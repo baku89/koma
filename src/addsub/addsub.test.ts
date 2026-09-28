@@ -17,17 +17,17 @@ import {
 	rotationCentre,
 	rotationToAngles,
 } from './kinematics'
-import {buildLedLayout, faceToWorld} from './led/layout'
+import {buildLedLayout, faceToWorld, ledLayoutFromSet} from './led/layout'
 import {sampleLedFrame} from './led/sampler'
 
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps
 
 describe('coords', () => {
-	it('film ↔ world lifts by 60·kBase', () => {
+	it('film ↔ world lifts by filmLift (mm)', () => {
 		const origin: vec3 = [10, 5, -20]
-		const w = filmToWorld([1, 2, 3], 2, origin)
+		const w = filmToWorld([1, 2, 3], 120, origin)
 		expect(w).toEqual([11, 127, -17])
-		expect(worldToFilm(w, 2, origin)).toEqual([1, 2, 3])
+		expect(worldToFilm(w, 120, origin)).toEqual([1, 2, 3])
 	})
 
 	it('mill ↔ world is a cyclic permutation plus offset', () => {
@@ -45,9 +45,9 @@ describe('coords', () => {
 		expect(tableShiftWorld({x: 200, y: 30}, {x: 200, y: 10})).toEqual([-20, 0, -0])
 	})
 
-	it('G54 origin rises one block per appended block', () => {
+	it('G54 origin rises by the film lift', () => {
 		const a = filmOriginMill(0, [0, 12, 0], [0, 0, 0])
-		const b = filmOriginMill(1, [0, 12, 0], [0, 0, 0])
+		const b = filmOriginMill(60, [0, 12, 0], [0, 0, 0])
 		expect(a).toEqual([0, 0, 12])
 		expect(b).toEqual([0, 0, 72])
 	})
@@ -218,8 +218,49 @@ describe('led sampler', () => {
 		const px = layout.pixels.find(p => p.line === 0 && Math.abs(p.y - 1050) < layout.pitch / 2)!
 		const a = sampleLedFrame(layout, img, {topFilmY: 1400, lift: 0, boxSize: 0})
 		expect(a[0][px.index * 3]).toBe(0)
-		// With a lift of 120 (kBase 2) the same LED reads film Y ≈ 930: white.
+		// With a lift of 120 (two 60 mm blocks added) the same LED reads film Y ≈ 930: white.
 		const b = sampleLedFrame(layout, img, {topFilmY: 1400, lift: 120, boxSize: 0})
 		expect(b[0][px.index * 3]).toBe(255)
+	})
+})
+
+describe('led layout from set.json', () => {
+	const set = {
+		layoutVersion: 3,
+		frame: 'rig' as const,
+		unit: 'm' as const,
+		imageWidth: 7.644,
+		pitch: 0.0333,
+		lines: [
+			{name: 'L1', pixels: [[-0.95, 0.3936, 0.9, 0.0955] as [number, number, number, number]]},
+			{name: 'L2', pixels: []},
+		],
+	}
+	const rigOffset: vec3 = [-600, -1300, -600]
+
+	it('converts rig metres to world millimetres with the rig offset', () => {
+		const layout = ledLayoutFromSet(set, {rigOffset})
+		expect(layout.source).toBe('set')
+		expect(layout.version).toBe(3)
+		expect(layout.lineCounts).toEqual([1, 0])
+		expect(layout.imageWidth).toBeCloseTo(7644)
+		expect(layout.pitch).toBeCloseTo(33.3)
+		const px = layout.pixels[0]
+		// world = rig − rigOffset
+		expect(px.world[0]).toBeCloseTo(-950 + 600)
+		expect(px.world[1]).toBeCloseTo(393.6 + 1300)
+		expect(px.world[2]).toBeCloseTo(900 + 600)
+		expect(px.y).toBeCloseTo(px.world[1])
+		expect(px.u).toBeCloseTo(95.5)
+	})
+
+	it('leaves world millimetres alone by default', () => {
+		const layout = ledLayoutFromSet({
+			imageWidth: 7644,
+			lines: [{pixels: [[10, 20, 30, 40]]}],
+		})
+		expect(layout.pixels[0].world).toEqual([10, 20, 30])
+		expect(layout.pixels[0].u).toBe(40)
+		expect(layout.version).toBe(1)
 	})
 })

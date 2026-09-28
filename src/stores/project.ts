@@ -16,6 +16,7 @@ import {computed, nextTick, reactive, ref, toRaw, toRefs} from 'vue'
 import {
 	type AddsubProjectData,
 	DEFAULT_ADDSUB_DATA,
+	migrateAddsubData,
 	type ShotMachineData,
 } from '@/addsub/projectData'
 import {
@@ -875,6 +876,7 @@ export const useProjectStore = defineStore('project', () => {
 				cloneDeep(emptyProject)
 			)
 			normalizeLayers(mergedProject)
+			migrateAddsubData(mergedProject)
 
 			autoSave.pause()
 			assignReactive(project, mergedProject)
