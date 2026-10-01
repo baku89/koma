@@ -168,3 +168,25 @@ export function orbitAboutPupil(
 	)
 	return {position: pose.position, rotation: quat.normalize(q)}
 }
+
+/**
+ * Orbit the head about the vertical axis through world X = Z = 0 by `deg`:
+ * the rotation centre swings round that axis and pan turns by the same
+ * angle, so the whole camera pose is rotated about it — what it looks at on
+ * the axis stays where it is in the picture. Tilt, roll and height are
+ * untouched. Returns the axes that change (machine coordinates).
+ */
+export function orbitRigAxes(
+	axes: AxesPosition,
+	deg: number,
+	cal: AddsubCalibration
+): Required<Pick<AxesPosition, 'x' | 'z' | 'b'>> {
+	const centre = rigToWorld([axes.x ?? 0, axes.y ?? 0, axes.z ?? 0], cal.rigOffset)
+	const turned = vec3.transformQuat(centre, quat.fromAxisAngle([0, 1, 0], deg))
+	const rig = worldToRig(turned, cal.rigOffset)
+	return {
+		x: rig[0],
+		z: rig[2],
+		b: (axes.b ?? 0) + deg * cal.rotarySigns.b,
+	}
+}

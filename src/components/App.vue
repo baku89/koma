@@ -10,11 +10,15 @@ import {initTweeq, useTweeq} from 'tweeq'
 import {markRaw, watch, watchEffect} from 'vue'
 
 import AddsubVisualizer from '@/addsub/components/AddsubVisualizer.vue'
+import CutPanel from '@/addsub/components/CutPanel.vue'
 import HoudiniPanel from '@/addsub/components/HoudiniPanel.vue'
 import LedPanel from '@/addsub/components/LedPanel.vue'
+import PlanPanel from '@/addsub/components/PlanPanel.vue'
 import SequencePanel from '@/addsub/components/SequencePanel.vue'
+import {setupAddsubInbox} from '@/addsub/inboxOps'
 import {linearRigPlan, setPlan} from '@/addsub/plan'
 import {setupAddsubRelay} from '@/addsub/relayPublish'
+import {setupAddsubShootAlerts} from '@/addsub/shootConditions'
 import {useHoudiniStore} from '@/addsub/stores/houdini'
 import {useLedStore} from '@/addsub/stores/led'
 import {useMillStore, useRigStore} from '@/addsub/stores/machines'
@@ -23,6 +27,7 @@ import {type CaptureRequest, useSequenceStore} from '@/addsub/stores/sequence'
 import {useCameraStore} from '@/stores/camera'
 import {useCncStore} from '@/stores/cnc'
 import {useDmxStore} from '@/stores/dmx'
+import {useInboxStore} from '@/stores/inbox'
 import {useOscStore} from '@/stores/osc'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
@@ -38,6 +43,12 @@ import {
 	resizeBlobImage,
 	speak,
 } from '@/utils'
+import {
+	discoverSerialPorts,
+	requestSerialPort,
+	resetRejections,
+	serialRequestError,
+} from '@/utils/serialDiscovery'
 
 import CameraControl from './CameraControl.vue'
 import InAppProjectsPanel from './InAppProjectsPanel.vue'
@@ -73,6 +84,18 @@ const sequence = useSequenceStore()
 
 // Exhibition screens: live state + display copy of the project (§15.2).
 setupAddsubRelay()
+setupAddsubShootAlerts()
+// Patches dropped into the project's `_inbox/` by anything outside koma
+// (stores/inbox.ts) — the way to change an open project without fighting
+// its autosave.
+setupAddsubInbox()
+useInboxStore()
+
+// A file dropped anywhere but on a timeline cell would navigate the tab to
+// it — and this tab holds the camera (WebUSB) and every serial port. Swallow
+// stray drops; cells handle their own (TimelineShot).
+window.addEventListener('dragover', e => e.preventDefault())
+window.addEventListener('drop', e => e.preventDefault())
 // Houdini → LED wall / rig / timeline over the relay's control channel (§13.2).
 useHoudiniStore()
 
@@ -243,6 +266,10 @@ const {fn: shoot} = preventConcurrentExecution(
 
 			const dmxData = dmx.values.map(v => v.value)
 
+			// addsub: the wall's pixels as they are at the exposure (copied now,
+			// written to the project folder while the photo downloads).
+			const ledRecord = led.recordForShot()
+
 			viewport.popup = {
 				type: 'progress',
 				progress: 0.1,
@@ -333,8 +360,9 @@ const {fn: shoot} = preventConcurrentExecution(
 				rig: rig.connected ? {...rig.mpos} : undefined,
 				mill: mill.connected ? {...mill.mpos} : undefined,
 				filmLift: project.addsub.filmLift,
-				led: led.shown ? {...led.shown} : undefined,
+				led: await ledRecord,
 				previzFrame: frame + project.addsub.previzFrameOffset,
+				cut: cutRecordFor(frame, layer),
 			}
 		} finally {
 			viewport.popup = null
@@ -345,6 +373,15 @@ const {fn: shoot} = preventConcurrentExecution(
 		throw new Error('The Shooting is already executed')
 	}
 )
+
+// addsub: the cut that preceded this shot (cuts.ts), for the shot's record.
+function cutRecordFor(frame: number, layer: number) {
+	const g = sequence.gcodeFor(frame, layer)
+	const run = g?.cut?.run
+	return g && run?.done && g.cut?.file === g.path
+		? {file: g.path, durationMs: run.durationMs}
+		: undefined
+}
 
 // Place a freshly shot frame at the capture slot, then move the capture cursor
 // to the next empty frame. When the final frame of the duration was just filled,
@@ -768,6 +805,9 @@ Tq.actions.register([
 				async perform() {
 					const newShot = await shoot()
 					placeShotAndAdvance(newShot)
+					// addsub: set up the next frame (auto move / auto run). Not
+					// awaited — it can run for minutes and reports by itself.
+					void sequence.afterShot()
 				},
 			},
 			{
@@ -777,6 +817,7 @@ Tq.actions.register([
 				async perform() {
 					const newShot = await shoot(true)
 					placeShotAndAdvance(newShot)
+					void sequence.afterShot()
 				},
 			},
 			{
@@ -883,6 +924,28 @@ Tq.actions.register([
 				perform: () => sequence.estop(),
 			},
 			{
+				id: 'connect_serial_device',
+				label: 'Connect Serial Device… (auto-detect mill / rig / LED)',
+				icon: 'mdi:usb-port',
+				async perform() {
+					const result = await requestSerialPort()
+					if (result.status === 'rejected' || result.status === 'owned') {
+						alert(serialRequestError(result))
+					}
+				},
+			},
+			{
+				id: 'rescan_serial_ports',
+				label: 'Rescan Serial Ports (reconnect paired devices)',
+				icon: 'mdi:usb-port',
+				// An explicit rescan re-asks every port, including the ones that
+				// did not answer before (a board whose power came up after its USB).
+				perform: () => {
+					resetRejections()
+					return discoverSerialPorts()
+				},
+			},
+			{
 				id: 'sequence_run_frame',
 				label: 'Sequence: Run One Frame',
 				icon: 'mdi:play',
@@ -896,10 +959,60 @@ Tq.actions.register([
 					sequence.start({frame: project.captureShot.frame, continuous: true}),
 			},
 			{
+				id: 'sequence_run_range',
+				label: 'Sequence: Run In → Out',
+				icon: 'mdi:ray-start-end',
+				perform: () => sequence.startRange(),
+			},
+			{
 				id: 'go_to_plan',
-				label: 'Go to Planned Rig Pose (capture frame)',
+				label: 'Go to Plan (capture frame): Move Rig + Apply Camera',
 				icon: 'mdi:map-marker-path',
-				perform: () => sequence.goToPlan().catch(() => {}),
+				perform: () => recallForSelectedShot(() => sequence.goToPlan()),
+			},
+			// Plans on the *selected* cell (timeline right-click / palette). The
+			// plan is what the sequence and the shoot condition hold the set to.
+			{
+				id: 'plan_set_from_current',
+				label: 'Set Plan from Current (Rig + Camera)',
+				icon: 'mdi:map-marker-plus',
+				perform: () =>
+					recallForSelectedShot(async () => {
+						await sequence.setPlanFromCurrent(viewport.currentFrame, viewport.currentLayer)
+					}),
+			},
+			{
+				id: 'plan_set_rig_from_current',
+				label: 'Set Plan from Current Rig Pose',
+				icon: 'mdi:map-marker-plus',
+				perform: () =>
+					recallForSelectedShot(async () => {
+						await sequence.setPlanFromCurrent(viewport.currentFrame, viewport.currentLayer, {rig: true})
+					}),
+			},
+			{
+				id: 'plan_set_camera_from_current',
+				label: 'Set Plan from Current Camera Settings',
+				icon: 'mdi:camera-plus-outline',
+				perform: () =>
+					recallForSelectedShot(async () => {
+						await sequence.setPlanFromCurrent(viewport.currentFrame, viewport.currentLayer, {camera: true})
+					}),
+			},
+			{
+				id: 'go_to_plan_selected',
+				label: 'Go to Plan (Rig + Camera)',
+				icon: 'mdi:map-marker-check-outline',
+				perform: () =>
+					recallForSelectedShot(() =>
+						sequence.goToPlan(viewport.currentFrame, viewport.currentLayer)
+					),
+			},
+			{
+				id: 'plan_clear',
+				label: 'Clear Plan',
+				icon: 'mdi:map-marker-off-outline',
+				perform: () => sequence.setPlan(viewport.currentFrame, null, viewport.currentLayer),
 			},
 			{
 				id: 'recall_shot_led',
@@ -1235,7 +1348,9 @@ watchEffect(() => {
 										/>
 									</Tq.Parameter>
 									<SequencePanel />
-									<MachinePanel :machine="rig" />
+									<CutPanel />
+									<PlanPanel />
+									<MachinePanel :machine="rig" :limits="project.addsub.rigLimits" />
 									<MachinePanel :machine="mill" />
 									<LedPanel />
 									<HoudiniPanel />

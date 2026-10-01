@@ -4,6 +4,7 @@ import * as Tq from 'tweeq'
 import {computed, onUnmounted, ref} from 'vue'
 
 import TitleBarLedConnection from '@/addsub/components/TitleBarLedConnection.vue'
+import {formatDuration} from '@/addsub/cuts'
 import {useMillStore, useRigStore} from '@/addsub/stores/machines'
 import {useSequenceStore} from '@/addsub/stores/sequence'
 import {useDmxStore} from '@/stores/dmx'
@@ -13,6 +14,7 @@ import {useViewportStore} from '@/stores/viewport'
 import {toTime} from '@/utils'
 
 import TitleBarCameraConnection from './TitleBarCameraConnection.vue'
+import TitleBarInbox from './TitleBarInbox.vue'
 import TitleBarMachineConnection from './TitleBarMachineConnection.vue'
 import TitleBarRelayConnection from './TitleBarRelayConnection.vue'
 
@@ -37,6 +39,53 @@ const destroyBndr = Bndr.createScope(() => {
 })
 
 onUnmounted(destroyBndr)
+
+// addsub: cut the capture frame's G-code now (cuts.ts). While it streams the
+// button shows progress + ETA and becomes Stop.
+const captureGcode = computed(() =>
+	sequence.gcodeFor(project.captureShot.frame, project.captureShot.layer)
+)
+const captureCutDone = computed(() => {
+	const g = captureGcode.value
+	return !!g && !!g.cut?.run?.done && g.cut.file === g.path
+})
+const cutProgress = computed(() => sequence.cutProgress)
+const cutLabel = computed(() => {
+	const p = cutProgress.value
+	if (p) {
+		const eta = p.remainingMs === null ? '' : ` · −${formatDuration(p.remainingMs)}`
+		return `#${p.frame} ${Math.round(p.fraction * 100)}%${eta}`
+	}
+	return `Cut #${project.captureShot.frame}`
+})
+const cutTooltip = computed(() => {
+	const g = captureGcode.value
+	if (cutProgress.value) return {title: 'Stop cutting', description: 'Feed-hold the mill (resume or reset from its panel)'}
+	if (!g) return {title: 'Cut', description: 'The capture frame has no G-code — drop a .nc file on its cell'}
+	const run = g.cut?.run
+	const state = captureCutDone.value
+		? `Already cut in ${formatDuration(run?.durationMs ?? 0)} — runs it again`
+		: run
+			? `Stopped at line ${run.linesSent}/${run.total}`
+			: 'Not cut yet'
+	const est = g.cut?.estimatedSec ? ` · ~${formatDuration(g.cut.estimatedSec * 1000)}` : ''
+	return {title: `Cut ${g.name}`, description: `${state}${est}`}
+})
+const canCut = computed(
+	() => !!captureGcode.value && mill.connected && !sequence.running && !mill.busy
+)
+
+async function onCutClick() {
+	if (cutProgress.value) {
+		await sequence.stop()
+		return
+	}
+	try {
+		await sequence.cutFrame()
+	} catch (e) {
+		alert(e instanceof Error ? e.message : String(e))
+	}
+}
 
 // Single status indicator: spinner while there is anything not yet safely on
 // disk (opening / saving=re-sequencing / unsaved edits), otherwise the
@@ -113,6 +162,26 @@ const saveStatus = computed(() => {
 				/>
 			</Tq.InputGroup>
 			<Tq.InputCheckbox
+				v-model="sequence.autoRun"
+				v-tooltip="{
+					title: 'Auto run',
+					description:
+						'Each shot sets up the next frame: the rig moves to its plan, its G-code is cut, and a buzzer sounds when it is ready to clean and shoot.',
+				}"
+				class="auto-run"
+				icon="mdi:autorenew"
+				label="Auto"
+			/>
+			<Tq.InputButton
+				v-tooltip="cutTooltip"
+				class="cut"
+				:class="{active: !!cutProgress, done: captureCutDone && !cutProgress}"
+				:label="cutLabel"
+				:icon="cutProgress ? 'mdi:stop' : captureCutDone ? 'mdi:check' : 'mdi:saw-blade'"
+				:disabled="!cutProgress && !canCut"
+				@click="onCutClick"
+			/>
+			<Tq.InputCheckbox
 				v-model="dmx.blackout"
 				v-tooltip="{
 					title: 'Blackout',
@@ -158,6 +227,7 @@ const saveStatus = computed(() => {
 			<TitleBarMachineConnection :machine="rig" icon="game-icons:mechanical-arm" />
 			<TitleBarLedConnection />
 			<TitleBarRelayConnection />
+			<TitleBarInbox />
 			<button
 				v-tooltip="'Emergency stop: feed-hold the mill and the Box Rig, stop the spindle (shift+esc)'"
 				class="estop"
@@ -196,6 +266,14 @@ const saveStatus = computed(() => {
 	&:active
 		background #8e0000
 
+
+.cut
+	min-width 7em
+	font-variant-numeric tabular-nums
+
+	&.active
+		--tq-color-input var(--tq-color-rec)
+		--tq-color-input-hover var(--tq-color-rec)
 
 .project-name
 	display flex

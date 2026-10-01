@@ -88,12 +88,6 @@ const stateClass = computed(() => {
 					@click="led.connected ? led.disconnect() : led.connect()"
 				/>
 				<Tq.InputButton
-					label="White"
-					icon="mdi:white-balance-sunny"
-					:disabled="!led.connected"
-					@click="led.fill(255, 255, 255)"
-				/>
-				<Tq.InputButton
 					label="Off"
 					icon="mdi:lightbulb-off-outline"
 					:disabled="!led.connected"
@@ -128,7 +122,6 @@ const stateClass = computed(() => {
 			<div class="mode">
 				{{ modeText || '—' }}
 				<template v-if="led.lastShow"> · {{ led.lastShow.latencyMs.toFixed(0) }} ms</template>
-				<template v-if="led.power"> · {{ led.power.totalAmps.toFixed(1) }} A{{ led.power.warning ? ' ⚠' : '' }}</template>
 			</div>
 		</div>
 	</Tq.Popover>
@@ -147,10 +140,15 @@ const stateClass = computed(() => {
 		color orange
 
 .menu
-	width 17rem
+	// As wide as the widest row of buttons; the text rows wrap inside that.
+	width max-content
+	min-width 17rem
 	display flex
 	flex-direction column
 	gap 0.5em
+
+	:deep(.TqInputGroup > *)
+		flex-grow 1
 
 .head
 	display flex
@@ -172,6 +170,11 @@ const stateClass = computed(() => {
 .alarm-row
 	font-size 0.85em
 	color var(--tq-color-error, #e5484d)
+
+// Text rows take the menu's width instead of setting it.
+.alarm-row, .mode
+	width 0
+	min-width 100%
 
 .mode
 	font-size 0.85em

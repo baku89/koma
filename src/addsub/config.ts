@@ -30,6 +30,8 @@ export const MILL_DEFINITION: MachineDefinition = {
 	id: 'mill',
 	label: 'Mill (AST200)',
 	fluidncName: 'AST200',
+	// Any Grbl/FluidNC board that isn't the Box Rig is the mill.
+	fluidncFallback: true,
 	axes: ['x', 'y', 'z'],
 	axisInfo: {
 		x: {unit: 'mm'},
@@ -53,6 +55,10 @@ export const RIG_DEFINITION: MachineDefinition = {
 		c: {unit: 'deg'},
 	},
 	jogFeed: 1500,
+	// Work positions only, X Y Z / A B C in two rows; no feed input, no
+	// "go to work 0" (the rig is driven in machine coordinates by the
+	// sequence; work coordinates are just a jog reference).
+	panel: {layout: 'grid', gridColumns: 3, showFeed: false, showGoToZero: false},
 }
 
 //------------------------------------------------------------------------------
@@ -97,9 +103,14 @@ export const DEFAULT_LED_LAYOUT: LedLayoutParams = {
 }
 
 //------------------------------------------------------------------------------
-// Box Rig travel (2026-09-25): X and Z 1200 mm, Y 900 mm homed at the top and
-// travelling negative; with Y fully down the head sits ~400 mm high (tentative).
-export const RIG_TRAVEL = {x: 1200, y: 900, z: 1200} as const
+// Box Rig travel (2026-09-29): X and Z run −550…+550 mm about the machine
+// origin (centre of the frame), Y 0…−900 homed at the top and travelling
+// negative; with Y fully down the head sits ~400 mm high (tentative).
+export const RIG_LIMITS = {
+	x: [-550, 550],
+	y: [-900, 0],
+	z: [-550, 550],
+} as const satisfies Record<'x' | 'y' | 'z', readonly [number, number]>
 export const RIG_Y_DOWN_HEIGHT = 400
 
 /** Bump when the physical placement changes so saved frames can be re-sampled. */
@@ -140,8 +151,8 @@ export const DEFAULT_CALIBRATION: AddsubCalibration = {
 	filmOriginWorld: [0, 0, 0],
 	// rig = world + offset. X/Z: travel centre assumed at world origin. Y: at
 	// machine Y = −900 (fully down) the head is RIG_Y_DOWN_HEIGHT high:
-	// −900 = 400 + offsetY.
-	rigOffset: [-RIG_TRAVEL.x / 2, -RIG_TRAVEL.y - RIG_Y_DOWN_HEIGHT, -RIG_TRAVEL.z / 2],
+	// −900 = 400 + offsetY. X/Z: machine origin = centre of travel = world 0.
+	rigOffset: [0, RIG_LIMITS.y[0] - RIG_Y_DOWN_HEIGHT, 0],
 	millOffset: [0, 0, 0],
 	rotarySigns: {a: 1, b: 1, c: 1},
 }

@@ -1,6 +1,8 @@
 import {quat, vec3} from 'linearly'
 import {describe, expect, it} from 'vitest'
 
+import type {Project} from '@/stores/project'
+
 import {DEFAULT_CALIBRATION, DEFAULT_LED_LAYOUT} from './config'
 import {
 	filmOriginMill,
@@ -13,12 +15,16 @@ import {
 import {
 	anglesToRotation,
 	cameraPoseToRigAxes,
+	orbitRigAxes,
 	rigAxesToCameraPose,
 	rotationCentre,
 	rotationToAngles,
 } from './kinematics'
 import {buildLedLayout, faceToWorld, ledLayoutFromSet} from './led/layout'
 import {sampleLedFrame} from './led/sampler'
+import {decodeWall, encodeWall, wallRecordPath} from './led/wallRecord'
+import {frameDifference, median} from './motion'
+import {effectivePlanFor, interpolatedFrames, type PlanTable} from './plan'
 
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps
 
@@ -121,6 +127,34 @@ describe('kinematics', () => {
 		expect(near(axes.c, -30, 1e-4)).toBe(true)
 		const back = rigAxesToCameraPose(axes, 0, cal)
 		expect(quat.angle(back.rotation, pose.rotation) < 1e-4).toBe(true)
+	})
+})
+
+describe('orbit', () => {
+	it('rotates the whole camera pose about the vertical axis at X = Z = 0', () => {
+		const cal = {
+			...DEFAULT_CALIBRATION,
+			pupilOffset: 80,
+			rigOffset: [30, -1300, -20] as vec3,
+			rotarySigns: {a: 1, b: -1, c: 1} as const,
+		}
+		const axes = {x: 300, y: -400, z: 450, a: -20, b: 35, c: 4}
+		const before = rigAxesToCameraPose(axes, 0, cal)
+		const after = rigAxesToCameraPose({...axes, ...orbitRigAxes(axes, 25, cal)}, 0, cal)
+
+		const turn = quat.fromAxisAngle([0, 1, 0], 25)
+		const origin = cal.filmOriginWorld
+		// Poses are in film coordinates: rotate about the world axis.
+		const expected = worldToFilm(
+			vec3.transformQuat(filmToWorld(before.position, 0, origin), turn),
+			0,
+			origin
+		)
+		expect(vec3.distance(after.position, expected)).toBeLessThan(1e-6)
+		const q = quat.mul(turn, before.rotation)
+		expect(Math.abs(quat.dot(after.rotation, q))).toBeCloseTo(1, 9)
+		// Height, tilt and roll are untouched.
+		expect(after.position[1]).toBeCloseTo(before.position[1], 9)
 	})
 })
 
@@ -262,5 +296,75 @@ describe('led layout from set.json', () => {
 		expect(layout.pixels[0].world).toEqual([10, 20, 30])
 		expect(layout.pixels[0].u).toBe(40)
 		expect(layout.version).toBe(1)
+	})
+})
+
+describe('plan interpolation', () => {
+	// A Project stub with just what plan.ts reads.
+	function stubProject(plan: PlanTable) {
+		return {layers: [{id: 'main', name: 'Main'}], addsub: {plan}} as unknown as Project
+	}
+
+	it('interpolates rig axes linearly between planned frames and holds lone axes', () => {
+		const project = stubProject({
+			main: {
+				2: {rig: {x: 0, y: -100, z: 50}, cameraConfigs: {aperture: 8}},
+				6: {rig: {x: 40, y: -100}, cameraConfigs: {aperture: 11}},
+			},
+		})
+		expect(effectivePlanFor(project, 2, 0)).toMatchObject({kind: 'explicit'})
+		const mid = effectivePlanFor(project, 4, 0)
+		expect(mid).toMatchObject({kind: 'interpolated', from: 2, to: 6})
+		expect(mid!.plan.rig).toEqual({x: 20, y: -100, z: 50})
+		// Exposure steps: the earlier key's configs are held.
+		expect(mid!.plan.cameraConfigs).toEqual({aperture: 8})
+		expect(effectivePlanFor(project, 5, 0)!.plan.rig!.x).toBeCloseTo(30)
+		// Outside the planned range there is no plan.
+		expect(effectivePlanFor(project, 1, 0)).toBeNull()
+		expect(effectivePlanFor(project, 7, 0)).toBeNull()
+		expect(interpolatedFrames(project, 0)).toEqual([3, 4, 5])
+		// Another layer has nothing.
+		expect(effectivePlanFor(project, 4, 1)).toBeNull()
+	})
+
+	it('interpolates camera poses (lerp + slerp) when both keys are poses', () => {
+		const a = {position: [0, 0, 0] as vec3, rotation: quat.identity}
+		const b = {position: [100, 0, 0] as vec3, rotation: quat.fromAxisAngle([0, 1, 0], Math.PI / 2)}
+		const project = stubProject({main: {0: {camera: a}, 10: {camera: b}}})
+		const half = effectivePlanFor(project, 5, 0)!.plan.camera!
+		expect(half.position[0]).toBeCloseTo(50)
+		expect(quat.angle(half.rotation, quat.fromAxisAngle([0, 1, 0], Math.PI / 4))).toBeCloseTo(0, 5)
+	})
+})
+
+describe('led wall record', () => {
+	const lines = [new Uint8Array([1, 2, 3, 4, 5, 6]), new Uint8Array(0), new Uint8Array([255, 0, 128])]
+
+	it('round-trips every line', () => {
+		expect(decodeWall(encodeWall(lines))).toEqual(lines)
+	})
+
+	it('names a record by its content', async () => {
+		const a = await wallRecordPath(encodeWall(lines))
+		expect(a).toMatch(/^led-wall\/[0-9a-f]{16}\.ledwall$/)
+		expect(await wallRecordPath(encodeWall(lines.map(l => l.slice())))).toBe(a)
+		expect(await wallRecordPath(encodeWall([lines[0]]))).not.toBe(a)
+	})
+
+	it('rejects files that are not records', () => {
+		expect(() => decodeWall(new Uint8Array([1, 2, 3, 4, 5]))).toThrow()
+		expect(() => decodeWall(encodeWall(lines).subarray(0, 12))).toThrow('truncated')
+	})
+})
+
+describe('live view motion', () => {
+	it('is the mean absolute difference of two frames', () => {
+		expect(frameDifference(new Uint8Array([10, 20, 30, 40]), new Uint8Array([10, 22, 26, 40]))).toBe(1.5)
+		expect(frameDifference(new Uint8Array(4), new Uint8Array(4))).toBe(0)
+	})
+
+	it('takes the median as the level at rest', () => {
+		expect(median([3, 1, 2])).toBe(2)
+		expect(median([4, 1, 9, 2])).toBe(3)
 	})
 })

@@ -5,16 +5,15 @@
  * - `machine:mill`, `machine:rig` — FluidNC state and positions (~10 Hz)
  * - `sequence`                    — step / status, and the G-code file + line
  *                                   being streamed to the mill
- * - the camera's live view MediaStream (WebRTC, see stores/relay.ts)
  * - the extra files of the display copy: previz/frames.json, set.json and the
  *   G-code they reference, plus per-layer G-code (addsub.layerGcode)
  */
 
 import {watch} from 'vue'
 
-import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
 import {useRelayStore, type WantedFile} from '@/stores/relay'
+import {useRemoteJogStore} from '@/stores/remoteJog'
 
 import {useMillStore, useRigStore} from './stores/machines'
 import {PREVIZ_DIR, usePrevizStore} from './stores/previz'
@@ -29,7 +28,6 @@ function expand(pattern: string, n: number) {
 export function setupAddsubRelay() {
 	const relay = useRelayStore()
 	const project = useProjectStore()
-	const camera = useCameraStore()
 	const mill = useMillStore()
 	const rig = useRigStore()
 	const sequence = useSequenceStore()
@@ -51,11 +49,29 @@ export function setupAddsubRelay() {
 				alarm: m.alarm,
 				busy: m.busy,
 				progress: m.streamProgress,
+				override: m.override,
+				// What the phone jog page (src/jog) needs to draw the pads.
+				def: {
+					id: m.def.id,
+					label: m.def.label,
+					axes: m.def.axes,
+					units: Object.fromEntries(m.def.axes.map(a => [a, m.def.axisInfo?.[a]?.unit ?? 'mm'])),
+					jogFeed: m.jogFeed,
+					// Same choice as MachinePanel: no feed control for the rig.
+					showFeed: m.def.panel?.showFeed !== false,
+				},
 			}),
 			v => relay.publishThrottled(topic, {...v, t: Date.now()}, MACHINE_RATE_MS),
 			{immediate: true, deep: true}
 		)
 	}
+
+	// Phone jog page (stores/remoteJog): both machines, refused while a
+	// sequence runs; its ESTOP is the same as the title bar's.
+	useRemoteJogStore().setup([mill, rig], {
+		busy: () => sequence.running,
+		estop: () => sequence.estop(),
+	})
 
 	//--------------------------------------------------------------------------
 	// Sequence (what the SEQUENCE and G-CODE panes show live)
@@ -81,15 +97,6 @@ export function setupAddsubRelay() {
 	)
 
 	//--------------------------------------------------------------------------
-	// Live view (Tethr's MediaStream, whatever the camera)
-
-	watch(
-		() => camera.liveview.value ?? null,
-		stream => relay.setLiveStream(stream),
-		{immediate: true}
-	)
-
-	//--------------------------------------------------------------------------
 	// Display copy: files besides the previews
 
 	relay.registerExtraFiles((): WantedFile[] => {
@@ -112,6 +119,12 @@ export function setupAddsubRelay() {
 			project.komas.forEach((koma, frame) => {
 				if (koma?.shots?.[layer]) out.push({rel: expand(pattern, frame), tag: 'static'})
 			})
+		}
+		// G-code dropped on cells (cuts.ts): a re-drop changes addedAt.
+		for (const byFrame of Object.values(project.addsub.cuts)) {
+			for (const cut of Object.values(byFrame)) {
+				if (cut.source === 'file') out.push({rel: cut.file, tag: `cut:${cut.addedAt}`})
+			}
 		}
 		return out
 	})

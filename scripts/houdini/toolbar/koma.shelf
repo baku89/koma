@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <!-- The "Koma" shelf: live LED / playbar link to koma (scripts/houdini/koma_shelf.py). -->
+  <toolshelf name="koma" label="Koma">
+    <memberTool name="koma_led_live"/>
+    <memberTool name="koma_led_send"/>
+    <memberTool name="koma_stop"/>
+    <memberTool name="koma_export_set"/>
+    <memberTool name="koma_settings"/>
+  </toolshelf>
+
+  <tool name="koma_led_live" label="LED Live" icon="SOP_color">
+    <helpText><![CDATA[Toggle: send the LED point cloud's colours and the frame number to koma on every playbar change. In koma, turn on Houdini Live > LED.]]></helpText>
+    <script scriptType="python"><![CDATA[import sys
+import hou
+p = hou.getenv('KOMA_HOUDINI')
+if p and p not in sys.path:
+    sys.path.append(p)
+import koma_shelf
+koma_shelf.toggle_follow()
+]]></script>
+  </tool>
+
+  <tool name="koma_led_send" label="LED Send" icon="SOP_attribwrangle">
+    <helpText><![CDATA[Send the LED colours of the current frame to koma, once.]]></helpText>
+    <script scriptType="python"><![CDATA[import sys
+import hou
+p = hou.getenv('KOMA_HOUDINI')
+if p and p not in sys.path:
+    sys.path.append(p)
+import koma_shelf
+koma_shelf.send_led()
+]]></script>
+  </tool>
+
+  <tool name="koma_stop" label="Koma Stop" icon="BUTTONS_stop">
+    <helpText><![CDATA[Stop following the playbar and disconnect from koma-relay.]]></helpText>
+    <script scriptType="python"><![CDATA[import sys
+import hou
+p = hou.getenv('KOMA_HOUDINI')
+if p and p not in sys.path:
+    sys.path.append(p)
+import koma_shelf
+koma_shelf.stop()
+]]></script>
+  </tool>
+
+  <tool name="koma_export_set" label="Export Set" icon="ROP_geometry">
+    <helpText><![CDATA[Write the LED placement to the koma project's previz/set.json. Needed once, and again when the layout changes.]]></helpText>
+    <script scriptType="python"><![CDATA[import sys
+import hou
+p = hou.getenv('KOMA_HOUDINI')
+if p and p not in sys.path:
+    sys.path.append(p)
+import koma_shelf
+koma_shelf.export_set()
+]]></script>
+  </tool>
+
+  <tool name="koma_settings" label="Koma Settings" icon="BUTTONS_gear">
+    <helpText><![CDATA[Relay address, token, and which nodes to send.]]></helpText>
+    <script scriptType="python"><![CDATA[import sys
+import hou
+p = hou.getenv('KOMA_HOUDINI')
+if p and p not in sys.path:
+    sys.path.append(p)
+import koma_shelf
+koma_shelf.configure()
+]]></script>
+  </tool>
+</shelfDocument>

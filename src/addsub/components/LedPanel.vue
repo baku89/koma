@@ -44,12 +44,6 @@ const chaseText = computed(() => {
 	const name = ['L1', 'L2', 'B1', 'B2', 'R1', 'R2', 'F1', 'F2'][c.line] ?? `line ${c.line}`
 	return c.mode === 'line' ? name : `${name} · px ${c.index + 1} / ${c.total}`
 })
-
-const powerText = computed(() => {
-	const p = led.power
-	if (!p) return null
-	return `${p.totalAmps.toFixed(1)} A` + (p.warning ? ' ⚠' : '')
-})
 </script>
 
 <template>
@@ -79,7 +73,6 @@ const powerText = computed(() => {
 		<Tq.Parameter label="Output" icon="mdi:lightbulb-on-outline">
 			<div class="buttons">
 				<Tq.InputButton label="Frame" icon="mdi:image" tooltip="Show the capture frame's lighting" :disabled="!led.connected" @click="showCurrentFrame" />
-				<Tq.InputButton label="White" icon="mdi:white-balance-sunny" :disabled="!led.connected" @click="led.fill(255, 255, 255)" />
 				<Tq.InputButton label="Off" icon="mdi:lightbulb-off-outline" :disabled="!led.connected" @click="led.blackout()" />
 			</div>
 		</Tq.Parameter>
@@ -118,7 +111,6 @@ const powerText = computed(() => {
 			<span class="mute">
 				{{ led.shown?.file ?? '—' }}
 				<template v-if="led.lastShow"> · {{ led.lastShow.latencyMs.toFixed(0) }} ms</template>
-				<template v-if="powerText"> · {{ powerText }}</template>
 			</span>
 		</Tq.Parameter>
 

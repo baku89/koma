@@ -1,0 +1,10 @@
+{
+	"autodeskProduct": "Fusion",
+	"type": "script",
+	"author": "koma",
+	"description": {
+		"": "Per-frame difference toolpaths from an STL sequence: each frame is cut from the previous frame's shape with a copy of the template setup's Parallel operation."
+	},
+	"supportedOS": "windows|mac",
+	"editEnabled": true
+}

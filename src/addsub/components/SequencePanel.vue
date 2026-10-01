@@ -2,9 +2,10 @@
 import {useTweeq} from 'tweeq'
 import {computed} from 'vue'
 
+import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
 
-import {formatAxes} from '../plan'
+import {formatPlan} from '../plan'
 import {
 	REPLAY_STEPS,
 	SEQUENCE_STEP_LABELS,
@@ -21,6 +22,7 @@ const sequence = useSequenceStore()
 const previz = usePrevizStore()
 const mill = useMillStore()
 const rig = useRigStore()
+const camera = useCameraStore()
 
 const showSettings = Tq.config.ref('addsub.sequence.showSettings', false)
 
@@ -28,28 +30,35 @@ const addsub = computed(() => project.addsub)
 const progress = computed(() => project.addsub.sequence)
 
 const captureFrame = computed(() => project.captureShot.frame)
+const parkLayers = computed(() => project.layers.filter(l => !l.deleted))
 const previzFrame = computed(() => previz.frameFor(captureFrame.value))
-const plan = computed(() => sequence.planFor(captureFrame.value))
+const plan = computed(() => sequence.effectivePlan(captureFrame.value))
 
 const planText = computed(() => {
 	const p = plan.value
 	if (!p) return null
-	if (p.rig) return formatAxes(p.rig)
-	if (p.camera) return `camera ${p.camera.position.map(v => v.toFixed(1)).join(', ')}`
-	return p.cameraConfigs ? 'camera configs only' : 'empty'
+	const text = formatPlan(p.plan)
+	return p.kind === 'interpolated' ? `~ ${text} (${p.from}→${p.to})` : text
 })
 
 const canGoToPlan = computed(
-	() => !!plan.value && rig.connected && !sequence.running && !rig.busy
+	() => !!plan.value && !sequence.running && !rig.busy && (rig.connected || !!camera.tethr)
 )
 
-function setPlanFromRig() {
-	const m = rig.mpos
-	if (m.x === undefined) return
-	sequence.setPlan(captureFrame.value, {
-		...plan.value,
-		rig: {x: m.x, y: m.y, z: m.z, a: m.a, b: m.b, c: m.c},
-	})
+async function setPlanFromCurrent() {
+	try {
+		await sequence.setPlanFromCurrent(captureFrame.value, project.captureShot.layer)
+	} catch (e) {
+		alert(e instanceof Error ? e.message : String(e))
+	}
+}
+
+async function goToPlan() {
+	try {
+		await sequence.goToPlan()
+	} catch (e) {
+		alert(e instanceof Error ? e.message : String(e))
+	}
 }
 
 const statusText = computed(() => {
@@ -203,29 +212,29 @@ function setParkFromRig() {
 					icon="mdi:crosshairs-gps"
 					label="Go"
 					:tooltip="{
-						title: 'Move rig to plan',
-						description: 'Moves now, at the rig feed, after the limits check.',
+						title: 'Go to plan',
+						description: 'Move the rig to the planned pose (at the rig feed, after the limits check) and put the planned settings on the camera.',
 					}"
 					:disabled="!canGoToPlan"
-					@click="sequence.goToPlan().catch(() => {})"
+					@click="goToPlan"
 				/>
 				<Tq.InputButton
 					icon="mdi:content-save-outline"
 					subtle
 					narrow
 					:tooltip="{
-						title: 'Set plan from rig',
-						description: 'Pin the current rig axes as this frame\'s plan.',
+						title: 'Set plan from current',
+						description: 'Record the rig\'s current axes and the camera\'s current settings as this frame\'s plan.',
 					}"
-					:disabled="!rig.connected"
-					@click="setPlanFromRig"
+					:disabled="!rig.connected && !camera.tethr"
+					@click="setPlanFromCurrent"
 				/>
 				<Tq.InputButton
 					icon="mdi:close"
 					subtle
 					narrow
 					tooltip="Clear this frame's plan"
-					:disabled="!plan"
+					:disabled="plan?.kind !== 'explicit'"
 					@click="sequence.setPlan(captureFrame, null)"
 				/>
 			</div>
@@ -261,6 +270,16 @@ function setParkFromRig() {
 					icon="mdi:play-circle"
 					:disabled="sequence.running"
 					@click="sequence.start({frame: captureFrame, continuous: true})"
+				/>
+				<Tq.InputButton
+					:label="`In → Out (${project.previewRange[0]}–${project.previewRange[1]})`"
+					icon="mdi:ray-start-end"
+					:tooltip="{
+						title: 'Shoot the preview range',
+						description: 'Run the sequence on every frame from the in-point to the out-point, then stop. Frames that already have a shot are re-shot (the old shot goes to the trash).',
+					}"
+					:disabled="sequence.running"
+					@click="sequence.startRange()"
 				/>
 			</div>
 		</Tq.Parameter>
@@ -324,6 +343,30 @@ function setParkFromRig() {
 			<Tq.Parameter label="Offset" icon="mdi:numeric" hint="previz frame = timeline frame + offset">
 				<Tq.InputNumber v-model="project.addsub.previzFrameOffset" :step="1" :precision="0" />
 			</Tq.Parameter>
+			<Tq.Parameter
+				label="Plan tolerance"
+				icon="mdi:target-variant"
+				:hint="{
+					title: 'Plan tolerance',
+					description: 'How far the rig may be from the planned pose and still pass the shoot condition: mm for X/Y/Z, degrees for A/B/C.',
+				}"
+			>
+				<Tq.InputGroup>
+					<Tq.InputNumber v-model="project.addsub.planTolerance.linear" :min="0" :max="50" :precision="2" suffix=" mm" />
+					<Tq.InputNumber v-model="project.addsub.planTolerance.rotary" :min="0" :max="45" :precision="2" suffix=" °" />
+				</Tq.InputGroup>
+			</Tq.Parameter>
+
+			<Tq.Parameter
+				label="Auto move"
+				icon="mdi:camera-marker-outline"
+				:hint="{
+					title: 'Auto move',
+					description: 'After a shot, the rig moves by itself to the next frame\'s plan if that is less than this far away (straight line in X/Y/Z). Further than that it stays put. 0 = never.',
+				}"
+			>
+				<Tq.InputNumber v-model="project.addsub.autoMoveMaxDistance" :min="0" :max="1000" :precision="0" suffix=" mm" />
+			</Tq.Parameter>
 
 			<Tq.ParameterHeading>Mill</Tq.ParameterHeading>
 			<Tq.Parameter label="Shoot X" icon="mdi:axis-x-arrow" hint="Table X (machine coords) for shooting">
@@ -340,8 +383,28 @@ function setParkFromRig() {
 			<Tq.Parameter label="Feed" icon="mdi:speedometer" hint="Rig move feed (mm/min)">
 				<Tq.InputNumber v-model="project.addsub.rigFeed" :min="1" :max="20000" />
 			</Tq.Parameter>
-			<Tq.Parameter label="Settle" icon="mdi:timer-sand" hint="Wait after the rig stops (ms)">
+			<Tq.Parameter label="Settle" icon="mdi:timer-sand" hint="Wait after the rig stops (ms), always in full">
 				<Tq.InputNumber v-model="project.addsub.settleMs" :min="0" :max="60000" :step="100" :precision="0" />
+			</Tq.Parameter>
+			<Tq.Parameter
+				label="Until Still"
+				icon="mdi:vibrate-off"
+				:hint="{
+					title: 'Wait until the live view is still',
+					description: 'After the settle time, keep waiting while the live view moves more than it did before the rig moved — up to the limit (ms), then shoot anyway.',
+				}"
+			>
+				<div class="buttons">
+					<Tq.InputCheckbox v-model="project.addsub.settleStill" />
+					<Tq.InputNumber
+						v-model="project.addsub.settleMaxMs"
+						:min="0"
+						:max="120000"
+						:step="1000"
+						:precision="0"
+						:disabled="!project.addsub.settleStill"
+					/>
+				</div>
 			</Tq.Parameter>
 			<Tq.Parameter label="Park" icon="mdi:parking" hint="Reference pose for park-frame shots">
 				<div class="buttons">
@@ -358,8 +421,8 @@ function setParkFromRig() {
 			<Tq.Parameter label="Park layer" icon="mdi:layers-outline" hint="Layer the park reference shots go to">
 				<Tq.InputDropdown
 					v-model="parkLayerId"
-					:options="[null, ...project.layers.map(l => l.id)]"
-					:labels="['(create “Park”)', ...project.layers.map(l => l.name)]"
+					:options="[null, ...parkLayers.map(l => l.id)]"
+					:labels="['(create “Park”)', ...parkLayers.map(l => l.name)]"
 				/>
 			</Tq.Parameter>
 			<Tq.ParameterHeading>Calibration</Tq.ParameterHeading>

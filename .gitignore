@@ -33,3 +33,5 @@ dist-electron
 # Local dev symlinks to projects (served by Vite for the exhibit ?seed= path)
 public/_dev-*
 build/
+
+__pycache__/

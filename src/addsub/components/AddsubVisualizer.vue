@@ -23,17 +23,18 @@ import {
 	Renderer,
 	Scene,
 } from 'troisjs'
-import {useTweeq} from 'tweeq'
+import {InputRadio, useTweeq} from 'tweeq'
 import {computed, onMounted, onUnmounted, ref, shallowRef, watch} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
-import type {Axis} from '@/utils/fluidnc'
+import type {AxesPosition, Axis} from '@/utils/fluidnc'
+import type {CompactToolpath} from '@/utils/fluidnc/toolpath.worker'
 
-import {filmToWorld, millToWorld, tableShiftWorld} from '../coords'
-import {rigAxesToCameraPose} from '../kinematics'
+import {filmOriginMill, filmToWorld, millToWorld, tableShiftWorld} from '../coords'
+import {orbitRigAxes, rigAxesToCameraPose} from '../kinematics'
 import {ledBottomY} from '../led/layout'
-import {planFor, plannedFrames} from '../plan'
+import {effectivePlanFor, type FramePlan, interpolatedFrames, planFor, plannedFrames} from '../plan'
 import {useLedStore} from '../stores/led'
 import {useMillStore, useRigStore} from '../stores/machines'
 import {usePrevizStore} from '../stores/previz'
@@ -109,6 +110,7 @@ const cameraControlTarget = Tq.config.ref('addsub.view.target', vec3.of(0, 0.8, 
 
 let renderer: THREE.WebGLRenderer
 let camera: THREE.PerspectiveCamera
+let cameraCtrl: OrbitControls | undefined
 
 const $root = shallowRef<HTMLElement | null>(null)
 const $guide = shallowRef<any>()
@@ -131,6 +133,7 @@ function onLoadCameraModel(group: THREE.Group) {
 
 function onRendererReady(trois: any) {
 	const cameraControl: OrbitControls = trois.three.cameraCtrl
+	cameraCtrl = cameraControl
 	renderer = trois.three.renderer
 	camera = cameraControl.object as THREE.PerspectiveCamera
 	camera.position.set(...cameraControlPosition.value)
@@ -244,6 +247,12 @@ const planPoints = new THREE.Points(
 	new THREE.BufferGeometry(),
 	new THREE.PointsMaterial({color: 0x66aaff, size: 0.015})
 )
+// Smaller, fainter dots for the frames interpolated between planned ones
+// (plan.ts effectivePlanFor): one per frame the sequence will shoot.
+const planInterpPoints = new THREE.Points(
+	new THREE.BufferGeometry(),
+	new THREE.PointsMaterial({color: 0x66aaff, size: 0.007, transparent: true, opacity: 0.6})
+)
 const ledPoints = new THREE.Points(
 	new THREE.BufferGeometry(),
 	new THREE.PointsMaterial({size: 0.012, vertexColors: true})
@@ -256,8 +265,154 @@ onMounted(() => {
 	g.add(previzLine)
 	g.add(planLine)
 	g.add(planPoints)
+	g.add(planInterpPoints)
 	g.add(ledPoints)
+	g.add(toolpathGroup)
 })
+
+//------------------------------------------------------------------------------
+// Toolpath of the cut ahead (cuts.ts): the capture frame's G-code, or the one
+// streaming right now, drawn where it will run — the file's coordinates are
+// mill axes about the work zero (G54), so the group sits at that origin and
+// follows the table. Rapids dim,
+// cutting moves white, lines already sent to the mill in blue. The mill's
+// tool tip (above) is the "current position" marker, like cncjs.
+
+const TOOLPATH_COLORS = {
+	cut: new THREE.Color(0xdddddd),
+	rapid: new THREE.Color(0x555555),
+	done: new THREE.Color(0x66aaff),
+}
+
+const toolpathGroup = new THREE.Group()
+// Worker output is in three.js axes (mill X → x, mill Z → y, mill Y → −z);
+// film = (mill Y, mill Z, mill X) = (−z, y, x).
+const toolpathAxes = new THREE.Group()
+toolpathAxes.matrixAutoUpdate = false
+toolpathAxes.matrix.set(0, 0, -1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1)
+toolpathGroup.add(toolpathAxes)
+toolpathGroup.scale.setScalar(S)
+
+let toolpathLines: THREE.LineSegments | null = null
+let toolpathColorAttr: THREE.BufferAttribute | null = null
+const toolpathData = shallowRef<CompactToolpath | null>(null)
+
+/** Which G-code to show: the one streaming, else the capture frame's. */
+const toolpathTarget = computed(() => {
+	const c = sequence.cutting
+	const frame = c ? c.frame : project.captureShot.frame
+	const layer = c ? c.layer : project.captureShot.layer
+	const g = sequence.gcodeFor(frame, layer)
+	if (!g) return null
+	return {path: g.path, stamp: sequence.gcodeStamp(g), frame, layer}
+})
+
+let toolpathSeq = 0
+watch(
+	() => toolpathTarget.value && `${toolpathTarget.value.path}@${toolpathTarget.value.stamp}`,
+	async () => {
+		const seq = ++toolpathSeq
+		const t = toolpathTarget.value
+		const tp = t ? await sequence.toolpathFor(t.path, t.stamp) : null
+		if (seq !== toolpathSeq) return
+		toolpathData.value = tp
+		setToolpath(tp)
+	},
+	{immediate: true}
+)
+
+function setToolpath(tp: CompactToolpath | null) {
+	if (toolpathLines) {
+		toolpathAxes.remove(toolpathLines)
+		toolpathLines.geometry.dispose()
+		;(toolpathLines.material as THREE.Material).dispose()
+		toolpathLines = null
+		toolpathColorAttr = null
+	}
+	if (!tp) return
+	const geo = new THREE.BufferGeometry()
+	geo.setAttribute('position', new THREE.BufferAttribute(tp.positions, 3))
+	toolpathColorAttr = new THREE.BufferAttribute(new Float32Array(tp.rapid.length * 6), 3)
+	toolpathColorAttr.setUsage(THREE.DynamicDrawUsage)
+	geo.setAttribute('color', toolpathColorAttr)
+	fillToolpathColors(tp, sentLines.value)
+	toolpathLines = new THREE.LineSegments(
+		geo,
+		new THREE.LineBasicMaterial({vertexColors: true, transparent: true, opacity: 0.85})
+	)
+	toolpathLines.frustumCulled = false
+	toolpathAxes.add(toolpathLines)
+}
+
+/** Lines already sent while this very file streams (−1 otherwise). */
+const sentLines = computed(() => {
+	const c = sequence.cutting
+	const t = toolpathTarget.value
+	if (!c || !t || c.path !== t.path) return -1
+	return mill.streamProgress?.index ?? 0
+})
+
+function fillToolpathColors(tp: CompactToolpath, sent: number) {
+	const attr = toolpathColorAttr
+	if (!attr) return
+	const col = attr.array as Float32Array
+	const {cut, rapid, done} = TOOLPATH_COLORS
+	for (let i = 0; i < tp.rapid.length; i++) {
+		const c = tp.line[i] < sent ? done : tp.rapid[i] ? rapid : cut
+		const o = i * 6
+		col[o] = col[o + 3] = c.r
+		col[o + 1] = col[o + 4] = c.g
+		col[o + 2] = col[o + 5] = c.b
+	}
+	attr.needsUpdate = true
+}
+
+watch(sentLines, sent => {
+	if (toolpathData.value) fillToolpathColors(toolpathData.value, sent)
+})
+
+// Where the file's origin (work zero) is in the mill's machine coordinates:
+// the film origin when the cut points G54 there first (§7.1), otherwise the
+// work offset the controller holds now — the one the G-code will run in.
+const toolpathOriginMill = computed<vec3>(() => {
+	if (project.addsub.cutSetsWorkOffset) {
+		return filmOriginMill(filmLift.value, cal.value.filmOriginWorld, cal.value.millOffset)
+	}
+	const m = mill.mpos
+	const w = mill.wpos
+	const wco = (a: 'x' | 'y' | 'z') => (m[a] ?? 0) - (w[a] ?? m[a] ?? 0)
+	return [wco('x'), wco('y'), wco('z')]
+})
+
+// The same in world, shifted with the table like the tool tip marker, so the
+// marker sits on the path where the tool is in the program.
+const toolpathOriginWorld = computed(() =>
+	vec3.add(millToWorld(toolpathOriginMill.value, cal.value.millOffset), tableShift.value)
+)
+
+watch(
+	toolpathOriginWorld,
+	o => toolpathGroup.position.set(...vec3.scale(o, S)),
+	{immediate: true}
+)
+
+/** Orbit the view onto the cut (its bounding sphere fills the view). */
+function focusToolpath() {
+	const tp = toolpathData.value
+	if (!tp || !cameraCtrl || !camera) return
+	// centre is in worker axes; map like the group does.
+	const [x, y, z] = tp.centre
+	const world = vec3.add(toolpathOriginWorld.value, [-z, y, x])
+	const target = new THREE.Vector3(...vec3.scale(world, S))
+	const dist = Math.max(0.05, tp.radius * S * 2.5)
+	const dir = camera.position.clone().sub(cameraCtrl.target).normalize()
+	if (dir.lengthSq() < 1e-6) dir.set(1, 0.8, 1).normalize()
+	cameraCtrl.target.copy(target)
+	camera.position.copy(target).addScaledVector(dir, dist)
+	cameraCtrl.update()
+	cameraControlPosition.value = camera.position.toArray()
+	cameraControlTarget.value = cameraCtrl.target.toArray() as vec3
+}
 
 const shotPositions = computed(() => {
 	const pts: THREE.Vector3[] = []
@@ -302,23 +457,38 @@ watch(
 	{immediate: true}
 )
 
+function planWorldPoint(plan: FramePlan): THREE.Vector3 | null {
+	const lift = filmLift.value
+	let pose: {position: vec3} | null = null
+	if (plan.rig) {
+		// Axes the plan leaves out stay where the rig is now.
+		pose = rigAxesToCameraPose({...rig.mpos, ...plan.rig}, lift, cal.value)
+	} else if (plan.camera) {
+		pose = plan.camera
+	}
+	if (!pose) return null
+	const w = filmToWorld(pose.position, lift, cal.value.filmOriginWorld)
+	return new THREE.Vector3(...vec3.scale(w, S))
+}
+
 const planPositions = computed(() => {
 	const pts: THREE.Vector3[] = []
 	const layer = project.captureShot.layer
-	const lift = filmLift.value
 	for (const f of plannedFrames(project, layer)) {
 		const plan = planFor(project, f, layer)
-		if (!plan) continue
-		let pose: {position: vec3} | null = null
-		if (plan.rig) {
-			// Axes the plan leaves out stay where the rig is now.
-			pose = rigAxesToCameraPose({...rig.mpos, ...plan.rig}, lift, cal.value)
-		} else if (plan.camera) {
-			pose = plan.camera
-		}
-		if (!pose) continue
-		const w = filmToWorld(pose.position, lift, cal.value.filmOriginWorld)
-		pts.push(new THREE.Vector3(...vec3.scale(w, S)))
+		const p = plan && planWorldPoint(plan)
+		if (p) pts.push(p)
+	}
+	return pts
+})
+
+const planInterpPositions = computed(() => {
+	const pts: THREE.Vector3[] = []
+	const layer = project.captureShot.layer
+	for (const f of interpolatedFrames(project, layer)) {
+		const eff = effectivePlanFor(project, f, layer)
+		const p = eff && planWorldPoint(eff.plan)
+		if (p) pts.push(p)
 	}
 	return pts
 })
@@ -331,6 +501,15 @@ watch(
 		planLine.geometry.computeBoundingSphere()
 		planPoints.geometry.setFromPoints(pts)
 		planPoints.geometry.computeBoundingSphere()
+	},
+	{immediate: true}
+)
+
+watch(
+	planInterpPositions,
+	pts => {
+		planInterpPoints.geometry.setFromPoints(pts)
+		planInterpPoints.geometry.computeBoundingSphere()
 	},
 	{immediate: true}
 )
@@ -379,17 +558,51 @@ interface Arrow {
 	/** World direction the arrow points. */
 	dir: vec3
 	color: string
+	/** Shown instead of ±axis (the camera-local arrows). */
+	label?: string
 }
 
-// Rig axes are world axes. Mill: +X → world +Z, +Y → world +X, +Z → world +Y.
-const rigArrows: Arrow[] = [
-	{machine: 'rig', axis: 'x', sign: 1, dir: [1, 0, 0], color: '#ff5555'},
-	{machine: 'rig', axis: 'x', sign: -1, dir: [-1, 0, 0], color: '#ff5555'},
-	{machine: 'rig', axis: 'y', sign: 1, dir: [0, 1, 0], color: '#55ff55'},
-	{machine: 'rig', axis: 'y', sign: -1, dir: [0, -1, 0], color: '#55ff55'},
-	{machine: 'rig', axis: 'z', sign: 1, dir: [0, 0, 1], color: '#5588ff'},
-	{machine: 'rig', axis: 'z', sign: -1, dir: [0, 0, -1], color: '#5588ff'},
+// The camera's translation arrows, in one of two frames: `local` rides on the
+// camera (right / up / along the view, so the blue pair dollies in and out),
+// `global` is the rig's own X / Y / Z (= world axes).
+type GizmoSpace = 'local' | 'global'
+const gizmoSpace = Tq.config.ref<GizmoSpace>('addsub.view.gizmoSpace', 'local')
+
+const RIG_AXES: {axis: 'x' | 'y' | 'z'; unit: vec3; color: string}[] = [
+	{axis: 'x', unit: [1, 0, 0], color: '#ff5555'},
+	{axis: 'y', unit: [0, 1, 0], color: '#55ff55'},
+	{axis: 'z', unit: [0, 0, 1], color: '#5588ff'},
 ]
+
+// The camera looks down its local −Z.
+const LOCAL_LABELS: Record<string, string> = {
+	'x1': 'Right',
+	'x-1': 'Left',
+	'y1': 'Up',
+	'y-1': 'Down',
+	'z1': 'Back',
+	'z-1': 'Fwd',
+}
+
+const rigArrows = computed<Arrow[]>(() => {
+	const local = gizmoSpace.value === 'local'
+	const R = cameraPoseWorld.value.rotation
+	return RIG_AXES.flatMap(({axis, unit, color}) =>
+		([1, -1] as const).map(sign => {
+			const dir = vec3.scale(unit, sign)
+			return {
+				machine: 'rig' as const,
+				axis,
+				sign,
+				dir: local ? vec3.transformQuat(dir, R) : dir,
+				color,
+				label: local ? LOCAL_LABELS[`${axis}${sign}`] : undefined,
+			}
+		})
+	)
+})
+
+// Mill: +X → world +Z, +Y → world +X, +Z → world +Y.
 const millArrows: Arrow[] = [
 	{machine: 'mill', axis: 'x', sign: 1, dir: [0, 0, 1], color: '#ff5555'},
 	{machine: 'mill', axis: 'x', sign: -1, dir: [0, 0, -1], color: '#ff5555'},
@@ -468,7 +681,86 @@ function arrowKey(a: Arrow) {
 function onArrowClick(a: Arrow) {
 	const m = a.machine === 'rig' ? rig : mill
 	if (!m.connected || sequence.running) return
+	if (a.machine === 'rig' && gizmoSpace.value === 'local') {
+		// One step along the arrow: the rig's X/Y/Z are world axes, so the
+		// direction is the move itself.
+		const delta: AxesPosition = {}
+		;(['x', 'y', 'z'] as const).forEach((axis, i) => {
+			const v = Math.round(a.dir[i] * rig.jogStep * 1000) / 1000
+			if (v !== 0) delta[axis] = v
+		})
+		if (Object.keys(delta).length > 0) rig.jog(delta).catch(() => {})
+		return
+	}
 	m.jogStepAxis(a.axis, a.sign).catch(() => {})
+}
+
+/**
+ * Orbit handle: turns the camera about the vertical axis through world
+ * X = Z = 0 (kinematics.ts `orbitRigAxes`) — X, Z and pan move together.
+ * Drawn as a ring through the camera around that axis, with a cone either
+ * side of the camera along it.
+ */
+const ORBIT_COLOR = '#ffd84d'
+/** Distance of the cones from the camera along the ring (m). */
+const ORBIT_ARC = 0.36
+
+interface OrbitArrow {
+	sign: 1 | -1
+	position: vec3
+	dir: vec3
+}
+
+const orbit = computed(() => {
+	const p = vec3.scale(cameraPoseWorld.value.position, S)
+	const radius = Math.hypot(p[0], p[2])
+	// On the axis an orbit is just a pan.
+	if (radius < 0.02) return null
+	const phi = Math.min(60, (ORBIT_ARC / radius) * (180 / Math.PI))
+	const arrows: OrbitArrow[] = ([1, -1] as const).map(sign => {
+		const position = vec3.transformQuat(p, quat.fromAxisAngle([0, 1, 0], sign * phi))
+		// Tangent for +θ about +Y at (x, ·, z) is (z, 0, −x).
+		const dir = vec3.scale(vec3.normalize([position[2], 0, -position[0]]), sign)
+		return {sign, position, dir}
+	})
+	return {centre: [0, p[1], 0] as vec3, radius, arrows}
+})
+
+function orbitArrowKey(a: OrbitArrow) {
+	return `orbit${a.sign}`
+}
+
+// Why the last gizmo move was refused, shown for a moment in the rig block.
+const notice = ref<string | null>(null)
+let noticeTimer: ReturnType<typeof setTimeout> | undefined
+function showNotice(text: string) {
+	notice.value = text
+	clearTimeout(noticeTimer)
+	noticeTimer = setTimeout(() => (notice.value = null), 3000)
+}
+
+function onOrbitArrowClick(a: OrbitArrow) {
+	if (!rig.connected || sequence.running) return
+	const target = orbitRigAxes(rig.mpos, a.sign * rig.jogStep, cal.value)
+	// The swing depends on where the rig really is, so stay inside its travel.
+	const limits = project.addsub.rigLimits
+	for (const axis of ['x', 'z'] as const) {
+		const range = limits[axis]
+		if (range && (target[axis] < range[0] || target[axis] > range[1])) {
+			showNotice(
+				`Orbit would take ${axis.toUpperCase()} to ${target[axis].toFixed(1)} (travel ${range[0]}…${range[1]})`
+			)
+			return
+		}
+	}
+	const round = (v: number) => Math.round(v * 1000) / 1000
+	rig
+		.jog({
+			x: round(target.x - (rig.mpos.x ?? 0)),
+			z: round(target.z - (rig.mpos.z ?? 0)),
+			b: round(target.b - (rig.mpos.b ?? 0)),
+		})
+		.catch(() => {})
 }
 
 const showArrows = computed(() => !viewport.isPlaying)
@@ -477,7 +769,7 @@ const showArrows = computed(() => !viewport.isPlaying)
 // Gizmo decorations: text labels (billboard sprites) on every arrow and a ring
 // per rotation axis, so the jog affordances read at a glance (§11.2).
 
-function makeRing(centre: vec3, rotation: quat, radius: number, color: string) {
+function makeRing(centre: vec3, rotation: quat, radius: number, color: string, opacity = 0.55) {
 	const pts: THREE.Vector3[] = []
 	const N = 64
 	for (let i = 0; i <= N; i++) {
@@ -489,7 +781,7 @@ function makeRing(centre: vec3, rotation: quat, radius: number, color: string) {
 	const geo = new THREE.BufferGeometry().setFromPoints(pts)
 	return new THREE.Line(
 		geo,
-		new THREE.LineBasicMaterial({color, transparent: true, opacity: 0.55})
+		new THREE.LineBasicMaterial({color, transparent: true, opacity})
 	)
 }
 
@@ -526,10 +818,10 @@ const gizmoLabels = computed<GizmoLabel[]>(() => {
 	const tool = vec3.scale(toolTipWorld.value, S)
 	const sign = (n: number) => (n > 0 ? '+' : '−')
 	const out: GizmoLabel[] = []
-	for (const a of rigArrows) {
+	for (const a of rigArrows.value) {
 		out.push({
 			key: arrowKey(a),
-			text: `${sign(a.sign)}${AXIS_LABELS[a.axis]}`,
+			text: a.label ?? `${sign(a.sign)}${AXIS_LABELS[a.axis]}`,
 			color: a.color,
 			position: vec3.add(cam, vec3.scale(a.dir, ARROW_DIST + ARROW_LEN * 1.1)),
 		})
@@ -549,6 +841,14 @@ const gizmoLabels = computed<GizmoLabel[]>(() => {
 			text: `${sign(a.sign)}${AXIS_LABELS[a.axis]}`,
 			color: a.color,
 			position: vec3.add(a.position, vec3.scale(outward, 0.05)),
+		})
+	}
+	for (const a of orbit.value?.arrows ?? []) {
+		out.push({
+			key: orbitArrowKey(a),
+			text: `${sign(a.sign)}Orbit`,
+			color: ORBIT_COLOR,
+			position: vec3.add(a.position, vec3.scale(a.dir, ARROW_LEN * 1.1)),
 		})
 	}
 	return out
@@ -600,10 +900,27 @@ function rebuildDecorations() {
 	decorations.add(makeRing(cam, ringY, RING_R, '#ff66ff'))
 	decorations.add(makeRing(cam, quat.mul(R, ringX), RING_R, '#ffaa33'))
 	decorations.add(makeRing(cam, R, RING_R, '#66ffff'))
+
+	// Orbit: the ring the camera rides round the vertical axis at X = Z = 0,
+	// and that axis.
+	const o = orbit.value
+	if (o) {
+		decorations.add(makeRing(o.centre, ringY, o.radius, ORBIT_COLOR, 0.3))
+		decorations.add(
+			new THREE.Line(
+				new THREE.BufferGeometry().setFromPoints([
+					new THREE.Vector3(0, 0, 0),
+					new THREE.Vector3(0, o.centre[1] + 0.2, 0),
+				]),
+				new THREE.LineBasicMaterial({color: ORBIT_COLOR, transparent: true, opacity: 0.3})
+			)
+		)
+	}
 }
 
 watch(
-	() => [cameraPoseWorld.value, toolTipWorld.value, showArrows.value, rotArrows.value] as const,
+	() =>
+		[cameraPoseWorld.value, toolTipWorld.value, showArrows.value, rotArrows.value, orbit.value] as const,
 	rebuildDecorations,
 	{immediate: true, deep: false}
 )
@@ -644,6 +961,7 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rig.mpos[ax], 2) }}°
 					</span>
 				</div>
+				<div v-if="notice" class="notice">{{ notice }}</div>
 			</div>
 			<div class="block">
 				<div class="head">
@@ -663,6 +981,24 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 				</div>
 				<div class="seq">{{ sequence.currentStep ?? (sequence.message ?? 'idle') }}</div>
 			</div>
+			<div v-if="toolpathTarget" class="block">
+				<div class="head">
+					<span class="name">Cut #{{ toolpathTarget.frame }}</span>
+					<button class="focus" title="Look at the cut" @click="focusToolpath">focus</button>
+				</div>
+				<div v-if="toolpathData" class="seq">
+					{{ toolpathData.lineCount }} lines
+					<template v-if="sentLines >= 0"> · {{ sentLines }} sent</template>
+				</div>
+			</div>
+		</div>
+		<div v-if="showArrows" class="tools">
+			<InputRadio
+				v-model="gizmoSpace"
+				v-tooltip="'Camera arrows: along the camera, or along the rig axes'"
+				:options="['local', 'global']"
+				:labels="['Local', 'Global']"
+			/>
 		</div>
 		<div class="labels" aria-hidden="true">
 			<span
@@ -690,8 +1026,13 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 				<AmbientLight :color="Tq.theme.colorText" :intensity="0.5" />
 
 				<!-- Camera on the rig -->
+				<!-- camera.fbx has its lens along +Z; the camera looks down −Z (§10). -->
 				<Group v-bind="cameraObject">
-					<FbxModel src="./camera.fbx" @load="onLoadCameraModel" />
+					<FbxModel
+						src="./camera.fbx"
+						:rotation="{y: Math.PI}"
+						@load="onLoadCameraModel"
+					/>
 				</Group>
 
 				<!-- Block stack + tool tip -->
@@ -744,6 +1085,22 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 						/>
 					</Cone>
 					<Cone
+						v-for="a in orbit?.arrows ?? []"
+						:key="orbitArrowKey(a)"
+						:radius="0.016"
+						:height="ARROW_LEN * 0.9"
+						:radialSegments="12"
+						v-bind="arrowAt(a.position, a.dir)"
+						@click="onOrbitArrowClick(a)"
+						@pointerEnter="hovered = orbitArrowKey(a)"
+						@pointerLeave="hovered = null"
+					>
+						<BasicMaterial
+							:color="ORBIT_COLOR"
+							:props="{transparent: true, opacity: hovered === orbitArrowKey(a) ? 1 : 0.5}"
+						/>
+					</Cone>
+					<Cone
 						v-for="a in millArrows"
 						:key="arrowKey(a)"
 						:radius="0.012"
@@ -786,6 +1143,13 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 	z-index 1
 	font-size 1em
 	line-height 1.4
+
+// Bottom corner: the top is taken by the info blocks in a narrow pane.
+.tools
+	position absolute
+	bottom var(--tq-gap-control)
+	right var(--tq-gap-control)
+	z-index 2
 
 .labels
 	position absolute
@@ -834,6 +1198,21 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 	&.off
 		color var(--tq-color-text-mute)
 
+// The info panel ignores pointer events; the focus button opts back in.
+.focus
+	pointer-events auto
+	font inherit
+	font-size 0.85em
+	color var(--tq-color-accent)
+	background none
+	border 1px solid currentColor
+	border-radius var(--tq-radius-input)
+	padding 0 0.5em
+	cursor pointer
+
+	&:hover
+		background unquote('color-mix(in srgb, var(--tq-color-accent) 20%, transparent)')
+
 .axes
 	display grid
 	grid-template-columns repeat(3, auto)
@@ -847,6 +1226,11 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 	display inline-block
 	min-width 1.3em
 	color var(--tq-color-text-mute)
+
+.notice
+	margin-top 0.2em
+	max-width 22em
+	color var(--tq-color-rec)
 
 .seq
 	white-space nowrap

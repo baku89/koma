@@ -19,7 +19,6 @@ import {
 	CP210X_FILTER,
 	type DeviceInfo,
 	LINE_ALL,
-	type PowerEstimate,
 	type ShowResult,
 	WebSerialTransport,
 	WsFanout,
@@ -30,17 +29,24 @@ import {
 	discoverSerialPorts,
 	registerSerialFamily,
 	releaseSerialPort,
-	requestSerialPortFor,
+	requestSerialPort,
 	type SerialFamily,
+	serialRequestError,
 } from '@/utils/serialDiscovery'
 
 import {LED_FACES, type LedFace} from '../config'
+import {readProjectBytes} from '../cuts'
 import {decodeImage} from '../led/decode'
 import {buildLedLayout, ledLayoutFromSet} from '../led/layout'
 import {type RgbaImage, sampleLedFrame} from '../led/sampler'
+import {decodeWall, encodeWall, wallRecordPath} from '../led/wallRecord'
+import type {ShotLedRecord} from '../projectData'
 import {usePrevizStore} from './previz'
 
 const FAMILY_ID = 'ws-fanout'
+
+/** `shown.file` while the live feed is on the wall: not a lighting image. */
+export const LIVE_SOURCE = 'live'
 
 function clamp255(v: number) {
 	return v < 0 ? 0 : v > 255 ? 255 : Math.round(v)
@@ -57,7 +63,6 @@ export const useLedStore = defineStore('addsub:led', () => {
 	const info = ref<DeviceInfo | null>(null)
 	const lastShow = ref<ShowResult | null>(null)
 	const lastError = ref<string | null>(null)
-	const power = ref<PowerEstimate | null>(null)
 	/** Which lighting image is currently on the wall. */
 	const shown = ref<{file: string; layoutVersion: number} | null>(null)
 
@@ -140,7 +145,6 @@ export const useLedStore = defineStore('addsub:led', () => {
 			const n = Math.min(buf.length, led.getLine(i).length)
 			led.setLine(i, buf.subarray(0, n))
 		})
-		power.value = led.estimatePower()
 		try {
 			const result = await led.show()
 			lastError.value = null
@@ -164,6 +168,12 @@ export const useLedStore = defineStore('addsub:led', () => {
 	//--------------------------------------------------------------------------
 	// Connection
 
+	// The transport isn't exposed; track ports ourselves for release.
+	const ports = new WeakMap<WsFanout, SerialPort>()
+	function port(led: WsFanout): SerialPort {
+		return ports.get(led) as SerialPort
+	}
+
 	async function probe(port: SerialPort): Promise<boolean> {
 		let transport: WebSerialTransport
 		try {
@@ -184,8 +194,10 @@ export const useLedStore = defineStore('addsub:led', () => {
 
 	const family: SerialFamily = {
 		id: FAMILY_ID,
+		label: 'LED Wall',
 		wants: () => device.value === null,
 		probe,
+		holder: p => (device.value && port(device.value) === p ? 'LED Wall' : null),
 	}
 	registerSerialFamily(family)
 	void discoverSerialPorts()
@@ -209,12 +221,6 @@ export const useLedStore = defineStore('addsub:led', () => {
 		checkLineCounts(led.cachedInfo)
 	}
 
-	// The transport isn't exposed; track ports ourselves for release.
-	const ports = new WeakMap<WsFanout, SerialPort>()
-	function port(led: WsFanout): SerialPort {
-		return ports.get(led) as SerialPort
-	}
-
 	function checkLineCounts(deviceInfo: DeviceInfo) {
 		const expected = layout.value.lineCounts
 		const actual = deviceInfo.lines.map(l => l.count)
@@ -228,9 +234,18 @@ export const useLedStore = defineStore('addsub:led', () => {
 		if (device.value || connecting.value) return
 		connecting.value = true
 		try {
-			const result = await requestSerialPortFor(family, {filters: [CP210X_FILTER]})
-			if (result === 'rejected') lastError.value = 'No ws-fanout device answered on that port'
-			else if (result === 'owned') lastError.value = 'That port is already in use by another device'
+			const result = await requestSerialPort(family, {filters: [CP210X_FILTER]})
+			switch (result.status) {
+				case 'rejected':
+				case 'owned':
+					lastError.value = serialRequestError(result)
+					break
+				case 'adopted':
+					if (result.family.id !== FAMILY_ID) {
+						lastError.value = `That port is a ${result.family.label} controller — connected it there`
+					}
+					break
+			}
 		} finally {
 			connecting.value = false
 		}
@@ -321,8 +336,6 @@ export const useLedStore = defineStore('addsub:led', () => {
 		} catch (e) {
 			lastError.value = e instanceof Error ? e.message : String(e)
 			throw e
-		} finally {
-			power.value = led.estimatePower()
 		}
 	}
 
@@ -394,8 +407,8 @@ export const useLedStore = defineStore('addsub:led', () => {
 				const frame = livePending
 				livePending = null
 				await enqueue(async () => {
-					await showColors(frame, {file: 'live'})
-					shownKey = 'live'
+					await showColors(frame, {file: LIVE_SOURCE})
+					shownKey = LIVE_SOURCE
 				}).catch(() => {})
 			}
 		} finally {
@@ -547,6 +560,69 @@ export const useLedStore = defineStore('addsub:led', () => {
 		workLight.value = on
 	}
 
+	//--------------------------------------------------------------------------
+	// Shot records: the pixels a shot was lit with (led/wallRecord.ts)
+
+	/** Records known to be in the project folder (named by content: write once). */
+	let recordedIn: FileSystemDirectoryHandle | null = null
+	const recorded = new Set<string>()
+
+	async function saveWallRecord(lines: readonly Uint8Array[]): Promise<string> {
+		const encoded = encodeWall(lines)
+		const path = await wallRecordPath(encoded)
+		if (recordedIn !== project.directoryHandle) recorded.clear()
+		if (!recorded.has(path)) {
+			await project.writeProjectFile(path, new Blob([encoded as BlobPart]))
+			recordedIn = project.directoryHandle
+			recorded.add(path)
+		}
+		return path
+	}
+
+	/**
+	 * What a shot taken now should remember about its lighting: the image on
+	 * the wall, if the light came from one, and — while the wall is connected —
+	 * every pixel's RGB as sent (the device's own buffer), saved to the project
+	 * folder. The pixels are copied before the first await, so call this at
+	 * the exposure and await it later. Never rejects: a record that can't be
+	 * written is logged and left out.
+	 */
+	async function recordForShot(): Promise<ShotLedRecord | undefined> {
+		const image = shown.value && shown.value.file !== LIVE_SOURCE ? shown.value : null
+		const record: ShotLedRecord = {layoutVersion: image?.layoutVersion ?? layout.value.version}
+		if (image) record.file = image.file
+		const led = device.value
+		if (led) {
+			const lines = Array.from({length: led.lineCount}, (_, i) => led.getLine(i).slice())
+			record.brightnessCap = project.addsub.led.brightnessCap
+			try {
+				record.wall = await saveWallRecord(lines)
+			} catch (e) {
+				// eslint-disable-next-line no-console
+				console.error('[led] could not record the wall for this shot', e)
+			}
+		}
+		return record.file || record.wall ? record : undefined
+	}
+
+	/**
+	 * Put a recorded wall (`shot.led.wall`) back, pixel for pixel — no sampling,
+	 * no gain, no lift — and wait for the latch. Lines are clipped to the
+	 * current layout. Without a device only the preview buffer is updated.
+	 */
+	function showWallRecord(file: string): Promise<boolean> {
+		return enqueue(async () => {
+			const root = project.directoryHandle
+			if (!root) throw new Error('The project has no folder')
+			const lines = decodeWall(await readProjectBytes(root, file))
+			setWall(lines)
+			shown.value = null
+			await pushWall()
+			shownKey = `wall|${file}`
+			return true
+		})
+	}
+
 	/** Put on the wall whatever the current mode says (work > live > faces > frame). */
 	function applyState() {
 		if (chasing.value) return
@@ -559,7 +635,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 			return
 		}
 		if (liveLight.value) {
-			if (liveFrame.value && shownKey !== 'live') pushLiveFrame(liveFrame.value)
+			if (liveFrame.value && shownKey !== LIVE_SOURCE) pushLiveFrame(liveFrame.value)
 			return
 		}
 		if (faceLight.value) {
@@ -613,7 +689,6 @@ export const useLedStore = defineStore('addsub:led', () => {
 		info: readonly(info),
 		lastShow: readonly(lastShow),
 		lastError,
-		power: readonly(power),
 		shown: readonly(shown),
 		wall: readonly(wall),
 		wallVersion: readonly(wallVersion),
@@ -641,5 +716,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 		stopChase,
 		ensureFrame,
 		showFile,
+		recordForShot,
+		showWallRecord,
 	}
 })
