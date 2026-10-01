@@ -81,6 +81,12 @@ export default defineConfig({
 			},
 			workbox: {
 				maximumFileSizeToCacheInBytes: 100 * 1024 * 1024,
+				// The service worker answers navigations it has no exact entry for
+				// with index.html. exhibit.html / jog.html are opened with a query
+				// (?screen=a), which is not an exact entry: they got koma's main
+				// page instead, from the second visit on. Those, and the relay's own
+				// paths, go to the network.
+				navigateFallbackDenylist: [/\/(exhibit|jog)\.html/, /\/api\//, /\/project\//, /\/ws/],
 			},
 		}),
 		// electron({
