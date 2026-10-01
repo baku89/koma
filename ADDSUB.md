@@ -649,7 +649,10 @@ Dropbox 同期とフォルダピッカー方式をやめ、**常時稼働する�
 - `KOMA_EXHIBIT_SCREENS`: ディスプレイ左から順に `a` / `b` / `ab`（1 枚に両方）/ `-`（そのディスプレイは使わない）。例: 手元モニタ + プロジェクター 2 台なら `-,a,b`。
 - 設定（S キーの Setup、環境音の音量など）と OPFS の動画キャッシュはこのプロファイルに入る。普段使いの Chrome とは別なので、初回は入れ直し。
 - Node 22 以降が要る（組み込みの WebSocket。依存パッケージ無し）。
-- 確認済（2026-10-02、開発機の 2 画面、Chrome 154）: A / B が各ディスプレイにツールバー無しの全画面で出る、B が A に追従、`b,a` で入れ替え、B を閉じる + A の全画面を外す → 15 秒以内に復帰、launchd 経由の起動・再登録・解除。**未確認: 展示機の実プロジェクター、Mac の電源投入 → 自動ログインからの一連、プロジェクターを後から点けた場合。**
+- **service worker の事故（2026-10-02、展示機で「片方が白、片方が黒」）**: koma の PWA service worker（vite-plugin-pwa）は、precache に完全一致しないナビゲーションに `index.html` を返す。`exhibit.html?screen=a` はクエリ付きなので一致せず、**同じプロファイルで 2 回目に開くと koma 本体のページが返って起動に失敗し、真っ白になる**（初回は service worker がまだ無いので正常。`jog.html?machine=` も同じ）。対策は 2 つ: (1) `vite.config.ts` の `workbox.navigateFallbackDenylist` で `exhibit.html` / `jog.html` / `/api/` / `/project/` / `/ws` をネットワークへ通す（**`yarn build` し直しが要る**）、(2) `kiosk.mjs` が起動のたびに `Storage.clearDataForOrigin`（`service_workers,cache_storage`、ページの session に送る。browser session だと Internal error）で service worker を外し、開いている展示ウィンドウをキャッシュ無しで読み直す = 起動直後は必ず relay の最新ビルドが出る。
+  - getScreenDetails の許可は `Browser.setPermission`（1 つだけ変える）。`Browser.grantPermissions` は「指定以外を全部拒否」なので使わない。
+- **`node exhibit-machine/diagnose.mjs`**: 画面が出ないときの調べ方。relay の応答、各ウィンドウの URL・位置・中身（要素数、video、文字）を出し、リロードして読み込み中の console / 例外 / ネットワークのエラーを並べる。
+- 確認済（2026-10-02、開発機の 2 画面、Chrome 154）: A / B が各ディスプレイにツールバー無しの全画面で出る、B が A に追従、`b,a` で入れ替え、B を閉じる + A の全画面を外す → 15 秒以内に復帰、launchd 経由の起動・再登録・解除。service worker の件は開発機で再現（2 回目の読み込みで両画面とも要素 1 個の空ページ）→ 修正後は「古い service worker が残ったプロファイル + 古い dist」でも起動時に出る、新しい dist なら通常のリロードを繰り返しても出る。**未確認: 展示機の実プロジェクター、Mac の電源投入 → 自動ログインからの一連、プロジェクターを後から点けた場合。**
 
 Node を入れられない／repo を置きたくない機械向けには `yarn pack:exhibit`（`scripts/pack-exhibit.sh`）で `build/koma-exhibit/`（dist + relay + ws + 同じ start.sh / kiosk.sh / install-launchd.sh）を作ってコピーする経路も残してある。
 

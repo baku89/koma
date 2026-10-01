@@ -204,6 +204,33 @@ async function ensureWindows(cdp) {
 	return windows
 }
 
+/**
+ * The page comes from the relay on this machine, every time: a service worker
+ * (koma registers one, for the app) would answer from its cache instead — the
+ * build before the last `yarn build`, or, with one from an older build, koma's
+ * main page in place of the exhibit (a blank screen). Unregistered here, and
+ * the windows already open are loaded again without it.
+ */
+async function dropServiceWorker(cdp, origin) {
+	const {targetInfos} = await cdp.send('Target.getTargets')
+	const pages = targetInfos.filter(t => t.type === 'page')
+	let cleared = false
+	for (const t of pages) {
+		const {sessionId} = await cdp.send('Target.attachToTarget', {targetId: t.targetId, flatten: true})
+		// Storage only answers on a page's session; once is enough for the origin.
+		if (!cleared) {
+			await cdp.send(
+				'Storage.clearDataForOrigin',
+				{origin, storageTypes: 'service_workers,cache_storage'},
+				sessionId
+			)
+			cleared = true
+		}
+		if (screenOf(t.url)) await cdp.send('Page.reload', {ignoreCache: true}, sessionId)
+		await cdp.send('Target.detachFromTarget', {sessionId}).catch(() => {})
+	}
+}
+
 /** The displays as a page sees them, left to right (then top to bottom). */
 async function displays(cdp, targetId) {
 	const {sessionId} = await cdp.send('Target.attachToTarget', {targetId, flatten: true})
@@ -276,11 +303,14 @@ async function main() {
 	if (url) log('Chrome is already running: taking over its windows')
 	else url = await launchChrome()
 	const cdp = await connect(url)
+	const origin = new URL(PAGE).origin
 	// getScreenDetails() without the permission prompt.
-	await cdp.send('Browser.grantPermissions', {
-		origin: new URL(PAGE).origin,
-		permissions: ['windowManagement'],
+	await cdp.send('Browser.setPermission', {
+		origin,
+		permission: {name: 'window-management'},
+		setting: 'granted',
 	})
+	await dropServiceWorker(cdp, origin).catch(e => log(`service worker not removed: ${e?.message ?? e}`))
 
 	const started = Date.now()
 	let lastSeen = ''
