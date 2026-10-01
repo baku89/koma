@@ -62,8 +62,14 @@ interface RawProject {
 	trash?: RawTrashed[]
 	previewRange?: [number, number]
 	captureShot?: {frame: number; layer: number}
-	layers?: {id?: string; name?: string}[]
-	layerPresets?: {id: string; name: string; layers: {layerId: string}[]}[]
+	layers?: {id?: string; name?: string; deleted?: boolean}[]
+	layerPresets?: {
+		id: string
+		name: string
+		layers: {layerId: string}[]
+		/** Newer files: the full list, hidden layers included (koma's LayerPreset). */
+		stack?: {layerId: string; hidden?: boolean}[]
+	}[]
 	addsub?: {
 		filmLift?: number
 		kBase?: number
@@ -142,11 +148,23 @@ const relay = useExhibitRelay()
 function exhibitLayers(p: RawProject): Set<number> | null {
 	const preset = p.layerPresets?.find(pr => /^exhibit$/i.test(pr.name.trim()))
 	if (!preset || !p.layers) return null
+	return new Set(presetLayerIndices(p, preset))
+}
+
+/** Storage indices of the layers a preset shows (deleted layers never). */
+function presetLayerIndices(p: RawProject, preset: NonNullable<RawProject['layerPresets']>[number]): number[] {
+	const shown = preset.stack ? preset.stack.filter(v => !v.hidden) : preset.layers
+	return shown
+		.map(v => (p.layers ?? []).findIndex(l => l.id === v.layerId && !l.deleted))
+		.filter(i => i !== -1)
+}
+
+/** Layers deleted in koma's Layers dialog: their shots are on no screen. */
+function deletedLayers(p: RawProject): Set<number> {
 	const set = new Set<number>()
-	for (const v of preset.layers) {
-		const i = p.layers.findIndex(l => l.id === v.layerId)
-		if (i !== -1) set.add(i)
-	}
+	p.layers?.forEach((l, i) => {
+		if (l.deleted) set.add(i)
+	})
 	return set
 }
 
@@ -157,13 +175,9 @@ function exhibitLayers(p: RawProject): Set<number> | null {
  */
 function previzLayerIndices(p: RawProject): number[] {
 	const preset = p.layerPresets?.find(pr => /^previz$/i.test(pr.name.trim()))
-	if (preset && p.layers) {
-		return preset.layers
-			.map(v => p.layers!.findIndex(l => l.id === v.layerId))
-			.filter(i => i !== -1)
-	}
+	if (preset && p.layers) return presetLayerIndices(p, preset)
 	return (p.layers ?? [])
-		.map((l, i) => (/previz/i.test(l.name ?? '') ? i : -1))
+		.map((l, i) => (!l.deleted && /previz/i.test(l.name ?? '') ? i : -1))
 		.filter(i => i !== -1)
 }
 
@@ -188,6 +202,7 @@ const frames = computed<ExhibitFrame[]>(() => {
 	const p = project.value
 	if (!p) return []
 	const allowed = exhibitLayers(p)
+	const gone = deletedLayers(p)
 	const previz = previzLayerIndices(p)
 	const previzSet = new Set(previz)
 	const out: ExhibitFrame[] = []
@@ -239,13 +254,13 @@ const frames = computed<ExhibitFrame[]>(() => {
 	}
 	p.komas.forEach((koma, frame) => {
 		koma?.shots?.forEach((shot, layer) => {
-			if (!shot || layer === 0 || previzSet.has(layer)) return
+			if (!shot || layer === 0 || previzSet.has(layer) || gone.has(layer)) return
 			if (allowed && !allowed.has(layer)) return
 			collect(shot, frame, layer, 'live')
 		})
 	})
 	for (const t of p.trash ?? []) {
-		if (!t?.shot || previzSet.has(t.layer)) continue
+		if (!t?.shot || previzSet.has(t.layer) || gone.has(t.layer)) continue
 		if (allowed && !allowed.has(t.layer)) continue
 		collect(t.shot, t.frame, t.layer, 'trash', '_trash')
 	}
@@ -409,6 +424,11 @@ async function seedFromUrl(h: FileSystemDirectoryHandle, base: string) {
 				if (shot && id && layerGcode[id]) files.add(expand(layerGcode[id], frame))
 			})
 		})
+	}
+	// Files dropped on timeline cells (addsub.cuts, cuts.ts).
+	const cuts = (p.addsub as any)?.cuts as Record<string, Record<string, {source: string; file: string}>> | undefined
+	for (const byFrame of Object.values(cuts ?? {})) {
+		for (const cut of Object.values(byFrame)) if (cut.source === 'file') files.add(cut.file)
 	}
 	let n = 0
 	const list = [...files]
@@ -651,13 +671,19 @@ function expand(pattern: string, n: number) {
 
 /**
  * Path (relative to the project folder) of the G-code behind a shown frame:
- * a take on another layer uses that layer's own files (addsub.layerGcode),
- * the film (and its previz stand-ins) the cut planned in previz/frames.json.
+ * a file dropped on the cell (addsub.cuts) first, then a take on another
+ * layer's own files (addsub.layerGcode), then — for the film and its previz
+ * stand-ins — the cut planned in previz/frames.json.
  */
 function gcodePathFor(timelineFrame: number, layer = 0): string | null {
 	const p = project.value
 	const layerGcode = (p?.addsub as any)?.layerGcode as Record<string, string> | undefined
 	const layerId = p?.layers?.[layer]?.id
+	const cuts = (p?.addsub as any)?.cuts as
+		| Record<string, Record<string, {source: string; file: string}>>
+		| undefined
+	const dropped = layerId !== undefined ? cuts?.[layerId]?.[timelineFrame] : undefined
+	if (dropped?.source === 'file') return dropped.file
 	if (layer !== 0 && layerId && layerGcode?.[layerId]) {
 		return expand(layerGcode[layerId], timelineFrame)
 	}

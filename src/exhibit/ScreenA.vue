@@ -60,7 +60,7 @@ async function showFrame(i: number) {
 
 function tick() {
 	if (stopped) return
-	if (!videoUrl.value) {
+	if (!videoUrl.value && !paused.value) {
 		const n = frames.value.length
 		if (n > 0) {
 			index.value = (index.value + 1) % n
@@ -85,6 +85,36 @@ function announce() {
 }
 
 //------------------------------------------------------------------------------
+// Pause (space, from either window — Exhibit.vue posts `toggle-pause`). The
+// take stays on screen and screen B stays on it. Resumes by itself after a
+// while, so a forgotten pause doesn't leave the exhibit frozen.
+
+const PAUSE_TIMEOUT = 5 * 60 * 1000
+
+const paused = ref(false)
+let pauseTimer: ReturnType<typeof setTimeout> | null = null
+
+function setPaused(value: boolean) {
+	paused.value = value
+	if (pauseTimer) clearTimeout(pauseTimer)
+	pauseTimer = value ? setTimeout(() => setPaused(false), PAUSE_TIMEOUT) : null
+
+	const v = $video.value
+	if (value) v?.pause()
+	else {
+		void v?.play().catch(() => {})
+		// Pick up a video that became ready, or due, while paused.
+		if (pendingVideo) setVideo(...pendingVideo)
+		pendingVideo = null
+		void ensureVideo()
+	}
+}
+
+channel.onmessage = e => {
+	if (e.data?.type === 'toggle-pause') setPaused(!paused.value)
+}
+
+//------------------------------------------------------------------------------
 // Video
 
 let encodeAbort: AbortController | null = null
@@ -95,6 +125,8 @@ async function ensureVideo() {
 	const list = frames.value
 	if (list.length === 0 || !isEncodingSupported()) return
 	if (videoSignature.value === sig) return
+	// Swapping the video would jump off the paused take.
+	if (paused.value) return
 
 	const cached = await readCachedVideo(sig)
 	if (cached) {
@@ -132,7 +164,15 @@ async function ensureVideo() {
 	}
 }
 
+/** A video that became ready while paused; shown on resume. */
+let pendingVideo: Parameters<typeof setVideo> | null = null
+
 function setVideo(blob: Blob, sig: string, list: ExhibitFrame[], fps: number) {
+	// Swapping the video would jump off the paused take.
+	if (paused.value) {
+		pendingVideo = [blob, sig, list, fps]
+		return
+	}
 	if (videoUrl.value) URL.revokeObjectURL(videoUrl.value)
 	videoUrl.value = URL.createObjectURL(blob)
 	videoSignature.value = sig
@@ -170,6 +210,7 @@ onMounted(() => {
 onUnmounted(() => {
 	stopped = true
 	if (timer) clearTimeout(timer)
+	if (pauseTimer) clearTimeout(pauseTimer)
 	if (timeTimer) clearInterval(timeTimer)
 	if (heartbeat) clearInterval(heartbeat)
 	encodeAbort?.abort()
@@ -208,6 +249,7 @@ const current = computed(() => frames.value[index.value] ?? null)
 			<span v-if="frames.length === 0">No takes yet</span>
 		</div>
 		<div class="counter mono">
+			<template v-if="paused">❙❙ paused · </template>
 			<template v-if="encoding">
 				encoding {{ encoding.done }} / {{ encoding.total }} ·
 			</template>

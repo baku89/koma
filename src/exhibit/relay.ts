@@ -41,6 +41,8 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null
 let backoff = RECONNECT_MIN_MS
 let generation = 0
 let wantLive = 0
+let askTimer: ReturnType<typeof setInterval> | undefined
+const ASK_AGAIN_MS = 5000
 let pc: RTCPeerConnection | null = null
 
 function send(msg: unknown) {
@@ -210,12 +212,18 @@ async function onSignal(data: any) {
  */
 function requestLive() {
 	wantLive++
-	if (wantLive === 1 && captureOnline.value) {
-		send({type: 'signal', data: {kind: 'want-live'}})
+	if (wantLive === 1) {
+		if (captureOnline.value) send({type: 'signal', data: {kind: 'want-live'}})
+		// A request can go unanswered (the shooting machine had nothing to send
+		// yet, a message was lost): keep asking while there is no connection.
+		askTimer = setInterval(() => {
+			if (captureOnline.value && !pc) send({type: 'signal', data: {kind: 'want-live'}})
+		}, ASK_AGAIN_MS)
 	}
 	return () => {
 		wantLive = Math.max(0, wantLive - 1)
 		if (wantLive === 0) {
+			clearInterval(askTimer)
 			send({type: 'signal', data: {kind: 'bye'}})
 			closePeer()
 		}

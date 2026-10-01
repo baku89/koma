@@ -48,9 +48,20 @@ const relayStatus = computed(() => {
 const showSetup = ref(params.has('setup'))
 const cornerHover = ref(false)
 
+// Space pauses / resumes screen A, from whichever window has the keyboard
+// (A listens on the channel, in this window or its own).
+const channel = new BroadcastChannel('koma-exhibit')
+
 function onKey(e: KeyboardEvent) {
 	if (e.key === 's' || e.key === 'S') showSetup.value = !showSetup.value
 	if (e.key === 'Escape') showSetup.value = false
+	if (e.code === 'Space' && !e.repeat) {
+		// Space on a focused control of the setup overlay is that control's.
+		const t = e.target as HTMLElement | null
+		if (t?.closest('input, button, select, textarea')) return
+		e.preventDefault()
+		channel.postMessage({type: 'toggle-pause'})
+	}
 }
 
 function onMouseMove(e: MouseEvent) {
@@ -105,6 +116,7 @@ onUnmounted(() => {
 	window.removeEventListener('mousemove', onMouseMove)
 	if (shiftTimer) clearInterval(shiftTimer)
 	wakeLock?.release()
+	channel.close()
 })
 
 //------------------------------------------------------------------------------

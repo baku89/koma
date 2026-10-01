@@ -7,11 +7,13 @@
 import QRCode from 'qrcode'
 import {computed, onUnmounted, ref, shallowRef, watch} from 'vue'
 
+import type {CompactToolpath} from '@/utils/fluidnc/toolpath.worker'
+import {clearToolpathCache, parseToolpathCached} from '@/utils/fluidnc/toolpathParser'
+
+import {keepLastLive, useLastLive} from './lastLive'
 import {useExhibitRelay} from './relay'
 import type {PaneKind} from './SplitNode.vue'
 import {useExhibitStore} from './store'
-import type {CompactToolpath} from './toolpath.worker'
-import {clearToolpathCache, parseToolpathCached} from './toolpathParser'
 import {ToolpathRenderer} from './toolpathView'
 
 const props = defineProps<{kind: PaneKind}>()
@@ -242,17 +244,38 @@ function tickGcode() {
 //------------------------------------------------------------------------------
 // LIVE VIEW: the camera's MediaStream over WebRTC
 
-const $video = ref<HTMLVideoElement | null>(null)
+const $video = shallowRef<HTMLVideoElement | null>(null)
 let releaseLive: (() => void) | null = null
 if (props.kind === 'live') releaseLive = relay.requestLive()
 watch(
 	[$video, relay.liveStream],
 	([video, stream]) => {
-		if (video && video.srcObject !== stream) video.srcObject = stream
+		if (!video || video.srcObject === stream) return
+		// The stream is going away: hold on to the picture it leaves behind.
+		if (!stream) keepLastLive(video)
+		video.srcObject = stream
 	},
 	{immediate: true}
 )
-onUnmounted(() => releaseLive?.())
+
+// The picture shown while there is no stream (lastLive.ts). Also saved every
+// few seconds while live, for a reload or a power cut on this machine.
+const lastLive = useLastLive()
+const lastLiveTime = computed(() =>
+	lastLive.value ? new Date(lastLive.value.t).toLocaleString('ja-JP', {hour12: false}) : null
+)
+const KEEP_LIVE_MS = 10_000
+const keepTimer =
+	props.kind === 'live'
+		? setInterval(() => {
+				if ($video.value && relay.liveActive.value) keepLastLive($video.value)
+			}, KEEP_LIVE_MS)
+		: undefined
+
+onUnmounted(() => {
+	clearInterval(keepTimer)
+	releaseLive?.()
+})
 
 //------------------------------------------------------------------------------
 // BOX RIG / MILL: live positions, else the pose of the shown take
@@ -401,13 +424,23 @@ watch(
 
 		<!-- LIVE VIEW: WebRTC from the shooting machine -->
 		<div v-else-if="kind === 'live'" class="live">
-			<video ref="$video" class="live-video" autoplay muted playsinline :class="{off: !relay.liveActive.value}" />
+			<video
+				v-show="relay.liveStream.value"
+				ref="$video"
+				class="live-video"
+				autoplay
+				muted
+				playsinline
+				:class="{off: !relay.liveActive.value}"
+			/>
+			<img v-if="!relay.liveStream.value && lastLive" class="live-video off" :src="lastLive.url" />
 			<div v-if="!relay.liveActive.value" class="placeholder mono live-overlay">
 				<div class="dim">
 					<template v-if="!online">
 						shooting machine offline<template v-if="lastSeen"><br />last seen {{ lastSeen }}</template>
 					</template>
 					<template v-else>live view is off on the shooting machine</template>
+					<template v-if="!relay.liveStream.value && lastLiveTime"><br />last picture {{ lastLiveTime }}</template>
 				</div>
 			</div>
 		</div>
