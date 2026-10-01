@@ -1,7 +1,7 @@
 #!/bin/sh
 # Bundle everything the exhibit machine needs into one folder (no git, yarn or
 # build tools there — only Node.js): the built koma pages, koma-relay with its
-# single dependency, and the start / launchd files from
+# single dependency, and the start / kiosk / launchd files from
 # dev_modules/koma-relay/exhibit-machine. ADDSUB.md §15.
 #
 #   yarn pack:exhibit            → build/koma-exhibit/  (+ build/koma-exhibit.zip)

@@ -1,62 +1,97 @@
 #!/bin/sh
-# Register koma-relay (and, optionally, Chrome in kiosk mode) as launchd user
-# agents so they start at login and are restarted if they die.
+# Register koma-relay (and, with --kiosk, the exhibit screens in Chrome) as
+# launchd user agents: they start at login and are restarted if they die.
 #
-#   ./install-launchd.sh            relay only
-#   ./install-launchd.sh --kiosk    relay + Chrome kiosk on screen B (single monitor)
-#   ./install-launchd.sh --remove   unload both
+#   sh install-launchd.sh            relay only
+#   sh install-launchd.sh --kiosk    relay + Chrome fullscreen on every display
+#                                    (kiosk.sh: screen A on the first display,
+#                                    screen B on the second)
+#   sh install-launchd.sh --remove   unload both (Chrome quits)
+#   sh install-launchd.sh --print    show the plists, install nothing
+#
+# KOMA_* variables set when this runs are written into the agents, e.g.
+#   KOMA_EXHIBIT_SCREENS=b,a sh install-launchd.sh --kiosk     (swap the displays)
+#   KOMA_RELAY_TOKEN=… KOMA_RELAY_DIR=… sh install-launchd.sh  (start.sh)
+# Run it again to change them.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AGENTS="$HOME/Library/LaunchAgents"
-RELAY_PLIST="$AGENTS/com.baku89.koma-relay.plist"
-KIOSK_PLIST="$AGENTS/com.baku89.koma-exhibit-kiosk.plist"
-mkdir -p "$AGENTS" "$HOME/Library/Logs"
+LOGS="$HOME/Library/Logs"
+RELAY_LABEL=com.baku89.koma-relay
+KIOSK_LABEL=com.baku89.koma-exhibit-kiosk
 
-unload() { launchctl bootout "gui/$(id -u)" "$1" 2>/dev/null || true; }
+KIOSK=0; REMOVE=0; PRINT=0
+for arg in "$@"; do
+	case "$arg" in
+		--kiosk) KIOSK=1 ;;
+		--remove) REMOVE=1 ;;
+		--print) PRINT=1 ;;
+		*) echo "unknown option: $arg" >&2; exit 2 ;;
+	esac
+done
 
-if [ "${1:-}" = "--remove" ]; then
-	unload "$RELAY_PLIST"; unload "$KIOSK_PLIST"
-	rm -f "$RELAY_PLIST" "$KIOSK_PLIST"
+xml() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+
+# plist <label> <script> <log file>
+plist() {
+	cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+	<key>Label</key><string>$1</string>
+	<key>ProgramArguments</key><array>
+		<string>/bin/sh</string>
+		<string>$(xml "$HERE/$2")</string>
+	</array>
+	<key>EnvironmentVariables</key><dict>
+$(env | grep '^KOMA_' | while IFS='=' read -r key value; do
+	printf '\t\t<key>%s</key><string>%s</string>\n' "$key" "$(xml "$value")"
+done)
+	</dict>
+	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key><true/>
+	<key>StandardOutPath</key><string>$(xml "$LOGS/$3")</string>
+	<key>StandardErrorPath</key><string>$(xml "$LOGS/$3")</string>
+</dict></plist>
+PLIST
+}
+
+if [ "$PRINT" = 1 ]; then
+	plist "$RELAY_LABEL" start.sh koma-relay.log
+	[ "$KIOSK" = 1 ] && plist "$KIOSK_LABEL" kiosk.sh koma-exhibit-kiosk.log
+	exit 0
+fi
+
+# Unload and wait until it is gone: loading again while the old one is still
+# shutting down (Chrome takes a moment to quit) fails.
+unload() {
+	launchctl bootout "gui/$(id -u)/$1" 2>/dev/null || return 0
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
+		launchctl print "gui/$(id -u)/$1" >/dev/null 2>&1 || return 0
+		sleep 1
+	done
+}
+
+# load <label> <script> <log file>
+load() {
+	unload "$1"
+	plist "$@" > "$AGENTS/$1.plist"
+	launchctl bootstrap "gui/$(id -u)" "$AGENTS/$1.plist"
+}
+
+mkdir -p "$AGENTS" "$LOGS"
+
+if [ "$REMOVE" = 1 ]; then
+	unload "$KIOSK_LABEL"; unload "$RELAY_LABEL"
+	rm -f "$AGENTS/$KIOSK_LABEL.plist" "$AGENTS/$RELAY_LABEL.plist"
 	echo "removed"
 	exit 0
 fi
 
-unload "$RELAY_PLIST"
-cat > "$RELAY_PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-	<key>Label</key><string>com.baku89.koma-relay</string>
-	<key>ProgramArguments</key><array><string>$HERE/start.sh</string></array>
-	<key>RunAtLoad</key><true/>
-	<key>KeepAlive</key><true/>
-	<key>StandardOutPath</key><string>$HOME/Library/Logs/koma-relay.log</string>
-	<key>StandardErrorPath</key><string>$HOME/Library/Logs/koma-relay.log</string>
-</dict></plist>
-PLIST
-launchctl bootstrap "gui/$(id -u)" "$RELAY_PLIST"
+load "$RELAY_LABEL" start.sh koma-relay.log
 echo "koma-relay: loaded (log: ~/Library/Logs/koma-relay.log)"
 
-if [ "${1:-}" = "--kiosk" ]; then
-	unload "$KIOSK_PLIST"
-	cat > "$KIOSK_PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-	<key>Label</key><string>com.baku89.koma-exhibit-kiosk</string>
-	<key>ProgramArguments</key><array>
-		<string>/Applications/Google Chrome.app/Contents/MacOS/Google Chrome</string>
-		<string>--kiosk</string>
-		<string>--noerrdialogs</string>
-		<string>--disable-session-crashed-bubble</string>
-		<string>--autoplay-policy=no-user-gesture-required</string>
-		<string>--user-data-dir=$HOME/Library/Application Support/koma-exhibit-chrome</string>
-		<string>http://localhost:${KOMA_RELAY_PORT:-7777}/exhibit.html?screen=b</string>
-	</array>
-	<key>RunAtLoad</key><true/>
-	<key>KeepAlive</key><true/>
-</dict></plist>
-PLIST
-	launchctl bootstrap "gui/$(id -u)" "$KIOSK_PLIST"
-	echo "kiosk: loaded (Chrome, screen B). For two monitors use the setup overlay instead."
+if [ "$KIOSK" = 1 ]; then
+	load "$KIOSK_LABEL" kiosk.sh koma-exhibit-kiosk.log
+	echo "exhibit screens: loaded (log: ~/Library/Logs/koma-exhibit-kiosk.log)"
 fi
