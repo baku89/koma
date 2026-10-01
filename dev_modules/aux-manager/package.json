@@ -1,7 +1,7 @@
 {
 	"name": "aux-manager",
 	"version": "0.0.0",
-	"description": "\"A Node.js module to manage auxillary devices for Koma app, which includes OSC forwarding and VR device fetching\"",
+	"description": "A Node.js helper for the Koma app: keeps macOS ptpcamera from claiming the camera and bridges OSC (WebSocket <-> UDP)",
 	"author": "Baku Hashimoto <mail@baku89.com>",
 	"scripts": {
 		"start": "node index.js"
@@ -9,10 +9,7 @@
 	"license": "MIT",
 	"private": true,
 	"dependencies": {
-		"artnet": "^1.4.0",
 		"chalk": "4.1.2",
-		"dmx-ts": "^0.4.0",
-		"fps": "^0.0.3",
 		"osc-js": "^2.4.0"
 	},
 	"devDependencies": {}

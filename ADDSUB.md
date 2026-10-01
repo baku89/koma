@@ -642,6 +642,10 @@ Houdini の LED 点群（1 点 = 1 粒、ws-fanout のライン順、`Cd` = 0-1 
 - 展示は **"Exhibit" という名前のプリセット**があればそのレイヤーだけを対象にする（previz 等の参照レイヤーを外すため）。vice-tests-2021 では "Exhibit" = 撮影テイク 14 レイヤー（previz 除外）。
 - 展示ページの確認用に `exhibit.html?opfs=<name>&seed=<url>` を追加（フォルダピッカー無しで、URL から project.json と lv を OPFS に流し込んで読む）。dev では `public/_dev-*` のシンボリックリンク（gitignore 済み）で実フォルダを配信。
 
+### `yarn aux` からトラッカーと DMX を撤去（2026-10-01）
+- `dev_modules/aux-manager` は **ptpcamera の kill と OSC ブリッジ（WebSocket 8080 ↔ UDP in 5200 / out 5201）だけ**になった。Vive Tracker（libsurvive の `survive-cli` 起動・POSE のパース・smoothing・outlier gate・再校正）と DMX（Art-Net、`/dmx<N>`）は削除、`yarn recal` / `yarn raw` と依存（`dmx-ts` / `artnet` / `fps`）も削除。CLAUDE.md の「aux トラッカー取得（libsurvive）」の節は `main` の記録で、このブランチの `yarn aux` には当てはまらない。
+- 残したもの: `dev_modules/libsurvive/`（ビルド済みバイナリ）、koma 側の `stores/tracker.ts` / `auxDevices.ts` / `dmx.ts` / `DmxControl.vue`（トラッカーは常に無効、DMX のスライダーと blackout は `/dmx<N>` を OSC で出すだけでどこにも届かない）。OSC の `/shoot` は従来どおり効く。
+
 ### 手元で試す（ハード無しの確認）
 - `yarn test`（parse・IK・LED map）。
 - ESP32 dev board に FluidNC を焼き、config.yaml に `name: BoxRig` を書けば、モーター無しでも識別・自動再接続・ジョグ送信・Idle 待ちを確認できる。`name: AST200` にすればフライス盤側。

@@ -40,18 +40,9 @@ The terms used in the code and documentation.
 
 ## Run Aux-Manager
 
-Aux-Manager forwards OSC/DMX and streams Vive Tracker poses. Tracking is done
-by [libsurvive](https://github.com/cntools/libsurvive) (HIDAPI backend), so
-**SteamVR is not required and it runs natively on Apple Silicon** — no Rosetta.
-
-Build libsurvive once (see [dev_modules/libsurvive/README.md](dev_modules/libsurvive/README.md)),
-then install its runtime dependency:
-
-```bash
-brew install hidapi
-```
-
-Run:
+Aux-Manager keeps the macOS `ptpcamera` daemon from claiming the camera (so
+Tethr can open it over WebUSB) and bridges OSC between the app (WebSocket,
+port 8080) and UDP (in 5200 / out 5201).
 
 ```bash
 yarn aux

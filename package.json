@@ -8,8 +8,6 @@
 		"aux": "yarn workspace aux-manager run start",
 		"relay": "yarn workspace koma-relay run start",
 		"pack:exhibit": "sh scripts/pack-exhibit.sh",
-		"recal": "RECAL=1 yarn aux",
-		"raw": "RAW=1 yarn aux",
 		"lint": "eslint \"src/**/*.{ts,vue}\"",
 		"test": "vitest run",
 		"build": "vite build",
