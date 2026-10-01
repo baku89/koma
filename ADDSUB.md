@@ -633,7 +633,7 @@ Dropbox 同期とフォルダピッカー方式をやめ、**常時稼働する�
 1. Node.js: https://nodejs.org の LTS `.pkg` を入れる（`/usr/local/bin/node`）。yarn は `sudo npm i -g yarn`（この repo は yarn classic 1.x）。git はターミナルで `git` と打つと Command Line Tools の導入ダイアログが出るのでそれで入れる。
 2. GitHub 認証: `dev_modules/ws-fanout` は private なので `git clone` 時に user 名 + Personal Access Token（repo 読み取り）を入れる。macOS の git は osxkeychain に保存するので 1 回で済む。
 3. `git clone --recursive -b addsub https://github.com/baku89/koma ~/koma && cd ~/koma && yarn install && yarn build`（`yarn install` は electron のバイナリも落とすので数分）。
-4. `sh dev_modules/koma-relay/exhibit-machine/install-launchd.sh --kiosk`（Chrome を入れておく）。login 時に **relay と展示画面の両方**が立ち上がり、落ちたら再起動される。ログは `~/Library/Logs/koma-relay.log` / `koma-exhibit-kiosk.log`。`--kiosk` 無しなら relay だけ、`--remove` で両方解除（Chrome も終了）。
+4. `sh dev_modules/koma-relay/exhibit-machine/install-launchd.sh --kiosk`（Chrome を入れておく）。login 時に **relay と展示画面の両方**が立ち上がり、落ちたら再起動される。ログは `~/Library/Logs/koma-relay.log` / `koma-exhibit-kiosk.log`。`--kiosk` 無しなら relay だけ、`--remove` で両方解除（Chrome も終了）。**sudo は付けない**（root には `gui/0` ドメインが無く「Domain does not support specified action」になり、plist が root 所有で残る。その後の「Permission denied」は `sudo chown -R $(id -un) ~/Library/LaunchAgents` で直す）。画面にログインしているユーザーで実行する。
    - 展示画面は `exhibit-machine/kiosk.mjs`（下の「展示画面の自動起動」）。ディスプレイを左から順に取り、既定は 1 枚目 = 画面 A、2 枚目 = 画面 B。逆なら `KOMA_EXHIBIT_SCREENS=b,a sh …/install-launchd.sh --kiosk`（左右は システム設定 > ディスプレイ > 配置 の並び）。
    - 環境変数で変更（**インストール時に付けた `KOMA_*` が plist に書き込まれる**。変えるときはもう一度実行）: `KOMA_RELAY_DIR`（表示用コピーの置き場、既定 `~/koma-exhibit-project`）、`KOMA_RELAY_PORT`（7777）、`KOMA_RELAY_TOKEN`、`KOMA_EXHIBIT_SCREENS`。
    - 手で 2 面に出す従来の方法（Chrome を普通に起動して `http://localhost:7777/exhibit.html?setup` の「Open A and B on two screens」）も残っている。

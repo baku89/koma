@@ -75,11 +75,30 @@ unload() {
 # load <label> <script> <log file>
 load() {
 	unload "$1"
+	# Removed first: a plist left by an earlier sudo run can't be written over.
+	rm -f "$AGENTS/$1.plist"
 	plist "$@" > "$AGENTS/$1.plist"
-	launchctl bootstrap "gui/$(id -u)" "$AGENTS/$1.plist"
+	if ! launchctl bootstrap "gui/$(id -u)" "$AGENTS/$1.plist"; then
+		echo "launchd did not take $1. This has to run as the user who is logged in" >&2
+		echo "at this Mac's screen (over SSH it only works while that user is logged in)." >&2
+		exit 1
+	fi
 }
 
+# The agents belong to the logged-in user: as root there is no gui/0 domain to
+# load them into ("Domain does not support specified action"), and the plists
+# end up owned by root.
+if [ "$(id -u)" = 0 ]; then
+	echo "Run this without sudo." >&2
+	exit 1
+fi
+
 mkdir -p "$AGENTS" "$LOGS"
+if [ ! -w "$AGENTS" ]; then
+	echo "$AGENTS is not writable by $(id -un) (owned by root?). Fix it with:" >&2
+	echo "  sudo chown -R $(id -un) \"$AGENTS\"" >&2
+	exit 1
+fi
 
 if [ "$REMOVE" = 1 ]; then
 	unload "$KIOSK_LABEL"; unload "$RELAY_LABEL"
