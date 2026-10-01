@@ -103,9 +103,14 @@ export const useViewportStore = defineStore('viewport', () => {
 		}
 
 		project.$patch(draft => {
-			draft.komas[frameToDelete].shots.splice(currentLayer.value, 1)
+			// Blank the slot rather than splicing it out: `shots[i]` is the storage
+			// index of layer i, so removing the element would shift every layer
+			// above down by one. Only the frame itself ripples shut, and only once
+			// no layer has a shot left in it.
+			const shots = draft.komas[frameToDelete].shots
+			shots[currentLayer.value] = null
 
-			const shouldDeleteKoma = draft.komas[frameToDelete].shots.length === 0
+			const shouldDeleteKoma = !shots.some(Boolean)
 
 			if (shouldDeleteKoma) {
 				// Equivalent to `draft.komas.splice(frameToDelete, 1)`,
@@ -278,8 +283,19 @@ export const useViewportStore = defineStore('viewport', () => {
 		return temporalFrame.value ?? currentFrame.value
 	})
 
+	// The playback canvas registers this to get the first frames decoded before
+	// the clock starts (Preview/PreviewPlayback.vue).
+	let playbackPreroll: ((startFrame: number) => Promise<void>) | null = null
+	function setPlaybackPreroll(fn: typeof playbackPreroll) {
+		playbackPreroll = fn
+	}
+	/** Longest the start of playback waits for that; then it plays regardless. */
+	const PREROLL_TIMEOUT = 1500
+
 	// Play
+	let playToken = 0
 	watch(isPlaying, async () => {
+		const token = ++playToken
 		if (!isPlaying.value) {
 			if (
 				temporalFrame.value &&
@@ -298,7 +314,6 @@ export const useViewportStore = defineStore('viewport', () => {
 			audio: {startFrame: audioStartFrame},
 		} = project
 
-		let startTime = new Date().getTime()
 		let startFrame = currentFrame.value
 
 		if (!project.isLooping && startFrame === outPoint) {
@@ -316,14 +331,26 @@ export const useViewportStore = defineStore('viewport', () => {
 		const canLoop =
 			project.isLooping && !startsBeforeRange && !startsAfterRange
 
+		// Show the first frame and let its followers decode, so the first pass
+		// doesn't stutter while decoding catches up with the playhead.
+		temporalFrame.value = startFrame
+		if (playbackPreroll) {
+			await Promise.race([
+				playbackPreroll(startFrame),
+				new Promise(resolve => setTimeout(resolve, PREROLL_TIMEOUT)),
+			])
+			// Stopped (or stopped and restarted) while waiting.
+			if (token !== playToken) return
+		}
+
+		let startTime = new Date().getTime()
 		const audioTime = (startFrame - audioStartFrame) / fps
 		await seekAndPlay(howl.value, audioTime)
+		if (token !== playToken) return
 
 		async function update() {
-			if (!isPlaying.value) {
-				temporalFrame.value = null
-				return
-			}
+			// Stopped (the branch above cleared the frame), or restarted since.
+			if (token !== playToken) return
 
 			const now = new Date().getTime()
 			const elapsedTime = now - startTime
@@ -426,6 +453,7 @@ export const useViewportStore = defineStore('viewport', () => {
 		previewFrame,
 		temporalFrame,
 		isPlaying,
+		setPlaybackPreroll,
 		isLiveview,
 		isShotSelected: readonly(isShotSelected),
 		popup,

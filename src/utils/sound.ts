@@ -71,3 +71,36 @@ export function scrub(
 	sound.seek(seconds)
 	sound.play()
 }
+
+let buzzerContext: AudioContext | null = null
+const BUZZER_GAIN = 0.175
+
+/**
+ * A synthesized buzzer, loud and unlike the sampled UI sounds, for "come
+ * back to the machine" moments: `done` is three short high beeps, `error`
+ * two long low ones.
+ */
+export function buzz(kind: 'done' | 'error' = 'done') {
+	try {
+		buzzerContext ??= new AudioContext()
+		const ctx = buzzerContext
+		if (ctx.state === 'suspended') void ctx.resume()
+		const [freq, on, gap, count] = kind === 'done' ? [1320, 0.16, 0.1, 3] : [196, 0.45, 0.15, 2]
+		for (let i = 0; i < count; i++) {
+			const t = ctx.currentTime + 0.02 + i * (on + gap)
+			const osc = ctx.createOscillator()
+			const gain = ctx.createGain()
+			osc.type = 'square'
+			osc.frequency.value = freq
+			gain.gain.setValueAtTime(0, t)
+			gain.gain.linearRampToValueAtTime(BUZZER_GAIN, t + 0.005)
+			gain.gain.setValueAtTime(BUZZER_GAIN, t + on - 0.01)
+			gain.gain.linearRampToValueAtTime(0, t + on)
+			osc.connect(gain).connect(ctx.destination)
+			osc.start(t)
+			osc.stop(t + on + 0.01)
+		}
+	} catch {
+		// No audio output: the buzzer is a convenience, never a failure.
+	}
+}

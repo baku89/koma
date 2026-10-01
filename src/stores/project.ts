@@ -62,6 +62,9 @@ type MixBlendMode = 'normal' | 'lighten' | 'darken' | 'difference'
  * reference shots, imported references…). Layers are storage slots: a layer's
  * index in `project.layers` is the index into every `koma.shots[]`, so layers
  * are only ever appended, never reordered or removed here. Layer 0 is the film.
+ * Deleting a layer therefore only marks its slot (`deleted`): it disappears
+ * from every list, preset and screen, while its shots and files stay where
+ * they are — nothing is renumbered, and it can be restored.
  *
  * How layers are *shown* — which ones, in what order, with which blend mode
  * and opacity — is a {@link LayerPreset}; several can be saved and switched
@@ -71,6 +74,8 @@ export interface Layer {
 	/** Stable id (survives renames / reordering). */
 	id: string
 	name: string
+	/** Deleted in the Layers dialog: hidden everywhere, shots kept. */
+	deleted?: boolean
 }
 
 export interface LayerView {
@@ -79,11 +84,51 @@ export interface LayerView {
 	mixBlendMode: MixBlendMode
 }
 
+/** A layer's place in a preset's list, shown or not. */
+export type LayerStackEntry = LayerView & {hidden?: boolean}
+
 export interface LayerPreset {
 	id: string
 	name: string
-	/** Display order, bottom → top. Layers not listed are hidden. */
+	/**
+	 * The shown layers, bottom → top: `stack` without its hidden entries, kept
+	 * in step with it. What files and builds from before `stack` read.
+	 */
 	layers: LayerView[]
+	/**
+	 * Every layer in list order (bottom → top), hidden ones included — so a
+	 * layer keeps its place, blend and opacity while it is switched off.
+	 */
+	stack?: LayerStackEntry[]
+}
+
+/**
+ * A preset's full list: its `stack` (or, for a file from before `stack`, the
+ * shown layers) without entries for unknown or deleted layers, and with the
+ * layers it does not mention added on top, hidden.
+ */
+export function fullLayerStack(
+	preset: Pick<LayerPreset, 'layers' | 'stack'>,
+	layers: readonly Layer[]
+): LayerStackEntry[] {
+	const live = layers.filter(l => !l.deleted).map(l => l.id)
+	const seen = new Set<string>()
+	const stack: LayerStackEntry[] = []
+	for (const v of preset.stack ?? preset.layers ?? []) {
+		if (!live.includes(v.layerId) || seen.has(v.layerId)) continue
+		seen.add(v.layerId)
+		stack.push({...v})
+	}
+	for (const id of live) {
+		if (!seen.has(id)) stack.push({layerId: id, opacity: 1, mixBlendMode: 'normal', hidden: true})
+	}
+	return stack
+}
+
+function shownLayers(stack: readonly LayerStackEntry[]): LayerView[] {
+	return stack
+		.filter(v => !v.hidden)
+		.map(({layerId, opacity, mixBlendMode}) => ({layerId, opacity, mixBlendMode}))
 }
 
 export function newLayerId() {
@@ -271,6 +316,7 @@ const emptyProject: Project = {
 			id: 'default',
 			name: 'Default',
 			layers: [{layerId: 'main', opacity: 1, mixBlendMode: 'normal'}],
+			stack: [{layerId: 'main', opacity: 1, mixBlendMode: 'normal'}],
 		},
 	],
 	activeLayerPreset: 'default',
@@ -516,6 +562,7 @@ function normalizeLayers(p: Project) {
 	const layers: Layer[] = raw.map((l, i) => ({
 		id: l.id ?? (i === 0 ? 'main' : newLayerId()),
 		name: l.name ?? l.label ?? (i === 0 ? 'Main' : l.kind ? `${l.kind} ${i}` : `Layer ${i}`),
+		...(l.deleted && i > 0 ? {deleted: true} : {}),
 	}))
 	const used = Math.max(
 		1,
@@ -530,27 +577,25 @@ function normalizeLayers(p: Project) {
 	}
 	p.layers = layers
 
-	const ids = new Set(layers.map(l => l.id))
 	let presets: LayerPreset[] = (p.layerPresets ?? [])
 		.filter(pr => pr && Array.isArray(pr.layers))
-		.map(pr => ({
-			id: pr.id ?? newPresetId(),
-			name: pr.name ?? 'Preset',
-			layers: pr.layers.filter(v => ids.has(v.layerId)),
-		}))
+		.map(pr => {
+			const stack = fullLayerStack(pr, layers)
+			return {
+				id: pr.id ?? newPresetId(),
+				name: pr.name ?? 'Preset',
+				layers: shownLayers(stack),
+				stack,
+			}
+		})
 	if (presets.length === 0) {
 		// Legacy: opacity / blend lived on the layer itself.
-		presets = [
-			{
-				id: 'default',
-				name: 'Default',
-				layers: layers.map((l, i) => ({
-					layerId: l.id,
-					opacity: raw[i]?.opacity ?? 1,
-					mixBlendMode: raw[i]?.mixBlendMode ?? 'normal',
-				})),
-			},
-		]
+		const stack: LayerStackEntry[] = layers.map((l, i) => ({
+			layerId: l.id,
+			opacity: raw[i]?.opacity ?? 1,
+			mixBlendMode: raw[i]?.mixBlendMode ?? 'normal',
+		}))
+		presets = [{id: 'default', name: 'Default', layers: shownLayers(stack), stack}]
 	}
 	p.layerPresets = presets
 	if (!presets.some(pr => pr.id === p.activeLayerPreset)) {
@@ -841,6 +886,8 @@ export const useProjectStore = defineStore('project', () => {
 		if (p.markers.length > 0) return true
 		if (p.timeline.drawing) return true
 		if (p.audio?.src) return true
+		// addsub: G-code attached to frames (its files live in the folder).
+		if (Object.keys(p.addsub.cuts ?? {}).length > 0) return true
 		return false
 	}
 
@@ -1139,16 +1186,62 @@ export const useProjectStore = defineStore('project', () => {
 		return project.layers[index] ?? {id: `missing-${index}`, name: `Layer ${index}`}
 	}
 
+	/** Storage index of a layer by id; -1 when unknown or deleted. */
 	function layerIndexOf(id: string): number {
-		return project.layers.findIndex(l => l.id === id)
+		return project.layers.findIndex(l => l.id === id && !l.deleted)
+	}
+
+	/** The preset's full list, made on first use for a preset without one. */
+	function stackOf(preset: LayerPreset): LayerStackEntry[] {
+		if (!preset.stack) preset.stack = fullLayerStack(toRaw(preset), toRaw(project.layers))
+		return preset.stack
+	}
+
+	/** After any change to a preset's stack: bring its shown list in step. */
+	function syncShown(preset: LayerPreset) {
+		preset.layers = shownLayers(toRaw(stackOf(preset)))
 	}
 
 	/** Append a new named layer (shown on top in the active preset). */
 	function addLayer(name: string): number {
 		const id = newLayerId()
 		project.layers.push({id, name})
-		activePreset.value.layers.push({layerId: id, opacity: 1, mixBlendMode: 'normal'})
+		for (const preset of project.layerPresets) {
+			const entry: LayerStackEntry = {layerId: id, opacity: 1, mixBlendMode: 'normal'}
+			if (preset !== activePreset.value) entry.hidden = true
+			stackOf(preset).push(entry)
+			syncShown(preset)
+		}
 		return project.layers.length - 1
+	}
+
+	/**
+	 * Delete a layer: its slot stays (shots, files, plans untouched — see
+	 * `Layer`), it just leaves every preset, list and screen. The film
+	 * (layer 0) can't be deleted. A capture slot on it moves to the film.
+	 */
+	function deleteLayer(index: number) {
+		const layer = project.layers[index]
+		if (index <= 0 || !layer || layer.deleted) return
+		layer.deleted = true
+		for (const preset of project.layerPresets) {
+			preset.stack = toRaw(stackOf(preset)).filter(v => v.layerId !== layer.id)
+			syncShown(preset)
+		}
+		if (project.captureShot.layer === index) {
+			project.captureShot = {frame: project.captureShot.frame, layer: 0}
+		}
+	}
+
+	/** Bring a deleted layer back: on top of every preset's list, hidden. */
+	function restoreLayer(index: number) {
+		const layer = project.layers[index]
+		if (!layer?.deleted) return
+		delete layer.deleted
+		for (const preset of project.layerPresets) {
+			stackOf(preset).push({layerId: layer.id, opacity: 1, mixBlendMode: 'normal', hidden: true})
+			syncShown(preset)
+		}
 	}
 
 	//---- Presets
@@ -1158,6 +1251,11 @@ export const useProjectStore = defineStore('project', () => {
 		return found ?? project.layerPresets[0]
 	})
 
+	/** The active preset's full list (bottom → top), hidden layers included. */
+	const layerStack = computed<LayerStackEntry[]>(
+		() => activePreset.value.stack ?? activePreset.value.layers
+	)
+
 	function setActivePreset(id: string) {
 		if (project.layerPresets.some(p => p.id === id)) project.activeLayerPreset = id
 	}
@@ -1165,10 +1263,12 @@ export const useProjectStore = defineStore('project', () => {
 	/** New preset, copied from the active one (or showing every layer). */
 	function addPreset(name: string, fromActive = true): string {
 		const id = newPresetId()
-		const layers: LayerView[] = fromActive
-			? cloneDeep(toRaw(activePreset.value.layers))
-			: project.layers.map(l => ({layerId: l.id, opacity: 1, mixBlendMode: 'normal' as const}))
-		project.layerPresets.push({id, name, layers})
+		const stack: LayerStackEntry[] = fromActive
+			? cloneDeep(toRaw(stackOf(activePreset.value)))
+			: fullLayerStack({layers: []}, toRaw(project.layers)).map(
+					({layerId, opacity, mixBlendMode}) => ({layerId, opacity, mixBlendMode})
+				)
+		project.layerPresets.push({id, name, layers: shownLayers(stack), stack})
 		project.activeLayerPreset = id
 		return id
 	}
@@ -1183,8 +1283,9 @@ export const useProjectStore = defineStore('project', () => {
 
 	/** Storage indices of the visible layers, in display order. */
 	const visibleLayerIndices = computed<number[]>(() =>
-		activePreset.value.layers
-			.map(v => project.layers.findIndex(l => l.id === v.layerId))
+		layerStack.value
+			.filter(v => !v.hidden)
+			.map(v => layerIndexOf(v.layerId))
 			.filter(i => i !== -1)
 	)
 
@@ -1193,38 +1294,48 @@ export const useProjectStore = defineStore('project', () => {
 	/** How a layer (by storage index) is shown in the active preset. */
 	function layerView(index: number): {opacity: number; mixBlendMode: MixBlendMode} {
 		const id = project.layers[index]?.id
-		return activePreset.value.layers.find(v => v.layerId === id) ?? DEFAULT_VIEW
+		return layerStack.value.find(v => v.layerId === id) ?? DEFAULT_VIEW
 	}
 
 	function setLayerView(index: number, patch: Partial<Omit<LayerView, 'layerId'>>) {
 		const id = project.layers[index]?.id
-		const view = activePreset.value.layers.find(v => v.layerId === id)
-		if (view) Object.assign(view, patch)
+		const view = stackOf(activePreset.value).find(v => v.layerId === id)
+		if (!view) return
+		Object.assign(view, patch)
+		syncShown(activePreset.value)
 	}
 
 	function isLayerVisible(index: number) {
 		const id = project.layers[index]?.id
-		return id !== undefined && activePreset.value.layers.some(v => v.layerId === id)
+		return id !== undefined && layerStack.value.some(v => v.layerId === id && !v.hidden)
 	}
 
+	/** Show / hide a layer in the active preset; its place in the list stays. */
 	function setLayerVisible(index: number, visible: boolean) {
-		const id = project.layers[index]?.id
-		if (!id) return
-		const views = activePreset.value.layers
-		const at = views.findIndex(v => v.layerId === id)
-		if (visible && at === -1) views.push({layerId: id, opacity: 1, mixBlendMode: 'normal'})
-		if (!visible && at !== -1) views.splice(at, 1)
+		const layer = project.layers[index]
+		if (!layer || layer.deleted) return
+		const stack = stackOf(activePreset.value)
+		const entry = stack.find(v => v.layerId === layer.id)
+		if (!entry) {
+			stack.push({layerId: layer.id, opacity: 1, mixBlendMode: 'normal', hidden: !visible})
+		} else if (visible) {
+			delete entry.hidden
+		} else {
+			entry.hidden = true
+		}
+		syncShown(activePreset.value)
 	}
 
-	/** Move a visible layer by `delta` positions in the display order. */
+	/** Move a layer by `delta` positions in the active preset's list. */
 	function moveLayer(index: number, delta: number) {
 		const id = project.layers[index]?.id
-		const views = activePreset.value.layers
-		const from = views.findIndex(v => v.layerId === id)
+		const stack = stackOf(activePreset.value)
+		const from = stack.findIndex(v => v.layerId === id)
 		if (from === -1) return
-		const to = clamp(from + delta, 0, views.length - 1)
-		const [v] = views.splice(from, 1)
-		views.splice(to, 0, v)
+		const to = clamp(from + delta, 0, stack.length - 1)
+		const [v] = stack.splice(from, 1)
+		stack.splice(to, 0, v)
+		syncShown(activePreset.value)
 	}
 
 	/**
@@ -1276,6 +1387,44 @@ export const useProjectStore = defineStore('project', () => {
 		}
 		const file = await readFileFromDirectory(directoryHandle.value, filename)
 		return await file.text()
+	}
+
+	/**
+	 * The project folder, creating it first for a fresh in-app project that
+	 * hasn't been written yet — for files the app puts next to project.json
+	 * (e.g. G-code attached to frames) before any frame is shot.
+	 */
+	async function ensureDirectory(): Promise<FileSystemDirectoryHandle> {
+		if (!projectLoaded) throw new Error('No project is open')
+		if (ephemeral) await materializeEphemeral()
+		if (!directoryHandle.value) throw new Error('The project has no folder')
+		return directoryHandle.value
+	}
+
+	/** Write a file under the project folder (`rel` is `/`-separated, folders created). */
+	async function writeProjectFile(rel: string, data: Blob): Promise<void> {
+		const root = await ensureDirectory()
+		const {dir, name} = await walkProjectPath(root, rel, true)
+		const handle = await dir.getFileHandle(name, {create: true})
+		const w = await handle.createWritable()
+		try {
+			await w.write(data)
+		} finally {
+			await w.close()
+		}
+	}
+
+	async function removeProjectFile(rel: string): Promise<void> {
+		if (!directoryHandle.value) return
+		const {dir, name} = await walkProjectPath(directoryHandle.value, rel, false)
+		await dir.removeEntry(name)
+	}
+
+	async function walkProjectPath(root: FileSystemDirectoryHandle, rel: string, create: boolean) {
+		const parts = rel.split('/').filter(Boolean)
+		let dir = root
+		for (const p of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(p, {create})
+		return {dir, name: parts[parts.length - 1]}
 	}
 
 	// ---- In-App Projects management (Preferences → In-App Projects) -----------
@@ -1403,6 +1552,8 @@ export const useProjectStore = defineStore('project', () => {
 		 */
 		directoryHandle: computed(() => directoryHandle.value),
 		readProjectFile,
+		writeProjectFile,
+		removeProjectFile,
 		history,
 		undo: history.undo,
 		redo: history.redo,
@@ -1435,7 +1586,10 @@ export const useProjectStore = defineStore('project', () => {
 		layer,
 		layerIndexOf,
 		addLayer,
+		deleteLayer,
+		restoreLayer,
 		activePreset,
+		layerStack,
 		setActivePreset,
 		addPreset,
 		removePreset,

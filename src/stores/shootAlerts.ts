@@ -3,7 +3,7 @@ import {defineStore} from 'pinia'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import saferEval from 'safer-eval'
-import {computed, ref} from 'vue'
+import {computed, ref, shallowRef} from 'vue'
 
 import {useCameraStore} from './camera'
 import {useProjectStore} from './project'
@@ -32,18 +32,38 @@ export const useShootAlertsStore = defineStore('shootAlerts', () => {
 		() => saferEval(project.shootCondition, {vec3}) as CanShootFn
 	)
 
+	/**
+	 * Extra checks registered by code (a work-specific store, a plugin…),
+	 * evaluated after the user's condition. Each returns the reasons the
+	 * shutter should refuse right now, or an empty array.
+	 */
+	const providers = shallowRef<(() => string[])[]>([])
+
+	function registerAlertProvider(fn: () => string[]) {
+		providers.value = [...providers.value, fn]
+		return () => {
+			providers.value = providers.value.filter(p => p !== fn)
+		}
+	}
+
 	const alerts = computed(() => {
+		let list: string[]
 		try {
-			return canCheckShoot.value({project, viewport, camera, timer, tracker})
+			list = canCheckShoot.value({project, viewport, camera, timer, tracker})
 		} catch (e) {
 			// The shoot condition is user-editable JS and may throw (e.g. when a
 			// koma has no tracker info). Surface the error as an alert instead of
 			// letting it crash the preview render and block seeking.
-			return [
-				'Shoot condition error: ' +
-					(e instanceof Error ? e.message : String(e)),
-			]
+			list = ['Shoot condition error: ' + (e instanceof Error ? e.message : String(e))]
 		}
+		for (const provider of providers.value) {
+			try {
+				list = list.concat(provider())
+			} catch (e) {
+				list.push('Shoot condition error: ' + (e instanceof Error ? e.message : String(e)))
+			}
+		}
+		return list
 	})
 
 	const canShoot = computed(() => alerts.value.length === 0)
@@ -63,5 +83,6 @@ export const useShootAlertsStore = defineStore('shootAlerts', () => {
 		canShoot,
 		revealNonce,
 		requestReveal,
+		registerAlertProvider,
 	}
 })

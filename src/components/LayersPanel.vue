@@ -4,7 +4,8 @@
  * order, with what blend/opacity) — saved with the project and switchable.
  * Below: every layer (a named timeline sharing the film's frame numbers),
  * its visibility and order in the active preset, and adding new ones. Storage
- * slots never move; only the presets do.
+ * slots never move; only the presets do — so deleting a layer hides it for
+ * good without touching its shots, and it can be restored at the bottom.
  */
 import {useTweeq} from 'tweeq'
 import {computed, ref} from 'vue'
@@ -50,23 +51,39 @@ function removePreset() {
 	project.removePreset(project.activeLayerPreset)
 }
 
+function shotCount(index: number) {
+	let shots = 0
+	for (const koma of project.komas) if (koma?.shots[index]) shots++
+	return shots
+}
+
 const rows = computed(() => {
-	const views = project.activePreset.layers
-	return project.layers.map((layer, index) => {
-		const pos = views.findIndex(v => v.layerId === layer.id)
-		let shots = 0
-		for (const koma of project.komas) if (koma?.shots[index]) shots++
-		return {index, layer, visible: pos !== -1, pos, view: project.layerView(index), shots}
+	const stack = project.layerStack
+	return project.layers.flatMap((layer, index) => {
+		if (layer.deleted) return []
+		const pos = stack.findIndex(v => v.layerId === layer.id)
+		const visible = pos !== -1 && !stack[pos].hidden
+		return [{index, layer, visible, pos, view: project.layerView(index), shots: shotCount(index)}]
 	})
 })
 
-/** Top of the stack first (display order reversed), then hidden layers. */
-const sorted = computed(() =>
-	[...rows.value].sort((a, b) => {
-		if (a.visible !== b.visible) return a.visible ? -1 : 1
-		return a.visible ? b.pos - a.pos : a.index - b.index
-	})
+/**
+ * Top of the list first (the preset's order, reversed). Showing or hiding a
+ * layer does not move its row: hidden layers keep their place.
+ */
+const sorted = computed(() => [...rows.value].sort((a, b) => b.pos - a.pos || a.index - b.index))
+
+const deleted = computed(() =>
+	project.layers.flatMap((layer, index) =>
+		layer.deleted ? [{index, layer, shots: shotCount(index)}] : []
+	)
 )
+
+function remove(index: number) {
+	project.deleteLayer(index)
+	// The capture slot moved to the film with it; follow with the selection.
+	if (viewport.currentLayer === index) viewport.setCurrentLayer(0)
+}
 
 function add() {
 	const name = newName.value.trim()
@@ -107,6 +124,7 @@ function setCapture(index: number) {
 			<div class="head">Shots</div>
 			<div class="head">Order</div>
 			<div class="head"></div>
+			<div class="head"></div>
 			<template v-for="row in sorted" :key="row.layer.id">
 				<Tq.InputCheckbox
 					:modelValue="row.visible"
@@ -139,7 +157,7 @@ function setCapture(index: number) {
 						narrow
 						subtle
 						tooltip="Move up (towards the top of the stack)"
-						:disabled="!row.visible || row.pos === project.activePreset.layers.length - 1"
+						:disabled="row.pos === -1 || row.pos === project.layerStack.length - 1"
 						@click="project.moveLayer(row.index, 1)"
 					/>
 					<Tq.InputButton
@@ -147,7 +165,7 @@ function setCapture(index: number) {
 						narrow
 						subtle
 						tooltip="Move down"
-						:disabled="!row.visible || row.pos === 0"
+						:disabled="row.pos <= 0"
 						@click="project.moveLayer(row.index, -1)"
 					/>
 				</span>
@@ -162,7 +180,33 @@ function setCapture(index: number) {
 					tooltip="Shoot into this layer"
 					@click="setCapture(row.index)"
 				/>
+				<Tq.InputButton
+					icon="mdi:delete-outline"
+					narrow
+					subtle
+					:tooltip="
+						row.index === 0
+							? 'The film layer can\'t be deleted'
+							: 'Delete layer (its shots are kept; restore it below)'
+					"
+					:disabled="row.index === 0"
+					@click="remove(row.index)"
+				/>
 			</template>
+		</div>
+
+		<div v-if="deleted.length > 0" class="deleted">
+			<span class="label">Deleted</span>
+			<div v-for="d in deleted" :key="d.layer.id" class="deleted-row">
+				<span class="name">{{ d.layer.name }}</span>
+				<span class="mono">slot {{ d.index }} · {{ d.shots }} shots</span>
+				<Tq.InputButton
+					label="Restore"
+					icon="mdi:restore"
+					subtle
+					@click="project.restoreLayer(d.index)"
+				/>
+			</div>
 		</div>
 
 		<div class="add">
@@ -173,7 +217,9 @@ function setCapture(index: number) {
 			Layers are separate timelines sharing the film's frame numbers — a test
 			shot, a replay pass, park references. Presets decide which are shown,
 			stacked bottom → top with their blend and opacity. Hidden layers keep
-			their shots.
+			their shots and their place in the list. A deleted layer leaves every
+			preset and the exhibition screens; its shots and files stay, and it
+			can be restored.
 		</p>
 	</div>
 </template>
@@ -199,7 +245,7 @@ function setCapture(index: number) {
 
 .grid
 	display grid
-	grid-template-columns auto 1fr 7.5em 5em auto auto auto auto
+	grid-template-columns auto 1fr 7.5em 5em auto auto auto auto auto
 	align-items center
 	gap var(--tq-gap-group) var(--tq-gap-control)
 
@@ -216,6 +262,21 @@ function setCapture(index: number) {
 
 .order
 	display flex
+
+.deleted
+	display flex
+	flex-direction column
+	gap var(--tq-gap-group)
+
+.deleted-row
+	display flex
+	align-items center
+	gap var(--tq-gap-control)
+
+	.name
+		flex 1 1 0
+		color var(--tq-color-text-mute)
+		text-decoration line-through
 
 .add
 	display flex
