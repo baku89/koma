@@ -78,11 +78,26 @@ load() {
 	# Removed first: a plist left by an earlier sudo run can't be written over.
 	rm -f "$AGENTS/$1.plist"
 	plist "$@" > "$AGENTS/$1.plist"
+	# Starting it now needs the desktop session of this user (gui/<uid>). Without
+	# one — over SSH, another user at the screen — launchd refuses ("125: Domain
+	# does not support specified action"); the plist is in place all the same and
+	# is loaded at this user's next login.
 	if ! launchctl bootstrap "gui/$(id -u)" "$AGENTS/$1.plist"; then
-		echo "launchd did not take $1. This has to run as the user who is logged in" >&2
-		echo "at this Mac's screen (over SSH it only works while that user is logged in)." >&2
-		exit 1
+		NOT_STARTED=1
 	fi
+}
+NOT_STARTED=0
+
+not_started() {
+	[ "$NOT_STARTED" = 1 ] || return 0
+	console="$(stat -f %Su /dev/console 2>/dev/null || echo '?')"
+	echo
+	echo "Installed, but not started: launchd has no desktop session for $(id -un) to start it in."
+	if [ "$console" != "$(id -un)" ]; then
+		echo "The user at this Mac's screen is '$console', not '$(id -un)'."
+	fi
+	echo "It starts by itself at $(id -un)'s next login: restart the Mac (automatic login on),"
+	echo "or run this again in Terminal on the Mac itself."
 }
 
 # The agents belong to the logged-in user: as root there is no gui/0 domain to
@@ -108,9 +123,10 @@ if [ "$REMOVE" = 1 ]; then
 fi
 
 load "$RELAY_LABEL" start.sh koma-relay.log
-echo "koma-relay: loaded (log: ~/Library/Logs/koma-relay.log)"
+echo "koma-relay: installed (log: ~/Library/Logs/koma-relay.log)"
 
 if [ "$KIOSK" = 1 ]; then
 	load "$KIOSK_LABEL" kiosk.sh koma-exhibit-kiosk.log
-	echo "exhibit screens: loaded (log: ~/Library/Logs/koma-exhibit-kiosk.log)"
+	echo "exhibit screens: installed (log: ~/Library/Logs/koma-exhibit-kiosk.log)"
 fi
+not_started
