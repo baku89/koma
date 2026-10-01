@@ -11,9 +11,9 @@
 
 import * as THREE from 'three'
 
-import type {CompactToolpath, ToolpathLabel} from './toolpath.worker'
+import type {CompactToolpath, ToolpathLabel} from '@/utils/fluidnc/toolpath.worker'
 
-export {LABEL_EVERY} from './toolpath.worker'
+export {LABEL_EVERY} from '@/utils/fluidnc/toolpath.worker'
 
 export interface ToolpathColors {
 	font: string

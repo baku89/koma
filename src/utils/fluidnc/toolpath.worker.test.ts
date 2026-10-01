@@ -32,3 +32,25 @@ describe('compactToolpath', () => {
 		expect(compactToolpath('G90\nM3 S1000\nM5')).toBeNull()
 	})
 })
+
+describe('time estimate', () => {
+	it('sums feed and rapid moves and exposes cumulative times', () => {
+		// 60 mm rapid at 1500 mm/min = 2.4 s, then 60 mm at F600 = 6 s.
+		const text = ['G90 G21', 'G0 X60', 'G1 X0 F600'].join('\n')
+		const tp = compactToolpath(text)!
+		expect(tp.seconds).toBeCloseTo(8.4, 6)
+		expect(Array.from(tp.time).map(t => +t.toFixed(3))).toEqual([2.4, 8.4])
+	})
+})
+
+describe('toolpathTimeAt', () => {
+	it('splits elapsed / remaining at the sent line', async () => {
+		const {toolpathTimeAt} = await import('./toolpathParser')
+		const tp = compactToolpath(['G0 X60', 'G1 X0 F600', 'G1 Y60'].join('\n'))!
+		expect(toolpathTimeAt(tp, 0)).toEqual({elapsed: 0, remaining: tp.seconds})
+		const mid = toolpathTimeAt(tp, 1) // line 0 sent → first segment done
+		expect(mid.elapsed).toBeCloseTo(2.4, 3)
+		expect(mid.remaining).toBeCloseTo(tp.seconds - 2.4, 3)
+		expect(toolpathTimeAt(tp, 99).remaining).toBeCloseTo(0, 5) // Float32 times
+	})
+})

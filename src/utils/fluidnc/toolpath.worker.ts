@@ -1,13 +1,15 @@
 /**
- * Parses a G-code file off the main thread for the exhibition's G-CODE pane
- * and returns it in the shape the WebGL view uploads directly: one flat
- * position buffer (already in three.js axes: mill X → x, mill Z → y,
- * mill Y → −z), per-segment rapid flags and source-line numbers, and the
- * few labels. Screen A plays at frame rate and every frame may have its own
- * cut, so this runs often; the main thread only ever touches typed arrays.
+ * Parses a G-code file off the main thread (the exhibition's G-CODE pane,
+ * the cut preview in the 3D view) and returns it in the shape a WebGL view
+ * uploads directly: one flat position buffer (already in three.js axes:
+ * mill X → x, mill Z → y, mill Y → −z), per-segment rapid flags, source-line
+ * numbers and estimated times, and the few labels. Screen A plays at frame
+ * rate and every frame may have its own cut, so this runs often; the main
+ * thread only ever touches typed arrays.
  */
 
-import {parseToolpath, prepareGCode} from '@/utils/fluidnc'
+import {prepareGCode} from './gcode'
+import {parseToolpath} from './toolpath'
 
 /** One label every this many G-code lines (plus the header). */
 export const LABEL_EVERY = 200
@@ -27,12 +29,16 @@ export interface CompactToolpath {
 	rapid: Uint8Array
 	/** Source line index per segment. */
 	line: Uint32Array
+	/** Estimated seconds from program start to the end of each segment. */
+	time: Float32Array
 	labels: ToolpathLabel[]
 	/** Bounding box of the cutting moves (all moves when there are none). */
 	centre: [number, number, number]
 	radius: number
 	lineCount: number
 	cutLength: number
+	/** Estimated run time (s), see parseToolpath. */
+	seconds: number
 }
 
 export interface ParseRequest {
@@ -54,6 +60,7 @@ export function compactToolpath(text: string): CompactToolpath | null {
 	const positions = new Float32Array(n * 6)
 	const rapid = new Uint8Array(n)
 	const line = new Uint32Array(n)
+	const time = new Float32Array(n)
 	const endOf = new Map<number, {to: [number, number, number]; rapid: boolean}>()
 
 	let minX = Infinity
@@ -87,6 +94,7 @@ export function compactToolpath(text: string): CompactToolpath | null {
 				positions[i * 6 + 5] = -seg.to[1]
 				rapid[i] = seg.rapid ? 1 : 0
 				line[i] = seg.line
+				time[i] = seg.t
 				endOf.set(seg.line, {to: seg.to, rapid: seg.rapid})
 				if (seg.rapid) continue
 				cutSeen = true
@@ -129,11 +137,13 @@ export function compactToolpath(text: string): CompactToolpath | null {
 		positions,
 		rapid,
 		line,
+		time,
 		labels,
 		centre,
 		radius,
 		lineCount: lines.length,
 		cutLength: tp.cutLength,
+		seconds: tp.seconds,
 	}
 }
 
@@ -153,6 +163,7 @@ if (typeof self !== 'undefined' && typeof (self as any).importScripts === 'funct
 				result.positions.buffer,
 				result.rapid.buffer,
 				result.line.buffer,
+				result.time.buffer,
 			])
 		} else {
 			;(self as any).postMessage(msg)

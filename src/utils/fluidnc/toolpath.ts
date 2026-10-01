@@ -15,6 +15,11 @@ export interface ToolpathSegment {
 	rapid: boolean
 	/** Index into the `lines` array given to {@link parseToolpath}. */
 	line: number
+	/**
+	 * Estimated time (s) from the start of the program to the end of this
+	 * segment: length / feed, no acceleration. See {@link Toolpath.seconds}.
+	 */
+	t: number
 }
 
 export interface Toolpath {
@@ -23,9 +28,30 @@ export interface Toolpath {
 	bounds: {min: [number, number, number]; max: [number, number, number]} | null
 	/** Total cutting (non-rapid) length. */
 	cutLength: number
+	/**
+	 * Estimated run time (s): every move at its programmed feed (F, modal; the
+	 * default feed before the first F word) and rapids at `rapidFeed`. No
+	 * acceleration, no dwell, so it runs short on programs made of many tiny
+	 * moves — scale it by the ratio measured on earlier runs.
+	 */
+	seconds: number
+}
+
+export interface ParseToolpathOptions {
+	start?: Vec
+	arcSegmentMm?: number
+	/** Rapid (G0) traverse rate for the time estimate, mm/min. */
+	rapidFeed?: number
+	/** Feed assumed before the program's first F word, mm/min. */
+	defaultFeed?: number
 }
 
 type Vec = [number, number, number]
+
+/** Rapid rate assumed for the time estimate (the AST200 class of machine). */
+export const DEFAULT_RAPID_FEED = 1500
+/** Feed assumed before a program's first F word. */
+export const DEFAULT_FEED = 300
 
 const PLANES = {
 	17: [0, 1, 2], // XY, normal Z
@@ -35,7 +61,7 @@ const PLANES = {
 
 export function parseToolpath(
 	lines: readonly string[],
-	opts: {start?: Vec; arcSegmentMm?: number} = {}
+	opts: ParseToolpathOptions = {}
 ): Toolpath {
 	const segments: ToolpathSegment[] = []
 	let pos: Vec = opts.start ? [...opts.start] : [0, 0, 0]
@@ -44,6 +70,9 @@ export function parseToolpath(
 	let unitScale = 1 // 25.4 after G20
 	let plane: 17 | 18 | 19 = 17
 	const arcStep = opts.arcSegmentMm ?? 0.5
+	const rapidFeed = opts.rapidFeed ?? DEFAULT_RAPID_FEED
+	let feed = opts.defaultFeed ?? DEFAULT_FEED
+	let seconds = 0
 
 	let min: Vec | null = null
 	let max: Vec | null = null
@@ -63,8 +92,10 @@ export function parseToolpath(
 
 	let moved = false
 	const push = (to: Vec, rapid: boolean, line: number) => {
-		segments.push({from: [...pos], to: [...to], rapid, line})
-		if (!rapid) cutLength += Math.hypot(to[0] - pos[0], to[1] - pos[1], to[2] - pos[2])
+		const length = Math.hypot(to[0] - pos[0], to[1] - pos[1], to[2] - pos[2])
+		if (!rapid) cutLength += length
+		seconds += (length / Math.max(1, rapid ? rapidFeed : feed)) * 60
+		segments.push({from: [...pos], to: [...to], rapid, line, t: seconds})
 		// The synthetic start position isn't part of the path's extent.
 		if (moved) grow(pos)
 		grow(to)
@@ -96,6 +127,7 @@ export function parseToolpath(
 			}
 		}
 		void hasMotionWord
+		if ('F' in words && words.F > 0) feed = words.F * unitScale
 
 		// G53 moves are in machine coordinates (an unknown offset from the work
 		// system): a one-line rapid to a safe spot. Not part of the cut; skip it
@@ -165,5 +197,5 @@ export function parseToolpath(
 		}
 	})
 
-	return {segments, bounds: min && max ? {min, max} : null, cutLength}
+	return {segments, bounds: min && max ? {min, max} : null, cutLength, seconds}
 }

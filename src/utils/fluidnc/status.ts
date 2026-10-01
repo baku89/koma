@@ -137,6 +137,51 @@ export function parseStatusReport(line: string): MachineStatus {
 	return status
 }
 
+//------------------------------------------------------------------------------
+// Input pins (`Pn:`)
+
+export interface PinStates {
+	/** Axes whose limit switch reads active. */
+	limits: Axis[]
+	probe: boolean
+	/**
+	 * Every other active input, as its report letter: control pins (D door,
+	 * H feed hold, R reset, S cycle start, E e-stop, F fault, 0-3 macros) and
+	 * T (toolsetter).
+	 */
+	others: string[]
+}
+
+/** Names for the non-limit `Pn:` letters (Grbl 1.1 + FluidNC). */
+export const PIN_LABELS: Record<string, string> = {
+	P: 'Probe',
+	T: 'Toolsetter',
+	D: 'Door',
+	H: 'Feed hold',
+	R: 'Reset',
+	S: 'Cycle start',
+	E: 'E-stop',
+	F: 'Fault',
+}
+
+/**
+ * Split the `Pn:` letters into limit switches and the rest. A report without
+ * `Pn:` means no input is active, so `undefined` parses as "all clear".
+ *
+ * A dual-motor axis reports one letter for both of its switches, and a
+ * floating (unwired) input can read active.
+ */
+export function parsePins(pins: string | undefined): PinStates {
+	const out: PinStates = {limits: [], probe: false, others: []}
+	for (const letter of pins ?? '') {
+		const axis = letter.toLowerCase() as Axis
+		if (letter === 'P') out.probe = true
+		else if (AXES.includes(axis) && letter !== axis) out.limits.push(axis)
+		else out.others.push(letter)
+	}
+	return out
+}
+
 /** Subtract a work coordinate offset from a machine position. */
 export function mposToWpos(mpos: AxesPosition, wco: AxesPosition): AxesPosition {
 	const out: AxesPosition = {}

@@ -36,10 +36,22 @@ export const Realtime = {
 	jogCancel: 0x85,
 	/** Toggles the spindle while in feed hold (Grbl 1.1 / FluidNC). */
 	spindleStopToggle: 0x9e,
+	// Grbl 1.1 overrides (what cncjs' feed-override slider sends): real-time,
+	// applied at once to the running program; 10–200 % in steps, echoed back
+	// in the `Ov:` field of status reports.
 	feedOverrideReset: 0x90,
+	feedOverridePlus10: 0x91,
+	feedOverrideMinus10: 0x92,
+	feedOverridePlus1: 0x93,
+	feedOverrideMinus1: 0x94,
 	rapidOverrideReset: 0x95,
+	rapidOverride50: 0x96,
+	rapidOverride25: 0x97,
 	spindleOverrideReset: 0x99,
 } as const
+
+export type FeedOverrideStep = 0 | 10 | -10 | 1 | -1
+export type RapidOverride = 100 | 50 | 25
 
 export class FluidNCError extends Error {
 	constructor(
@@ -475,6 +487,28 @@ export class FluidNCClient extends EventEmitter<Events> {
 	/** Stop the spindle during a feed hold (toggle; only acts while held). */
 	spindleStopToggle() {
 		return this.realtime(Realtime.spindleStopToggle)
+	}
+
+	/** Feed override: `0` resets to 100 %, else ±10 / ±1 % (clamped 10–200 by the controller). */
+	feedOverride(step: FeedOverrideStep) {
+		const byte = {
+			0: Realtime.feedOverrideReset,
+			10: Realtime.feedOverridePlus10,
+			[-10]: Realtime.feedOverrideMinus10,
+			1: Realtime.feedOverridePlus1,
+			[-1]: Realtime.feedOverrideMinus1,
+		}[step]
+		return this.realtime(byte)
+	}
+
+	/** Rapid (G0) override: 100, 50 or 25 %. */
+	rapidOverride(percent: RapidOverride) {
+		const byte = {
+			100: Realtime.rapidOverrideReset,
+			50: Realtime.rapidOverride50,
+			25: Realtime.rapidOverride25,
+		}[percent]
+		return this.realtime(byte)
 	}
 
 	/** Ctrl-X. Clears queued lines; the controller re-emits its banner. */

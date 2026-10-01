@@ -12,6 +12,7 @@ import {
 	classifyLine,
 	mposToWpos,
 	parseBuildInfo,
+	parsePins,
 	parseStatusReport,
 } from './status'
 
@@ -43,6 +44,20 @@ describe('parseStatusReport', () => {
 
 	it('rejects non-reports', () => {
 		expect(() => parseStatusReport('ok')).toThrow()
+	})
+})
+
+describe('parsePins', () => {
+	it('splits limit switches from the other inputs', () => {
+		expect(parsePins('PXZBDH')).toEqual({
+			limits: ['x', 'z', 'b'],
+			probe: true,
+			others: ['D', 'H'],
+		})
+	})
+
+	it('reads a report without Pn: as all clear', () => {
+		expect(parsePins(undefined)).toEqual({limits: [], probe: false, others: []})
 	})
 })
 

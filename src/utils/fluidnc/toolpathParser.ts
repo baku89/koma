@@ -84,3 +84,21 @@ export function parseToolpathCached(
 export function clearToolpathCache() {
 	cache.clear()
 }
+
+/**
+ * Estimated seconds already accounted for once `sentLines` lines have been
+ * sent (the end of the last segment those lines produced), and the seconds
+ * that remain. Segments come in source order, so a binary search on the line
+ * index finds the boundary.
+ */
+export function toolpathTimeAt(tp: CompactToolpath, sentLines: number): {elapsed: number; remaining: number} {
+	let lo = 0
+	let hi = tp.line.length
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1
+		if (tp.line[mid] < sentLines) lo = mid + 1
+		else hi = mid
+	}
+	const elapsed = lo === 0 ? 0 : tp.time[lo - 1]
+	return {elapsed, remaining: Math.max(0, tp.seconds - elapsed)}
+}
