@@ -89,12 +89,29 @@ OPFS ハードコピー方式を lazy-resolve に置換（Phase 1+2 実装、実
 
 ---
 
+## プロジェクトの inbox（外部からの更新, 2026-10-01）
+koma はプロジェクトをメモリに持ち、autosave で `project.json` を丸ごと書く。外から `project.json` を直接編集しても、動いている koma には見えず、次の保存で消える。**外部（スクリプト・Houdini・Claude）がプロジェクトを変えるときは、プロジェクトフォルダの `_inbox/` にパッチを置く**（`src/stores/inbox.ts`）。koma がメモリ上のプロジェクトに適用し、通常の autosave が保存する = `project.json` を書くのは koma だけ。koma が閉じている間に置いたパッチは、次にそのプロジェクトを開いたときに適用される。
+
+- `_inbox/<name>.json`（待ち。一時名で書いて rename）→ 適用・保存後に `_inbox/applied/<name>.json`（パッチ + `result`）、適用できなければ `_inbox/rejected/<name>.json`（`result.error`）。**結果を知りたいときはこの 2 フォルダを読む。**
+- パッチ: `{"version": 1, "note": "…", "onConflict": "reject" | "skip" | "overwrite", "ops": [{"op": "<名前>", …}]}`。**all-or-nothing**（全 op を先に検査し、1 つでも不可なら何も適用しない）。既存データを置き換える op は conflict で、既定は reject（パッチごと拒否）。`skip` はその op だけ飛ばす、`overwrite` は置き換える（op 単位でも指定可）。
+- op はデータの持ち主が `registerInboxOp(name, handler)` で登録する。handler は「検査して `{apply}` を返す」だけで、検査中は何も変えない。`apply()` は同期で、置き換えた値を返す（`result.ops[i].before`）。**inbox の変更は undo に乗らない**ので、戻すときは `before` から逆パッチを書く。
+- 2 秒ポーリング（`project.isOpening` 中は何もしない）。parse 失敗は書きかけとみなして 5 回まで待つ。applied へ移すのは `project.onSaved` を待ってから（保存前に koma が落ちたら、パッチは inbox に残って次回もう一度適用される）。
+- タイトルバー右の受け箱アイコン（`TitleBarInbox.vue`）: そのセッションでパッチを処理したら現れ、開くまで点灯。適用数・skip・拒否理由の一覧。`alert()` は使わない（切削の送出中に来てもメインスレッドを止めない）。
+- 確認済（Playwright、OPFS プロジェクト）: 適用 → 保存 → applied、conflict / ファイル無し / 可動域外 / 未知の op の拒否（何も適用されない）、skip。未実装: 保存時に「`project.json` が外で書き換えられていたら上書きしない」ガード。
+- 登録済みの op は addsub の `setCut` / `clearCut` / `setPlan` / `clearPlan`（`src/addsub/inboxOps.ts`、ADDSUB.md 参照）。
+
+---
+
 ## Preview レンダリングの二経路
 Preview パネルは意図的に2経路: 一時停止/スクラブ/Hi-Res/onionskin/live-view は DOM 経由（`PreviewKoma.vue`、`<img>`/`<video>`）、再生は事前 decode 済 ImageBitmap canvas 経由（`PreviewPlayback.vue`、commit 6f286e2、毎フレーム JPEG decode 回避）。
 
 2026-06-25 にパネル全体を単一 `<canvas>` 化（guides/letterbox は SVG overlay 維持）する案を議論し、ユーザーは **deferre を選択**。
 - **理由:** 実現可能だが中規模リライトで回帰リスク。難所: (1) colored onionskin = 毎フレーム offscreen の "multiply tint → screen" 合成、(2) live view は live 中 persistent `<video>` + rAF draw loop、(3) **本当のブロッカー** = Hi-Res ズーム詳細: 今は camera-native jpg を出すので ZUI ズームでプロジェクト解像度超の焦点詳細が見える。固定解像度 canvas backing はこれを回帰させる（保つには transform 変化毎に表示ピクセルサイズで再ラスタライズ要）。
 - **方針:** 二経路を「掃除すべきゴミ」と勝手に扱わない。再訪するなら単一 `PreviewRenderer`（再生キャッシュを1モードとして吸収）、canvas を現 `.frame` + CSS transform に残して ZUI/AF 座標を維持、Hi-Res 再ラスタ方式を先に決める。
+
+**Preview のキャスト（2026-10-01）:** relay の画面へ送る映像は `src/stores/previewCast.ts` が Preview と同じ合成（`PreviewKoma` のレイヤー列、`Preview.vue` の重ね順、オニオンスキン、tint、zoom）を canvas に描き直したもの（DOM は stream にできないため）。**`PreviewKoma.vue` / `Preview.vue` の合成を変えたら previewCast も合わせる。** 再生中は `PreviewPlayback` の canvas をコピー。視聴中の画面があるときだけ描く。詳細は ADDSUB.md「Preview のキャストと最後の映像の保持」。
+
+**再生 canvas の先読み（2026-10-01）:** 以前は再生開始でキャッシュを空にしてから decode を始めていたので、最初の 1 周は decode が再生位置に追いつくまでコマが止まって見えた。今は (1) bitmap キャッシュのキーを `frame:layer` でなく **lv のアセット id** にして再生/停止をまたいで保持、(2) **停止中も**再生が始まる位置（`currentFrame`。ループ無しで out-point にいるときは in-point）から 24 コマを先に decode（再生位置が 150 ms 落ち着いてから、並列 4）、(3) `viewport.setPlaybackPreroll()`: 再生開始時、最初の 0.5 秒ぶんが decode 済みになるまで時計と音を止めて待つ（上限 1.5 秒。ジャンプ直後に再生したときだけ効く）。decode するのは合成対象のレイヤー（`compositeLayers`）だけ。decode できない id は `failed` に入れて次の restart まで飛ばす（以前は同じコマを延々と取り直していた）。確認は Playwright（メモリ上の 80 コマ、先読み後 / ジャンプ直後 / out-point から）で表示遅れ 0。**実フォルダの lv、lv が無くて hi-res から作り直す場合は未確認**（後者は先読みの 24 コマより先で追いつかない可能性が残る）。
 
 ---
 
@@ -148,6 +165,14 @@ koma は floating-vue を段階的に外し Tweeq 側の native Popover（HTML P
 - 注: tweeq standalone `yarn.lock` に `@floating-ui/vue` entry が残るが root lockfile 優先で実害なし。
 
 submodule の tweeq を編集する形がユーザー希望。
+
+---
+
+## Tweeq: 修飾キーの状態（useModifierKeys, 2026-10-01）
+症状: カラーピッカー（`InputColorPad`）をクリックしてもポップアップが開かない（ドラッグの tweak は効く）。原因: `useMagicKeys()` は keydown/keyup だけを追うので、keyup がページに届かないと（macOS のスクリーンショット等のシステムショートカット、ネイティブダイアログ）Shift / Cmd が押されたままになる。window の blur/focus でしか戻らない。その状態だと `temporarilyHidePopup`（Shift/Cmd 中はピッカーを隠す）が真のままになり、multi-select も「修飾キーあり」と見て選択が溜まる（`multiSelected` → クリックを無視）。
+- 対策: `dev_modules/tweeq/src/use/useModifierKeys.ts`（共有の shift/alt/control/meta）。keydown/keyup に加えて **pointerdown/move/up の修飾フラグでも同期**するので、取りこぼした keyup は次のポインタ操作で直る。`InputColorPad` と `stores/multiSelect` をこれに切り替え。文字キー（h/s/v…）は従来どおり `useMagicKeys`。
+- 未対応: `InputNumber`（alt/shift で速度）、`InputRotary`、`InputTranslate`、`InputTime` はまだ `useMagicKeys` の修飾キーを見ている（同じ貼り付きでドラッグ速度が変わり得る）。
+- 確認（ヘッドレス Chromium）: Shift / Cmd+Shift を「keydown だけ」にした状態でクリック → 修正前は開かない、修正後は開く。本当に Shift を押したままのクリックは従来どおり開かない。ユーザーの環境で実際に貼り付きが原因だったかは未確認。
 
 ---
 
