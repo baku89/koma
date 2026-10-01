@@ -42,6 +42,11 @@ export default defineConfig({
 	base: './',
 	server: {
 		port: 5555,
+		// No HMR: this tab holds the camera (WebUSB) and every serial port, and
+		// a hot update or an automatic full reload mid-cut would tear those
+		// down under a running machine. Code changes apply on an explicit
+		// reload only.
+		hmr: false,
 	},
 	plugins: [
 		publicWithoutDevLinks(),
@@ -91,6 +96,8 @@ export default defineConfig({
 				main: fileURLToPath(new URL('./index.html', import.meta.url)),
 				// Exhibition screens (ADDSUB.md §15): a separate page at /exhibit.html
 				exhibit: fileURLToPath(new URL('./exhibit.html', import.meta.url)),
+				// Phone jog pendant over koma-relay: /jog.html
+				jog: fileURLToPath(new URL('./jog.html', import.meta.url)),
 			},
 		},
 	},

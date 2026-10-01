@@ -5,12 +5,15 @@
  * pushed / who is watching. Same interaction pattern as the machine popup.
  */
 import prettyBytes from 'pretty-bytes'
+import QRCode from 'qrcode'
 import * as Tq from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
-import {useRelayStore} from '@/stores/relay'
+import {RELAY_DEFAULT_PORT, useRelayStore} from '@/stores/relay'
+import {useRemoteJogStore} from '@/stores/remoteJog'
 
 const relay = useRelayStore()
+const remoteJog = useRemoteJogStore()
 
 const open = ref(false)
 const trigger = ref<HTMLElement>()
@@ -53,7 +56,32 @@ const stateClass = computed(() => {
 	if (relay.syncing) return 'busy'
 	return ''
 })
-</script>
+
+// Phone jog pendant (/jog.html served by the relay; stores/remoteJog.ts).
+// Built from the relay's LAN address, not from what was typed here.
+const jogUrl = computed(() => {
+	if (!relay.enabled) return ''
+	const t = relay.token ? `?token=${encodeURIComponent(relay.token)}` : ''
+	return `${relay.lanUrl}/jog.html${t}`
+})
+const jogUrlNote = computed(() => {
+	if (!relay.enabled) return ''
+	if (!relay.connected) return 'address known once connected'
+	if (!relay.lanHosts.length) return 'relay did not report a LAN address — is it up to date?'
+	return relay.lanHosts.length > 1 ? `also: ${relay.lanHosts.slice(1).join(', ')}` : ''
+})
+const jogQr = ref('')
+watch(
+	jogUrl,
+	async url => {
+		jogQr.value = url
+			? await QRCode.toDataURL(url, {margin: 1, width: 160, color: {dark: '#000000', light: '#ffffff'}}).catch(
+					() => ''
+				)
+			: ''
+	},
+	{immediate: true}
+)</script>
 
 <template>
 	<button
@@ -82,11 +110,28 @@ const stateClass = computed(() => {
 				<span class="name">Exhibit relay</span>
 				<span class="state" :class="stateClass">{{ stateText }}</span>
 			</div>
-			<Tq.InputString
-				v-model="relay.url"
-				font="monospace"
-				placeholder="http://koma-exhibit.local:7777"
-			/>
+			<Tq.InputGroup>
+				<Tq.InputString
+					v-model="relay.host"
+					v-tooltip="'Host name or IP of the exhibit machine (koma-relay)'"
+					font="monospace"
+					placeholder="koma-exhibit.local"
+					class="host"
+					@confirm="relay.normalizeHost()"
+				/>
+				<Tq.InputNumber
+					v-model="relay.port"
+					v-tooltip="`Port (koma-relay default ${RELAY_DEFAULT_PORT})`"
+					:min="1"
+					:max="65535"
+					:step="1"
+					:precision="0"
+					:default="RELAY_DEFAULT_PORT"
+					:bar="false"
+					prefix=":"
+					class="port"
+				/>
+			</Tq.InputGroup>
 			<Tq.InputString
 				v-model="relay.token"
 				font="monospace"
@@ -116,6 +161,18 @@ const stateClass = computed(() => {
 					<dd class="error">{{ relay.syncError }}</dd>
 				</template>
 			</dl>
+			<div v-if="relay.enabled" class="jog">
+				<div class="jog-head">
+					<Tq.InputCheckbox
+						v-model="remoteJog.enabled"
+						v-tooltip="'Allow the phone jog page to move the machines (via the relay)'"
+						label="Phone jog"
+					/>
+					<a :href="jogUrl" target="_blank" rel="noopener" class="jog-link">{{ jogUrl }}</a>
+					<span v-if="jogUrlNote" class="jog-note">{{ jogUrlNote }}</span>
+				</div>
+				<img v-if="jogQr" :src="jogQr" class="jog-qr" alt="QR code of the jog page" />
+			</div>
 		</div>
 	</Tq.Popover>
 </template>
@@ -141,6 +198,13 @@ const stateClass = computed(() => {
 	align-items baseline
 	gap 0.5em
 
+.host
+	flex 1
+
+.port
+	width 5.5em
+	flex none
+
 .name
 	font-weight bold
 
@@ -151,6 +215,36 @@ const stateClass = computed(() => {
 	&.error
 		color var(--tq-color-error, #e5484d)
 		opacity 1
+
+.jog
+	display flex
+	gap 0.6em
+	align-items flex-start
+	padding-top 0.3em
+	border-top 1px solid var(--tq-color-border, rgba(128, 128, 128, 0.3))
+
+.jog-head
+	flex 1 1 0
+	min-width 0
+	display flex
+	flex-direction column
+	gap 0.3em
+
+.jog-link
+	font-family var(--tq-font-code, monospace)
+	font-size 0.75em
+	color var(--tq-color-text-mute)
+	overflow-wrap anywhere
+
+.jog-note
+	font-size 0.7em
+	color var(--tq-color-text-mute)
+
+.jog-qr
+	width 5.5em
+	height 5.5em
+	border-radius var(--tq-radius-input)
+	image-rendering pixelated
 
 .stats
 	display grid

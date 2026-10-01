@@ -16,7 +16,13 @@
  * negotiate a WebRTC connection (offer/answer/ICE relayed as `signal`
  * messages) and the video flows peer-to-peer over the direct Ethernet link.
  *
- *   node index.js --dir <project copy> [--port 7777] [--static <dist>] [--token <t>]
+ *   node index.js [--dir <project copy>] [--port 7777] [--static <dist>] [--token <t>]
+ *
+ * Every option has a default so `yarn relay` alone works: port 7777, the
+ * display copy in ~/koma-exhibit-project, the pages from the repo's dist/
+ * (environment: KOMA_RELAY_PORT / KOMA_RELAY_DIR / KOMA_RELAY_STATIC /
+ * KOMA_RELAY_TOKEN). On start it prints the addresses to type into koma's
+ * relay popup (host + port).
  *
  *   GET  /                      → /exhibit.html
  *   GET  /<static file>         built koma (dist/), for the kiosk browser
@@ -49,6 +55,7 @@
 import {createServer} from 'node:http'
 import {createReadStream} from 'node:fs'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import {randomBytes} from 'node:crypto'
 import {fileURLToPath} from 'node:url'
@@ -57,9 +64,28 @@ import {WebSocketServer} from 'ws'
 //------------------------------------------------------------------------------
 // Arguments
 
+const DEFAULT_PORT = 7777
 const args = parseArgs(process.argv.slice(2))
-const PORT = Number(args.port ?? process.env.KOMA_RELAY_PORT ?? 7777)
-const DIR = path.resolve(args.dir ?? process.env.KOMA_RELAY_DIR ?? './project')
+if (args.help || args.h) {
+	// eslint-disable-next-line no-console
+	console.log(
+		`usage: koma-relay [--dir <project copy>] [--port <n>] [--static <dist>] [--token <t>]\n` +
+			`  --dir     where the shooting machine's pushes are kept (default ~/koma-exhibit-project)\n` +
+			`  --port    HTTP + WebSocket port (default ${DEFAULT_PORT})\n` +
+			`  --static  built koma to serve (default <repo>/dist)\n` +
+			`  --token   shared secret required from clients (default none)`
+	)
+	process.exit(0)
+}
+const PORT = Number(args.port ?? process.env.KOMA_RELAY_PORT ?? DEFAULT_PORT)
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+	// eslint-disable-next-line no-console
+	console.error(`koma-relay: invalid port "${args.port ?? process.env.KOMA_RELAY_PORT}"`)
+	process.exit(1)
+}
+const DIR = path.resolve(
+	args.dir ?? process.env.KOMA_RELAY_DIR ?? path.join(os.homedir(), 'koma-exhibit-project')
+)
 const STATIC = path.resolve(
 	args.static ??
 		process.env.KOMA_RELAY_STATIC ??
@@ -257,6 +283,12 @@ const server = createServer(async (req, res) => {
 				capture: capture !== null,
 				exhibits: [...exhibits.keys()],
 				topics: Object.keys(latest),
+				// How other devices on the LAN reach this relay (the phone jog
+				// page's QR code is built from these, not from whatever the
+				// shooting machine typed — "localhost" is useless on a phone).
+				port: PORT,
+				hosts: reachableHosts(),
+				lanHosts: lanHosts(),
 			})
 		}
 		if (p.startsWith('/api/file/')) {
@@ -437,14 +469,46 @@ setInterval(() => {
 	}
 }, PING_MS).unref()
 
-server.on('error', e => log('error', 'server', e?.message ?? e))
+server.on('error', e => {
+	if (e?.code === 'EADDRINUSE') {
+		log(`error: port ${PORT} is already in use (another koma-relay? stop it, or pass --port)`)
+		process.exit(1)
+	}
+	log('error', 'server', e?.message ?? e)
+})
 // A stray rejection would end the process (Node ≥ 15); the exhibit machine
 // should keep serving instead.
 process.on('unhandledRejection', e => log('error', 'unhandled rejection', e?.message ?? e))
 
+/** Non-loopback IPv4 addresses, then `<hostname>.local` (mDNS; not every phone resolves it). */
+function lanHosts() {
+	const hosts = []
+	for (const list of Object.values(os.networkInterfaces())) {
+		for (const i of list ?? []) {
+			if (i.family === 'IPv4' && !i.internal) hosts.push(i.address)
+		}
+	}
+	const name = os.hostname().replace(/\.local$/i, '')
+	if (name) hosts.push(`${name}.local`)
+	return hosts
+}
+
+/** Host names this box is reachable by, for the banner (localhost first). */
+function reachableHosts() {
+	return ['localhost', ...lanHosts()]
+}
+
+const hasDist = await fs
+	.stat(path.join(STATIC, 'exhibit.html'))
+	.then(s => s.isFile())
+	.catch(() => false)
+
 server.listen(PORT, () => {
-	log(`koma-relay listening on http://0.0.0.0:${PORT}`)
+	log(`koma-relay listening on port ${PORT}`)
 	log(`  project copy : ${DIR}`)
-	log(`  static pages : ${STATIC}`)
+	log(`  static pages : ${STATIC}${hasDist ? '' : '  (no exhibit.html — run `yarn build`, or open vite dev with ?relay=)'}`)
 	log(`  token        : ${TOKEN ? 'required' : 'none'}`)
+	log(`  in koma's relay popup, host = one of:`)
+	for (const h of reachableHosts()) log(`    ${h}${PORT === DEFAULT_PORT ? '' : `  (port ${PORT})`}`)
+	if (hasDist) log(`  exhibit screens: http://localhost:${PORT}/exhibit.html?setup`)
 })

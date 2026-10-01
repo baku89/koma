@@ -21,12 +21,12 @@
  *    connect later. Publishers live where the data lives (machine stores,
  *    the sequence…) — this store is only the pipe.
  *
- * 3. **Live view over WebRTC.** `setLiveStream(stream)` hands over the
- *    camera's MediaStream (Tethr exposes the live view as one, whatever the
- *    camera). Screens that ask for it (`want-live`) each get a peer
- *    connection; the relay only carries the offer/answer/ICE messages, the
- *    video flows directly over the LAN. When Tethr restarts the live view
- *    (new stream), the track is swapped in with replaceTrack — no
+ * 3. **Live view over WebRTC.** `setLiveStream(stream)` hands over a
+ *    MediaStream — the cast of the Preview panel (stores/previewCast.ts),
+ *    which has the camera's live view in it. Screens that ask for it
+ *    (`want-live`) each get a peer connection; the relay only carries the
+ *    offer/answer/ICE messages, the video flows directly over the LAN. When
+ *    the stream is replaced, the track is swapped in with replaceTrack — no
  *    renegotiation.
  *
  * 4. **Control messages.** A third kind of client (`role=control`, e.g.
@@ -35,10 +35,11 @@
  *    store, the rig…). This store never acts on them itself.
  *
  * The server address is a per-machine setting (app config, not the
- * project): `http://koma-exhibit.local:7777`. Empty = off.
+ * project): a host (`koma-exhibit.local`) and a port (7777 by default, the
+ * relay's own default). Empty host = off.
  */
 
-import {createEventHook, useDocumentVisibility} from '@vueuse/core'
+import {createEventHook, useDocumentVisibility, watchDebounced} from '@vueuse/core'
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
 import {computed, readonly, ref, shallowRef, watch} from 'vue'
@@ -62,6 +63,24 @@ interface ManifestEntry {
 	mtime: number
 }
 
+/** Same as koma-relay's default (`--port`). */
+export const RELAY_DEFAULT_PORT = 7777
+
+/**
+ * Split a pasted address ("koma-exhibit.local", "http://x:8000/", "x:8000")
+ * into host and, when present, port. The scheme is always http.
+ */
+export function parseRelayAddress(text: string): {host: string; port?: number} {
+	let s = text.trim().replace(/^[a-z]+:\/\//i, '')
+	s = s.replace(/[/?#].*$/, '')
+	const m = s.match(/^(.*?):(\d{1,5})$/)
+	if (m) {
+		const port = Number(m[2])
+		if (port >= 1 && port <= 65535) return {host: m[1], port}
+	}
+	return {host: s}
+}
+
 const PUSH_CONCURRENCY = 4
 const RECONNECT_MIN_MS = 1000
 const RECONNECT_MAX_MS = 10_000
@@ -72,18 +91,73 @@ export const useRelayStore = defineStore('relay', () => {
 	const config = Tq.config.group('relay')
 	const project = useProjectStore()
 
-	/** e.g. `http://koma-exhibit.local:7777`. Empty disables everything. */
-	const url = config.ref<string>('url', '')
+	/** e.g. `koma-exhibit.local`. Empty disables everything. */
+	const host = config.ref<string>('host', '')
+	const port = config.ref<number>('port', RELAY_DEFAULT_PORT)
 	const token = config.ref<string>('token', '')
 
-	const enabled = computed(() => url.value.trim() !== '')
-	const httpBase = computed(() => url.value.trim().replace(/\/+$/, ''))
+	// Earlier builds stored one `url` string; split it once and forget it.
+	const legacyUrl = config.ref<string>('url', '')
+	if (legacyUrl.value.trim() && !host.value.trim()) {
+		const parsed = parseRelayAddress(legacyUrl.value)
+		host.value = parsed.host
+		if (parsed.port) port.value = parsed.port
+	}
+	legacyUrl.value = ''
+
+	/**
+	 * Split a host typed with a scheme or a port ("http://x:8000/") into the
+	 * two fields. Called when the host input is confirmed (not on every
+	 * keystroke, which would eat the "/" while typing "http://").
+	 */
+	function normalizeHost() {
+		const parsed = parseRelayAddress(host.value)
+		if (parsed.host !== host.value) host.value = parsed.host
+		if (parsed.port) port.value = parsed.port
+	}
+
+	const enabled = computed(() => host.value.trim() !== '')
+	/** `http://host:port` (no trailing slash). */
+	const url = computed(() =>
+		enabled.value ? `http://${host.value.trim()}:${port.value || RELAY_DEFAULT_PORT}` : ''
+	)
+	const httpBase = url
 
 	const connected = ref(false)
 	const connecting = ref(false)
 	const error = ref<string | null>(null)
 	/** Ids of exhibit screens currently connected to the relay. */
 	const peers = ref<string[]>([])
+	/**
+	 * Addresses other devices on the LAN can reach the relay by, as the relay
+	 * reports them (`/api/status`): IPv4 first, then `<hostname>.local`. What
+	 * we typed to reach it ("localhost" when it runs on this machine) is not
+	 * necessarily reachable from a phone.
+	 */
+	const lanHosts = ref<string[]>([])
+	const serverPort = ref<number | null>(null)
+
+	async function fetchStatus() {
+		try {
+			const res = await fetch(`${httpBase.value}/api/status`, {headers: headers(), cache: 'no-store'})
+			if (!res.ok) return
+			const json = (await res.json()) as {lanHosts?: unknown; port?: unknown}
+			lanHosts.value = Array.isArray(json.lanHosts) ? json.lanHosts.filter(h => typeof h === 'string') : []
+			serverPort.value = typeof json.port === 'number' ? json.port : null
+		} catch {
+			// old relay or unreachable — the popover falls back to the typed host
+		}
+	}
+
+	/**
+	 * Base URL for a page the *phone* should open (jog.html). Prefers the
+	 * relay's own LAN IPv4, then its `.local` name, then whatever was typed.
+	 */
+	const lanUrl = computed(() => {
+		if (!enabled.value) return ''
+		const h = lanHosts.value[0] ?? host.value.trim()
+		return `http://${h}:${serverPort.value ?? port.value ?? RELAY_DEFAULT_PORT}`
+	})
 
 	const syncing = ref(false)
 	const pending = ref(0)
@@ -150,6 +224,7 @@ export const useRelayStore = defineStore('relay', () => {
 			// The server forgets per-connection things; re-seed it.
 			for (const [topic, data] of latest) send({type: 'state', topic, data})
 			serverFiles = null
+			void fetchStatus()
 			connectedHook.trigger()
 			scheduleSync()
 		}
@@ -378,11 +453,12 @@ export const useRelayStore = defineStore('relay', () => {
 			out.push({rel, tag})
 		}
 		for (const koma of project.komas) {
-			for (const shot of koma?.shots ?? []) {
-				if (!shot?.lv) continue
+			koma?.shots?.forEach((shot, layer) => {
+				// A deleted layer is on no screen: its previews need not travel.
+				if (!shot?.lv || project.layers[layer]?.deleted) return
 				const name = getAssetFilename(shot.lv)
 				if (name) add(name, shot.lv)
-			}
+			})
 		}
 		for (const t of project.trash) {
 			const id = t.shot?.lv
@@ -449,7 +525,7 @@ export const useRelayStore = defineStore('relay', () => {
 	/** Screens currently receiving the live view. */
 	const liveViewers = ref(0)
 
-	/** The camera's live view stream (or null while it is off). */
+	/** The stream the screens get as the live view (null = nothing to show). */
 	function setLiveStream(stream: MediaStream | null) {
 		liveStream.value = stream
 	}
@@ -478,7 +554,10 @@ export const useRelayStore = defineStore('relay', () => {
 		pc.onicecandidate = ev => {
 			if (ev.candidate) signal(id, {kind: 'ice', candidate: ev.candidate.toJSON()})
 		}
+		// A newer connection may have replaced this one for the same screen.
+		const current = () => pcs.get(id)?.pc === pc
 		pc.onconnectionstatechange = () => {
+			if (!current()) return
 			if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
 				closePeer(id)
 				// The screen will ask again if it is still there.
@@ -487,8 +566,9 @@ export const useRelayStore = defineStore('relay', () => {
 		try {
 			const offer = await pc.createOffer()
 			await pc.setLocalDescription(offer)
-			signal(id, {kind: 'offer', sdp: pc.localDescription})
+			if (current()) signal(id, {kind: 'offer', sdp: pc.localDescription})
 		} catch (e) {
+			if (!current()) return
 			closePeer(id)
 			error.value = `WebRTC offer failed: ${e instanceof Error ? e.message : String(e)}`
 		}
@@ -515,6 +595,9 @@ export const useRelayStore = defineStore('relay', () => {
 		if (!data || typeof data !== 'object') return
 		switch (data.kind) {
 			case 'want-live':
+				// A screen only asks while it has no connection, so one we still
+				// hold for it is dead: start over.
+				closePeer(from)
 				wanting.add(from)
 				void offerTo(from)
 				break
@@ -542,9 +625,8 @@ export const useRelayStore = defineStore('relay', () => {
 		}
 	})
 
-	// Tethr hands out a fresh MediaStream each time the live view (re)starts:
-	// swap the track into every open connection, and offer to screens that
-	// asked while there was nothing to send.
+	// A new stream: swap the track into every open connection, and offer to
+	// screens that asked while there was nothing to send.
 	watch(liveStream, stream => {
 		const track = stream?.getVideoTracks()[0] ?? null
 		if (track) track.contentHint = 'detail'
@@ -553,8 +635,8 @@ export const useRelayStore = defineStore('relay', () => {
 	})
 
 	// Last: the immediate watch below connects (and runs a sync), which touches
-	// everything declared above.
-	watch(
+	// everything declared above. Debounced: the inputs update per keystroke.
+	watchDebounced(
 		[url, token],
 		() => {
 			pushed.clear()
@@ -564,7 +646,7 @@ export const useRelayStore = defineStore('relay', () => {
 			backoff = RECONNECT_MIN_MS
 			connect()
 		},
-		{immediate: true}
+		{immediate: true, debounce: 400}
 	)
 
 	// A laptop woken from sleep: don't wait for the backoff.
@@ -577,7 +659,12 @@ export const useRelayStore = defineStore('relay', () => {
 	})
 
 	return {
+		host,
+		port,
+		normalizeHost,
 		url,
+		lanHosts: readonly(lanHosts),
+		lanUrl,
 		token,
 		enabled,
 		connected: readonly(connected),
