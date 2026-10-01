@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import {useTweeq} from 'tweeq'
-import {computed, ref} from 'vue'
+import {computed, reactive, ref, watch} from 'vue'
 
 import type {MachineStore} from '@/stores/machine'
-import type {Axis} from '@/utils/fluidnc'
+import {type AxesPosition, type Axis, PIN_LABELS} from '@/utils/fluidnc'
 
 const props = defineProps<{
 	machine: MachineStore
+	/**
+	 * Travel of each axis in machine coordinates: the range of the target
+	 * sliders (shifted into work coordinates). Axes without one get a plain
+	 * draggable number (±180° unclamped on rotary axes).
+	 */
+	limits?: Partial<Record<Axis, readonly [number, number]>>
 	/** Show the raw serial console (last lines + a G-code input). */
 	console?: boolean
 }>()
@@ -68,7 +74,111 @@ function fmt(v: number | undefined, axis: Axis) {
 const stepPresets = [0.01, 0.1, 1, 10, 100]
 
 function jog(axis: Axis, sign: 1 | -1) {
+	// Jogging says "not that target after all": the field follows the axis again.
+	delete target[axis]
 	props.machine.jogStepAxis(axis, sign).catch(() => {})
+}
+
+//------------------------------------------------------------------------------
+// Move to a typed / dragged position. The work position is an input: it
+// follows the axis until it's edited, then holds the edit as a target that
+// only "Go" sends (an absolute jog at the jog feed, so it can be cancelled).
+// Right-click → "Reset to Default" drops the target.
+
+/** Positions are reported to 3 decimals. */
+const POSITION_EPSILON = 0.0005
+
+const target = reactive<AxesPosition>({})
+
+function targetRange(axis: Axis) {
+	const lim = props.limits?.[axis]
+	if (lim) {
+		// Machine → work: subtract the work coordinate offset.
+		const wco = (props.machine.mpos[axis] ?? 0) - (props.machine.wpos[axis] ?? 0)
+		return {min: lim[0] - wco, max: lim[1] - wco, clamp: true}
+	}
+	if (axisInfo(axis).unit === 'deg') return {min: -180, max: 180, clamp: false}
+	return {min: undefined, max: undefined, clamp: false}
+}
+
+function isTargetDirty(axis: Axis) {
+	const t = target[axis]
+	const current = props.machine.wpos[axis]
+	return (
+		t !== undefined &&
+		current !== undefined &&
+		Math.abs(t - current) > POSITION_EPSILON
+	)
+}
+
+function setTarget(axis: Axis, value: number) {
+	const current = props.machine.wpos[axis]
+	if (current === undefined) return
+	if (target[axis] === undefined) {
+		// An axis outside the slider's range makes the input emit the clamped
+		// position on its own: not an edit.
+		const {min, max, clamp} = targetRange(axis)
+		const shown = clamp
+			? Math.min(Math.max(current, min ?? -Infinity), max ?? Infinity)
+			: current
+		if (Math.abs(value - shown) <= POSITION_EPSILON) return
+	}
+	if (Math.abs(value - current) <= POSITION_EPSILON) delete target[axis]
+	else target[axis] = value
+}
+
+/**
+ * A focused input keeps showing what was typed, not the model — but this one
+ * is also the position readout. Let go of it once the edit is confirmed so
+ * it follows the axis again.
+ */
+function releaseFocus() {
+	const el = document.activeElement
+	if (el instanceof HTMLElement && el.closest('.position-input')) el.blur()
+}
+
+function goToTarget(axis: Axis) {
+	const value = target[axis]
+	if (value === undefined) return
+	props.machine.jog({[axis]: value}, {relative: false}).catch(() => {})
+}
+
+// Arrived (or disconnected): the field follows the axis again.
+watch(
+	() => [props.machine.wpos, props.machine.connected] as const,
+	([, connected]) => {
+		for (const axis of Object.keys(target) as Axis[]) {
+			if (!connected || !isTargetDirty(axis)) delete target[axis]
+		}
+	}
+)
+
+function goTooltip(axis: Axis) {
+	const name = axis.toUpperCase()
+	return isTargetDirty(axis)
+		? {
+				title: `Move ${name} to ${fmt(target[axis], axis)}`,
+				description: `Now at ${fmt(props.machine.wpos[axis], axis)}. Moves at the jog feed; right-click the value to drop the target.`,
+			}
+		: {
+				title: `Move ${name}`,
+				description: 'Edit the position on the left, then press this to move there.',
+			}
+}
+
+//------------------------------------------------------------------------------
+// Input pins
+
+const otherPins = computed(() => {
+	const {probe, others} = props.machine.pins
+	return [...(probe ? ['P'] : []), ...others].map(letter => ({
+		letter,
+		label: PIN_LABELS[letter] ?? `Input ${letter}`,
+	}))
+})
+
+function isLimitActive(axis: Axis) {
+	return props.machine.pins.limits.includes(axis)
 }
 
 const showLog = Tq.config.ref(`machine.${props.machine.def.id}.showLog`, false)
@@ -97,9 +207,18 @@ async function setWorkValue(axis: Axis) {
 const canJog = computed(
 	() =>
 		props.machine.connected &&
+		!props.machine.unidentified &&
 		!props.machine.busy &&
 		(props.machine.state === 'Idle' || props.machine.state === 'Jog')
 )
+
+// Layout choices from the machine definition (e.g. the Box Rig: compact
+// work-only cells, 3 per row, no feed input, no "go to 0").
+const panel = computed(() => props.machine.def.panel ?? {})
+const gridLayout = computed(() => panel.value.layout === 'grid')
+const gridColumns = computed(() => panel.value.gridColumns ?? 3)
+const showFeed = computed(() => panel.value.showFeed !== false)
+const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 </script>
 
 <template>
@@ -124,7 +243,11 @@ const canJog = computed(
 		<Tq.Parameter v-else label="Port" icon="mdi:usb-port">
 			<div class="row">
 				<span class="name tq-font-numeric">
-					{{ machine.buildInfo?.machineName ?? '(unnamed)' }}
+					{{
+						machine.unidentified
+							? '(not identified)'
+							: (machine.buildInfo?.machineName ?? '(unnamed)')
+					}}
 				</span>
 				<Tq.InputButton
 					icon="mdi:link-off"
@@ -133,6 +256,40 @@ const canJog = computed(
 					narrow
 					@click="machine.disconnect()"
 				/>
+			</div>
+		</Tq.Parameter>
+
+		<!-- Picked while held: it runs no line, so it can't be asked which
+		     machine it is. Only resume / reset get through until then. -->
+		<Tq.Parameter
+			v-if="machine.unidentified"
+			:label="machine.state ?? 'Hold'"
+			icon="mdi:pause-octagon-outline"
+		>
+			<div class="held">
+				<span class="held-text">
+					The controller can't say which machine it is until it is released.
+				</span>
+				<div class="controls">
+					<Tq.InputButton
+						label="Resume"
+						icon="mdi:play"
+						:tooltip="{
+							title: 'Resume (~)',
+							description: 'Carries on with whatever motion was held.',
+						}"
+						@click="machine.resume()"
+					/>
+					<Tq.InputButton
+						label="Reset"
+						icon="mdi:restart-alert"
+						:tooltip="{
+							title: 'Soft reset (Ctrl-X)',
+							description: 'Drops whatever motion was held.',
+						}"
+						@click="machine.reset()"
+					/>
+				</div>
 			</div>
 		</Tq.Parameter>
 
@@ -153,7 +310,9 @@ const canJog = computed(
 			icon="mdi:alert-circle-outline"
 		>
 			<div class="error">
-				<span class="error-text">{{ machine.lastError }}</span>
+				<span v-tooltip="machine.lastError" class="error-text">
+					{{ machine.lastError }}
+				</span>
 				<Tq.InputButton
 					icon="mdi:close"
 					subtle
@@ -188,6 +347,7 @@ const canJog = computed(
 			/>
 		</Tq.Parameter>
 		<Tq.Parameter
+			v-if="showFeed"
 			label="Feed"
 			icon="mdi:speedometer"
 			:hint="{title: 'Jog feed rate', description: 'mm/min (degrees/min on rotary axes)'}"
@@ -201,9 +361,155 @@ const canJog = computed(
 			/>
 		</Tq.Parameter>
 
-		<!-- Axes: jog ± around the machine position, then the work position
-		     with "zero here" / "set value" (G10 L20) -->
-		<li class="axes-head axis-grid">
+		<!-- Feed / rapid override (Grbl real-time, like cncjs' slider): acts on
+		     the running program at once, echoed back in Ov: -->
+		<Tq.Parameter
+			v-if="showFeed"
+			label="Override"
+			icon="mdi:tune-variant"
+			:hint="{
+				title: 'Feed / rapid override',
+				description: 'Real-time multiplier on the running program (10–200 % feed; 25/50/100 % rapids). Applies immediately, also while streaming G-code.',
+			}"
+		>
+			<div class="override">
+				<Tq.InputGroup>
+					<Tq.InputButton label="−10" narrow :disabled="!machine.connected" @click="machine.feedOverride(-10)" />
+					<Tq.InputButton label="−1" narrow :disabled="!machine.connected" @click="machine.feedOverride(-1)" />
+					<Tq.InputButton
+						:label="machine.override ? `${machine.override.feed}%` : '—'"
+						tooltip="Back to 100 %"
+						:disabled="!machine.connected"
+						@click="machine.feedOverride(0)"
+					/>
+					<Tq.InputButton label="+1" narrow :disabled="!machine.connected" @click="machine.feedOverride(1)" />
+					<Tq.InputButton label="+10" narrow :disabled="!machine.connected" @click="machine.feedOverride(10)" />
+				</Tq.InputGroup>
+				<Tq.InputRadio
+					:modelValue="machine.override?.rapid ?? 100"
+					:options="[25, 50, 100]"
+					:labels="['25%', '50%', '100%']"
+					:disabled="!machine.connected"
+					@update:modelValue="machine.rapidOverride($event as 25 | 50 | 100)"
+				/>
+			</div>
+		</Tq.Parameter>
+
+		<!-- Input pins (Pn:): which limit switches read active right now -->
+		<Tq.Parameter
+			label="Limits"
+			icon="mdi:electric-switch"
+			:hint="{
+				title: 'Limit switches',
+				description: 'Inputs reading active in the last status report (Pn:). Both switches of an axis share its letter; an unwired input can read active.',
+			}"
+		>
+			<div class="pins" :class="{offline: !machine.connected}">
+				<span
+					v-for="axis in machine.def.axes"
+					:key="axis"
+					v-tooltip="`${axis.toUpperCase()} limit switch: ${isLimitActive(axis) ? 'pressed' : 'clear'}`"
+					class="pin"
+					:class="{active: isLimitActive(axis)}"
+				>
+					{{ axis.toUpperCase() }}
+				</span>
+				<span
+					v-for="pin in otherPins"
+					:key="pin.letter"
+					v-tooltip="`${pin.label}: active`"
+					class="pin other active"
+				>
+					{{ pin.label }}
+				</span>
+			</div>
+		</Tq.Parameter>
+
+		<!-- Axes, compact: one cell per axis (work position, jog ±, zero / set),
+		     `gridColumns` per row — e.g. X Y Z over A B C for the rig. -->
+		<li
+			v-if="gridLayout"
+			class="axes-cells"
+			:style="{gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`}"
+		>
+			<div v-for="axis in machine.def.axes" :key="axis" class="cell">
+				<div class="cell-head">
+					<span class="cell-label" :class="{limit: isLimitActive(axis)}">
+						{{ axisInfo(axis).label ?? axis.toUpperCase() }}
+					</span>
+					<span class="work-tools">
+						<Tq.InputButton
+							icon="mdi:numeric-0-circle-outline"
+							narrow
+							subtle
+							:tooltip="{
+								title: `Zero ${axis.toUpperCase()} here`,
+								description: `The current position becomes work ${axis.toUpperCase()} = 0 (G10 L20). Nothing moves.`,
+							}"
+							:disabled="!machine.connected"
+							@click="machine.zeroWork([axis])"
+						/>
+						<Tq.InputButton
+							icon="mdi:pencil-outline"
+							narrow
+							subtle
+							:tooltip="{
+								title: `Set ${axis.toUpperCase()}…`,
+								description: `Enter the work ${axis.toUpperCase()} value of the current position (G10 L20). Nothing moves.`,
+							}"
+							:disabled="!machine.connected"
+							@click="setWorkValue(axis)"
+						/>
+					</span>
+				</div>
+				<div class="cell-target">
+					<Tq.InputNumber
+						v-if="machine.wpos[axis] !== undefined"
+						v-tooltip="{
+							title: 'Work position',
+							description: `WPos, relative to the G54 origin (machine ${fmt(machine.mpos[axis], axis)}). Edit it, then press the button on the right to move there.`,
+						}"
+						class="position-input cell-pos"
+						:class="{dirty: isTargetDirty(axis)}"
+						:modelValue="target[axis] ?? machine.wpos[axis]!"
+						:min="targetRange(axis).min"
+						:max="targetRange(axis).max"
+						:clampMin="targetRange(axis).clamp"
+						:clampMax="targetRange(axis).clamp"
+						:step="0.001"
+						:default="machine.wpos[axis]"
+						@update:modelValue="setTarget(axis, $event)"
+						@confirm="releaseFocus"
+					/>
+					<span v-else class="pos cell-pos tq-font-numeric">—</span>
+					<Tq.InputButton
+						icon="mdi:crosshairs-gps"
+						narrow
+						:subtle="!isTargetDirty(axis)"
+						:tooltip="goTooltip(axis)"
+						:disabled="!canJog || !isTargetDirty(axis)"
+						@click="goToTarget(axis)"
+					/>
+				</div>
+				<div class="cell-jog">
+					<Tq.InputButton
+						icon="mdi:minus"
+						:disabled="!canJog"
+						@click="jog(axis, -1)"
+					/>
+					<Tq.InputButton
+						icon="mdi:plus"
+						:disabled="!canJog"
+						@click="jog(axis, 1)"
+					/>
+				</div>
+			</div>
+		</li>
+
+		<!-- Axes, rows: jog ± around the machine position, then the work
+		     position (editable: a target for "go") with "zero here" /
+		     "set value" (G10 L20) -->
+		<li v-if="!gridLayout" class="axes-head axis-grid">
 			<span></span>
 			<span class="col-label">machine</span>
 			<span></span>
@@ -211,7 +517,7 @@ const canJog = computed(
 			<span></span>
 		</li>
 		<Tq.Parameter
-			v-for="axis in machine.def.axes"
+			v-for="axis in gridLayout ? [] : machine.def.axes"
 			:key="axis"
 			:label="axisInfo(axis).label ?? axis.toUpperCase()"
 		>
@@ -237,16 +543,34 @@ const canJog = computed(
 					:disabled="!canJog"
 					@click="jog(axis, 1)"
 				/>
-				<span
+				<Tq.InputNumber
+					v-if="machine.wpos[axis] !== undefined"
 					v-tooltip="{
 						title: 'Work position',
-						description: 'WPos, relative to the G54 origin',
+						description: `WPos, relative to the G54 origin (machine ${fmt(machine.mpos[axis], axis)}). Edit it, then press the button on the right to move there.`,
 					}"
-					class="pos work tq-font-numeric"
-				>
-					{{ fmt(machine.wpos[axis], axis) }}
-				</span>
+					class="position-input work"
+					:class="{dirty: isTargetDirty(axis)}"
+					:modelValue="target[axis] ?? machine.wpos[axis]!"
+					:min="targetRange(axis).min"
+					:max="targetRange(axis).max"
+					:clampMin="targetRange(axis).clamp"
+					:clampMax="targetRange(axis).clamp"
+					:step="0.001"
+					:default="machine.wpos[axis]"
+					@update:modelValue="setTarget(axis, $event)"
+					@confirm="releaseFocus"
+				/>
+				<span v-else class="pos work tq-font-numeric">—</span>
 				<span class="work-tools">
+					<Tq.InputButton
+						icon="mdi:crosshairs-gps"
+						narrow
+						:subtle="!isTargetDirty(axis)"
+						:tooltip="goTooltip(axis)"
+						:disabled="!canJog || !isTargetDirty(axis)"
+						@click="goToTarget(axis)"
+					/>
 					<Tq.InputButton
 						icon="mdi:numeric-0-circle-outline"
 						narrow
@@ -269,21 +593,10 @@ const canJog = computed(
 						:disabled="!machine.connected"
 						@click="setWorkValue(axis)"
 					/>
-					<Tq.InputButton
-						icon="mdi:target"
-						narrow
-						subtle
-						:tooltip="{
-							title: `Go to ${axis.toUpperCase()} = 0`,
-							description: `Move to work ${axis.toUpperCase()} = 0 at the jog feed.`,
-						}"
-						:disabled="!canJog"
-						@click="machine.goToWork([axis])"
-					/>
 				</span>
 			</div>
 		</Tq.Parameter>
-		<Tq.Parameter label="Work" icon="mdi:axis-arrow" hint="Work coordinate system (G54): zero all axes here, or go to its origin">
+		<Tq.Parameter label="Work" icon="mdi:axis-arrow" hint="Work coordinate system (G54): zero all axes here">
 			<div class="controls">
 				<Tq.InputButton
 					label="Zero all here"
@@ -292,6 +605,7 @@ const canJog = computed(
 					@click="machine.zeroWork()"
 				/>
 				<Tq.InputButton
+					v-if="showGoToZero"
 					label="Go to 0"
 					icon="mdi:target"
 					:disabled="!canJog"
@@ -351,7 +665,7 @@ const canJog = computed(
 		</Tq.Parameter>
 
 		<!-- Console -->
-		<template v-if="console !== false">
+		<template v-if="$props.console !== false">
 			<Tq.Parameter label="Console" icon="mdi:console">
 				<div class="row">
 					<Tq.InputString
@@ -409,6 +723,15 @@ const canJog = computed(
 	gap var(--tq-gap-control)
 	color var(--tq-color-error, #e5484d)
 
+.held
+	display flex
+	flex-direction column
+	gap var(--tq-gap-control)
+
+.held-text
+	font-size 0.85em
+	color orange
+
 .error
 	display flex
 	align-items center
@@ -434,6 +757,56 @@ const canJog = computed(
 	align-items center
 	gap var(--tq-gap-group)
 
+// Compact layout: full-width row of cells, `gridColumns` per line.
+.axes-cells
+	grid-column 1 / 3
+	list-style none
+	display grid
+	gap var(--tq-gap-group) var(--tq-gap-control)
+	padding var(--tq-gap-group) 0
+
+.cell
+	--jog-button calc(var(--tq-icon-size) + 2px)
+	--limit-color orange
+	display flex
+	flex-direction column
+	gap var(--tq-gap-group)
+	min-width 0
+
+.cell-head
+	display flex
+	align-items center
+	justify-content space-between
+	gap var(--tq-gap-group)
+
+.cell-label
+	font-weight 600
+
+	// Its limit switch reads active.
+	&.limit
+		color var(--limit-color)
+
+// Position input + "go".
+.cell-target
+	display grid
+	grid-template-columns minmax(0, 1fr) var(--jog-button)
+	align-items center
+	gap var(--tq-gap-group)
+
+// An edited position that the axis isn't at (yet).
+.dirty
+	color var(--tq-color-accent)
+
+// − and + fill the cell width (bigger targets than the narrow icon buttons).
+.cell-jog
+	display grid
+	grid-template-columns 1fr 1fr
+	gap var(--tq-gap-group)
+
+	:deep(.TqInputButton)
+		width 100%
+		justify-content center
+
 .axes-head
 	grid-column 2 / 3
 	list-style none
@@ -457,9 +830,47 @@ const canJog = computed(
 .work-tools
 	display flex
 
+.pins
+	--limit-color orange
+	display flex
+	flex-wrap wrap
+	gap 0 var(--tq-gap-section)
+
+	&.offline
+		opacity 0.4
+
+// A lamp per input (not a button): a dot that lights up, then its name.
+.pin
+	display flex
+	align-items center
+	gap 0.3em
+	color var(--tq-color-text-mute)
+	font-size 0.85em
+	font-weight 600
+	line-height var(--tq-icon-size)
+
+	&:before
+		content ''
+		width 0.6em
+		height 0.6em
+		border-radius 50%
+		background var(--tq-color-border)
+
+	&.active
+		color var(--limit-color)
+
+		&:before
+			background var(--limit-color)
+			box-shadow 0 0 0.5em var(--limit-color)
+
 .controls
 	display flex
 	flex-wrap wrap
+	gap var(--tq-gap-group)
+
+.override
+	display flex
+	flex-direction column
 	gap var(--tq-gap-group)
 
 .log

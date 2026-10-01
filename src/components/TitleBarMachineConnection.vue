@@ -58,8 +58,14 @@ async function send() {
 const tooltip = computed(() => {
 	const m = props.machine
 	if (!m.connected) return `${m.def.label}: not connected`
-	return `${m.def.label}: ${m.buildInfo?.machineName ?? ''} — ${m.state ?? '…'}`
+	return `${m.def.label}: ${machineName.value} — ${m.state ?? '…'}`
 })
+
+const machineName = computed(() =>
+	props.machine.unidentified
+		? 'not identified'
+		: (props.machine.buildInfo?.machineName ?? '')
+)
 
 const stateClass = computed(() => {
 	const s = props.machine.state
@@ -95,7 +101,7 @@ const stateClass = computed(() => {
 				<span class="state" :class="stateClass">
 					{{
 						machine.connected
-							? `${machine.buildInfo?.machineName ?? ''} · ${machine.state ?? '…'}`
+							? `${machineName} · ${machine.state ?? '…'}`
 							: machine.connecting
 								? 'Connecting…'
 								: 'Not connected'
@@ -105,6 +111,30 @@ const stateClass = computed(() => {
 			<div v-if="machine.alarm" class="alarm-row">
 				ALARM:{{ machine.alarm.code }} {{ machine.alarm.message }}
 			</div>
+			<div v-else-if="machine.lastError" class="error-row">
+				{{ machine.lastError }}
+			</div>
+			<!-- Picked while held: only resume / reset get through until the
+			     controller is released and can say which machine it is. -->
+			<template v-if="machine.unidentified">
+				<div class="held-row">
+					The controller can't say which machine it is until it is released.
+				</div>
+				<Tq.InputGroup>
+					<Tq.InputButton
+						label="Resume"
+						icon="mdi:play"
+						tooltip="Resume (~): carries on with whatever motion was held"
+						@click="machine.resume()"
+					/>
+					<Tq.InputButton
+						label="Reset"
+						icon="mdi:restart-alert"
+						tooltip="Soft reset (Ctrl-X): drops whatever motion was held"
+						@click="machine.reset()"
+					/>
+				</Tq.InputGroup>
+			</template>
 			<Tq.InputGroup>
 				<Tq.InputButton
 					:label="machine.connected ? 'Disconnect' : 'Connect…'"
@@ -115,13 +145,13 @@ const stateClass = computed(() => {
 				<Tq.InputButton
 					label="Unlock"
 					icon="mdi:lock-open-variant"
-					:disabled="!machine.connected"
+					:disabled="!machine.connected || machine.unidentified"
 					@click="machine.unlock()"
 				/>
 				<Tq.InputButton
 					label="Home"
 					icon="mdi:home"
-					:disabled="!machine.connected || machine.busy"
+					:disabled="!machine.connected || machine.unidentified || machine.busy"
 					@click="machine.home()"
 				/>
 			</Tq.InputGroup>
@@ -190,4 +220,12 @@ const stateClass = computed(() => {
 .alarm-row
 	font-size 0.85em
 	color var(--tq-color-error, #e5484d)
+
+.error-row
+	font-size 0.85em
+	color var(--tq-color-text-mute)
+
+.held-row
+	font-size 0.85em
+	color orange
 </style>
