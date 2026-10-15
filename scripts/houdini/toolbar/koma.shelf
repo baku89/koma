@@ -3,6 +3,8 @@
   <!-- The "Koma" shelf: live LED / playbar link to koma (scripts/houdini/koma_shelf.py). -->
   <toolshelf name="koma" label="Koma">
     <memberTool name="koma_led_live"/>
+    <memberTool name="koma_camera_live"/>
+    <memberTool name="koma_send_plans"/>
     <memberTool name="koma_led_send"/>
     <memberTool name="koma_stop"/>
     <memberTool name="koma_export_set"/>
@@ -10,14 +12,38 @@
   </toolshelf>
 
   <tool name="koma_led_live" label="LED Live" icon="SOP_color">
-    <helpText><![CDATA[Toggle: send the LED point cloud's colours and the frame number to koma on every playbar change. In koma, turn on Houdini Live > LED.]]></helpText>
+    <helpText><![CDATA[Toggle: send the LED point cloud's colours to koma whenever the LED node cooks (a parameter change as much as a new frame), and the frame number with them. In koma, set Houdini Live > LED to Live.]]></helpText>
     <script scriptType="python"><![CDATA[import sys
 import hou
 p = hou.getenv('KOMA_HOUDINI')
 if p and p not in sys.path:
     sys.path.append(p)
 import koma_shelf
-koma_shelf.toggle_follow()
+koma_shelf.toggle_led_live()
+]]></script>
+  </tool>
+
+  <tool name="koma_camera_live" label="Camera Live" icon="OBJ_camera">
+    <helpText><![CDATA[Toggle: send the camera's pose to koma whenever it moves. koma's Box Rig follows while Houdini Live > Rig is on there (inside the rig limits, sequence idle).]]></helpText>
+    <script scriptType="python"><![CDATA[import sys
+import hou
+p = hou.getenv('KOMA_HOUDINI')
+if p and p not in sys.path:
+    sys.path.append(p)
+import koma_shelf
+koma_shelf.toggle_camera_live()
+]]></script>
+  </tool>
+
+  <tool name="koma_send_plans" label="Send Plans" icon="SOP_timeshift">
+    <helpText><![CDATA[Write the camera pose and the LED wall of every koma frame between koma's in and out points into koma's plans on the layer selected in koma (Houdini evaluated at koma frame + previz offset). Replaces plans already there.]]></helpText>
+    <script scriptType="python"><![CDATA[import sys
+import hou
+p = hou.getenv('KOMA_HOUDINI')
+if p and p not in sys.path:
+    sys.path.append(p)
+import koma_shelf
+koma_shelf.send_plans()
 ]]></script>
   </tool>
 

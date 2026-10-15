@@ -104,6 +104,11 @@ export interface InboxEntry {
 	messages: string[]
 }
 
+/** What became of a patch (the `result` written next to it, or sent back). */
+export type InboxOutcome =
+	| {status: 'applied'; at: string; applied: number; skipped: number; total: number; ops: InboxOpResult[]}
+	| {status: 'rejected'; at: string; error: string; total: number}
+
 const handlers = new Map<string, InboxOpHandler>()
 
 /** Register the handler of an op name. Later registrations replace earlier. */
@@ -207,13 +212,72 @@ export const useInboxStore = defineStore('inbox', () => {
 		})
 	}
 
+	/**
+	 * Check and apply one patch to the open project — the same all-or-nothing
+	 * rules whether it came from a file in `_inbox/` or over the relay
+	 * (`inbox` control topic, stores/houdini.ts). Records the outcome in this
+	 * session's list; writing the result next to the file is the caller's.
+	 * Null when the project went away while the ops were being checked.
+	 */
+	async function applyPatch(patch: unknown, name: string): Promise<InboxOutcome | null> {
+		const root = project.directoryHandle
+		if (!root || project.isOpening) return null
+		const at = new Date().toISOString()
+		const rejected = (error: string, total = 0, note = ''): InboxOutcome => {
+			record({name, note, status: 'rejected', at: Date.parse(at), applied: 0, skipped: 0, total, error, messages: []})
+			return {status: 'rejected', at, error, total}
+		}
+		const p = patch as InboxPatch
+		if (!p || typeof p !== 'object' || !Array.isArray(p.ops)) {
+			return rejected('Not a patch: "ops" must be an array')
+		}
+		if (p.version !== 1) return rejected(`Unsupported patch version ${p.version}`, p.ops.length, p.note)
+
+		// Check every op before changing anything.
+		const prepared: (InboxPrepared | {skip: string})[] = []
+		for (const [i, op] of p.ops.entries()) {
+			const where = `op ${i} (${op?.op ?? '?'})`
+			const handler = op && typeof op.op === 'string' ? handlers.get(op.op) : undefined
+			if (!handler) return rejected(`${where}: unknown op`, p.ops.length, p.note)
+			const policy = op.onConflict ?? p.onConflict ?? 'reject'
+			try {
+				prepared.push(await handler(op, {root, overwrite: policy === 'overwrite'}))
+			} catch (e) {
+				const message = e instanceof Error ? e.message : String(e)
+				if (e instanceof InboxConflict && policy === 'skip') {
+					prepared.push({skip: message})
+					continue
+				}
+				return rejected(`${where}: ${message}`, p.ops.length, p.note)
+			}
+		}
+		// The project may have been switched while the ops were being checked.
+		if (project.directoryHandle !== root || project.isOpening) return null
+
+		const ops: InboxOpResult[] = prepared.map(pr =>
+			'skip' in pr ? {status: 'skipped', message: pr.skip} : {status: 'applied', before: pr.apply()}
+		)
+		const applied = ops.filter(r => r.status === 'applied').length
+		record({
+			name,
+			note: p.note ?? '',
+			status: 'applied',
+			at: Date.parse(at),
+			applied,
+			skipped: ops.length - applied,
+			total: ops.length,
+			messages: ops.flatMap(r => (r.message ? [r.message] : [])),
+		})
+		return {status: 'applied', at, applied, skipped: ops.length - applied, total: ops.length, ops}
+	}
+
 	async function process(
 		root: FileSystemDirectoryHandle,
 		inbox: FileSystemDirectoryHandle,
 		name: string,
 		text: string
 	) {
-		let patch: InboxPatch
+		let patch: unknown
 		try {
 			patch = JSON.parse(text)
 		} catch (e) {
@@ -228,69 +292,18 @@ export const useInboxStore = defineStore('inbox', () => {
 		}
 		parseFailures.delete(name)
 
-		if (!patch || typeof patch !== 'object' || !Array.isArray(patch.ops)) {
-			await reject(inbox, name, patch, 'Not a patch: "ops" must be an array')
-			return
-		}
-		if (patch.version !== 1) {
-			await reject(inbox, name, patch, `Unsupported patch version ${patch.version}`, patch.ops.length)
-			return
-		}
-
-		// Check every op before changing anything.
-		const prepared: (InboxPrepared | {skip: string})[] = []
-		for (const [i, op] of patch.ops.entries()) {
-			const where = `op ${i} (${op?.op ?? '?'})`
-			const handler = op && typeof op.op === 'string' ? handlers.get(op.op) : undefined
-			if (!handler) {
-				await reject(inbox, name, patch, `${where}: unknown op`, patch.ops.length)
-				return
-			}
-			const policy = op.onConflict ?? patch.onConflict ?? 'reject'
-			try {
-				prepared.push(await handler(op, {root, overwrite: policy === 'overwrite'}))
-			} catch (e) {
-				const message = e instanceof Error ? e.message : String(e)
-				if (e instanceof InboxConflict && policy === 'skip') {
-					prepared.push({skip: message})
-					continue
-				}
-				await reject(inbox, name, patch, `${where}: ${message}`, patch.ops.length)
-				return
-			}
-		}
-		// The project may have been switched while the ops were being checked.
-		if (project.directoryHandle !== root || project.isOpening) return
-
-		const results: InboxOpResult[] = prepared.map(p =>
-			'skip' in p
-				? {status: 'skipped', message: p.skip}
-				: {status: 'applied', before: p.apply()}
-		)
+		const outcome = await applyPatch(patch, name)
+		if (!outcome) return
 		handled.add(name)
-		const applied = results.filter(r => r.status === 'applied').length
-		const at = Date.now()
-		record({
-			name,
-			note: patch.note ?? '',
-			status: 'applied',
-			at,
-			applied,
-			skipped: results.length - applied,
-			total: results.length,
-			messages: results.flatMap(r => (r.message ? [r.message] : [])),
-		})
-
+		if (outcome.status === 'rejected') {
+			await file(inbox, name, REJECTED_DIR, patch, outcome).catch(() => {})
+			return
+		}
 		// Only file the patch as applied once project.json holds it: if koma
 		// goes away before the save, the patch is still waiting next time.
-		const saved = applied === 0 ? true : await nextSave()
+		const saved = outcome.applied === 0 ? true : await nextSave()
 		if (project.directoryHandle !== root) return
-		await file(inbox, name, APPLIED_DIR, patch, {
-			status: 'applied',
-			at: new Date(at).toISOString(),
-			saved,
-			ops: results,
-		}).catch(() => {})
+		await file(inbox, name, APPLIED_DIR, patch, {...outcome, saved}).catch(() => {})
 	}
 
 	async function scan() {
@@ -335,5 +348,5 @@ export const useInboxStore = defineStore('inbox', () => {
 		unseen.value = 0
 	}
 
-	return {entries, unseen, markSeen, scan}
+	return {entries, unseen, markSeen, scan, applyPatch}
 })

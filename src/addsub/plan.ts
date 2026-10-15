@@ -36,7 +36,20 @@ export interface FramePlan {
 	camera?: CameraPose
 	/** Exposure etc., applied to the camera before the shot. */
 	cameraConfigs?: Partial<ConfigType>
+	/**
+	 * The wall for this frame: a recorded wall (`led-wall/<hash>.ledwall`, the
+	 * same files shots record), put back pixel for pixel before the shot.
+	 * Set from Houdini (scripts/houdini, "Send Plans"); held, not blended,
+	 * between planned frames.
+	 */
+	led?: PlanLed
 	note?: string
+}
+
+export interface PlanLed {
+	/** Path of the record, relative to the project folder. */
+	file: string
+	layoutVersion?: number
 }
 
 /** layer id → timeline frame → plan. Sparse. */
@@ -80,6 +93,12 @@ function lerp(a: number, b: number, t: number) {
 	return a + (b - a) * t
 }
 
+const RIG_AXES = ['x', 'y', 'z', 'a', 'b', 'c'] as const
+
+function hasAllRigAxes(rig: AxesPosition | undefined): rig is Required<AxesPosition> {
+	return !!rig && RIG_AXES.every(axis => rig[axis] !== undefined)
+}
+
 /**
  * Interpolate between two plans (`t` 0→1). Rig angles are interpolated
  * linearly per axis, an axis in only one key is held. The *position* of two
@@ -102,14 +121,18 @@ export function interpolatePlan(
 		for (const axis of AXES) {
 			const va = a.rig?.[axis]
 			const vb = b.rig?.[axis]
-const RIG_AXES = ['x', 'y', 'z', 'a', 'b', 'c'] as const
-
-function hasAllRigAxes(rig: AxesPosition | undefined): rig is Required<AxesPosition> {
-	return !!rig && RIG_AXES.every(axis => rig[axis] !== undefined)
-}
-
 			if (va === undefined && vb === undefined) continue
 			rig[axis] = va === undefined ? vb! : vb === undefined ? va : lerp(va, vb, t)
+		}
+		if (cal && hasAllRigAxes(a.rig) && hasAllRigAxes(b.rig)) {
+			const pupil = vec3.lerp(
+				workAxesToCameraPose(a.rig, cal).position,
+				workAxesToCameraPose(b.rig, cal).position,
+				t
+			)
+			const {rotation} = workAxesToCameraPose(rig, cal)
+			const [x, y, z] = rotationCentre({position: pupil, rotation}, cal.pupilOffset)
+			Object.assign(rig, {x, y, z})
 		}
 		out.rig = rig
 	} else if (a.camera && b.camera) {
@@ -121,19 +144,10 @@ function hasAllRigAxes(rig: AxesPosition | undefined): rig is Required<AxesPosit
 		out.camera = a.camera
 	}
 	if (a.cameraConfigs) out.cameraConfigs = a.cameraConfigs
+	if (a.led) out.led = a.led
 	return out
 }
 
-		if (cal && hasAllRigAxes(a.rig) && hasAllRigAxes(b.rig)) {
-			const pupil = vec3.lerp(
-				workAxesToCameraPose(a.rig, cal).position,
-				workAxesToCameraPose(b.rig, cal).position,
-				t
-			)
-			const {rotation} = workAxesToCameraPose(rig, cal)
-			const [x, y, z] = rotationCentre({position: pupil, rotation}, cal.pupilOffset)
-			Object.assign(rig, {x, y, z})
-		}
 export function effectivePlanFor(
 	project: Project,
 	frame: number,
@@ -187,6 +201,7 @@ export function formatPlan(plan: FramePlan, digits = 1): string {
 		if (c.focusDistance !== undefined) cam.push(`focus ${c.focusDistance}`)
 		parts.push(cam.length ? cam.join(' ') : 'camera configs')
 	}
+	if (plan.led) parts.push('LED')
 	return parts.join(' · ') || 'empty'
 }
 
