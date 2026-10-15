@@ -7,21 +7,21 @@ import {useProjectStore} from '@/stores/project'
 
 import {formatPlan} from '../plan'
 import {
-	REPLAY_STEPS,
 	SEQUENCE_STEP_LABELS,
 	SEQUENCE_STEPS,
 	type SequenceStep,
 } from '../projectData'
-import {useMillStore, useRigStore} from '../stores/machines'
+import {useRigStore} from '../stores/machines'
 import {usePrevizStore} from '../stores/previz'
+import {useRigWorkStore} from '../stores/rigWork'
 import {useSequenceStore} from '../stores/sequence'
 
 const Tq = useTweeq()
 const project = useProjectStore()
 const sequence = useSequenceStore()
 const previz = usePrevizStore()
-const mill = useMillStore()
 const rig = useRigStore()
+const rigWork = useRigWorkStore()
 const camera = useCameraStore()
 
 const showSettings = Tq.config.ref('addsub.sequence.showSettings', false)
@@ -67,7 +67,7 @@ const statusText = computed(() => {
 	if (!p) return 'Idle'
 	switch (p.status) {
 		case 'done':
-			return p.mode === 'replay' ? 'Replay done' : `Frame ${p.frame} done`
+			return `Frame ${p.frame} done`
 		case 'stopped':
 			return `Stopped at ${SEQUENCE_STEP_LABELS[p.step]} (frame ${p.frame})`
 		case 'error':
@@ -75,17 +75,13 @@ const statusText = computed(() => {
 		case 'paused':
 			return `Paused (frame ${p.frame})`
 		case 'running':
-			return p.mode === 'replay'
-				? `Replaying ${p.frame} of ${p.range?.[0]}–${p.range?.[1]}`
-				: `Frame ${p.frame}: ${SEQUENCE_STEP_LABELS[p.step]}`
+			return `Frame ${p.frame}: ${SEQUENCE_STEP_LABELS[p.step]}`
 		default:
 			return `Interrupted at ${SEQUENCE_STEP_LABELS[p.step]} (frame ${p.frame})`
 	}
 })
 
-const activeSteps = computed(() =>
-	progress.value?.mode === 'replay' ? REPLAY_STEPS : SEQUENCE_STEPS
-)
+const activeSteps = computed(() => SEQUENCE_STEPS)
 
 const canResume = computed(
 	() => !sequence.running && !!progress.value && progress.value.status !== 'done'
@@ -111,59 +107,10 @@ const resumeStep = computed<SequenceStep>({
 	},
 })
 
-function setShootFromMill() {
-	const {x, y} = mill.mpos
-	if (x === undefined) return
-	project.addsub.shootPosition = addsub.value.shootPosition.y === undefined ? {x} : {x, y}
-}
-
-/**
- * Calibration shortcut: with the tool tip touching the film origin (block A's
- * bottom corner, table at the shoot position), solve millOffset so that
- * filmOriginMill(filmLift) equals the current machine position:
- *   world = cycle(mill) + t  ⇒  t = filmOriginWorld + [0, lift, 0] − cycle(mpos)
- */
-function setMillOffsetFromHere() {
-	const m = mill.mpos
-	if (m.x === undefined || m.y === undefined || m.z === undefined) return
-	const {filmOriginWorld} = project.addsub.calibration
-	const lift = project.addsub.filmLift
-	const cycled = [m.y, m.z, m.x]
-	project.addsub.calibration.millOffset = [
-		filmOriginWorld[0] - cycled[0],
-		filmOriginWorld[1] + lift - cycled[1],
-		filmOriginWorld[2] - cycled[2],
-	]
-}
-
-/**
- * The other way round, after gluing a block underneath: with millOffset
- * already calibrated and the tool tip touching the joint plane (where the
- * film origin is now), measure the lift instead of trusting the block's
- * nominal height. Absorbs glue lines and cutting tolerances.
- *   world Y = cycle(mpos).y + t.y = filmOriginWorld.y + lift
- */
-function setFilmLiftFromHere() {
-	const m = mill.mpos
-	if (m.z === undefined) return
-	const {filmOriginWorld, millOffset} = project.addsub.calibration
-	project.addsub.filmLift = m.z + millOffset[1] - filmOriginWorld[1]
-}
-
-async function appendBlock() {
-	const result = await Tq.modal.prompt(
-		{height: project.addsub.blockHeight},
-		{height: {type: 'number', min: 0, max: 500, step: 1, label: 'Block height (mm)'}},
-		{title: 'Append Block'}
-	)
-	if (!result) return
-	sequence.appendBlock(result.height)
-}
-
 function setParkFromRig() {
 	const m = rig.mpos
 	if (m.x === undefined) return
-	project.addsub.parkPose = {x: m.x, y: m.y, z: m.z, a: m.a, b: m.b, c: m.c}
+	project.addsub.parkPose = rigWork.toWork({x: m.x, y: m.y, z: m.z, a: m.a, b: m.b, c: m.c})
 }
 </script>
 
@@ -185,7 +132,7 @@ function setParkFromRig() {
 				<span class="mute">
 					{{
 						previzFrame
-							? [previzFrame.pose ? 'pose' : '', previzFrame.gcode ? 'gcode' : '', previzFrame.led ? 'led' : '']
+							? [previzFrame.pose ? 'pose' : '', previzFrame.gcode ? 'gcode' : '']
 									.filter(Boolean)
 									.join(' · ') || 'no data'
 							: previz.available
@@ -283,14 +230,6 @@ function setParkFromRig() {
 				/>
 			</div>
 		</Tq.Parameter>
-		<Tq.Parameter label="Replay" icon="mdi:replay" hint="Re-shoot the preview range (in → out) at the current film lift into a replay layer">
-			<Tq.InputButton
-				:label="`In → Out (${project.previewRange[0]}–${project.previewRange[1]})`"
-				icon="mdi:replay"
-				:disabled="sequence.running"
-				@click="sequence.startReplay()"
-			/>
-		</Tq.Parameter>
 		<Tq.Parameter label="Control" icon="mdi:stop">
 			<div class="buttons">
 				<Tq.InputButton
@@ -325,22 +264,8 @@ function setParkFromRig() {
 		</li>
 
 		<template v-if="showSettings">
-			<Tq.ParameterHeading>Blocks</Tq.ParameterHeading>
-			<Tq.Parameter label="Film lift" icon="mdi:layers" hint="How far the film frame has risen (mm): the summed height of the blocks glued under block A">
-				<div class="buttons">
-					<Tq.InputNumber v-model="project.addsub.filmLift" :min="0" :max="2000" :precision="2" />
-					<Tq.InputButton
-						icon="mdi:crosshairs-gps"
-						subtle
-						narrow
-						tooltip="Tool tip is on the joint plane (the film origin) now → measure the lift"
-						:disabled="!mill.connected"
-						@click="setFilmLiftFromHere"
-					/>
-					<Tq.InputButton label="Append Block…" icon="mdi:plus-box" tooltip="A block was glued underneath: add its height to the lift" @click="appendBlock" />
-				</div>
-			</Tq.Parameter>
-			<Tq.Parameter label="Offset" icon="mdi:numeric" hint="previz frame = timeline frame + offset">
+			<Tq.ParameterHeading>Plan</Tq.ParameterHeading>
+			<Tq.Parameter label="Previz offset" icon="mdi:numeric" hint="previz frame = timeline frame + offset">
 				<Tq.InputNumber v-model="project.addsub.previzFrameOffset" :step="1" :precision="0" />
 			</Tq.Parameter>
 			<Tq.Parameter
@@ -366,17 +291,6 @@ function setParkFromRig() {
 				}"
 			>
 				<Tq.InputNumber v-model="project.addsub.autoMoveMaxDistance" :min="0" :max="1000" :precision="0" suffix=" mm" />
-			</Tq.Parameter>
-
-			<Tq.ParameterHeading>Mill</Tq.ParameterHeading>
-			<Tq.Parameter label="Shoot X" icon="mdi:axis-x-arrow" hint="Table X (machine coords) for shooting">
-				<div class="buttons">
-					<Tq.InputNumber v-model="project.addsub.shootPosition.x" :precision="3" />
-					<Tq.InputButton icon="mdi:crosshairs-gps" subtle narrow tooltip="Set from current mill position" :disabled="!mill.connected" @click="setShootFromMill" />
-				</div>
-			</Tq.Parameter>
-			<Tq.Parameter label="Feed" icon="mdi:speedometer" hint="Extend/retract feed (mm/min)">
-				<Tq.InputNumber v-model="project.addsub.millFeed" :min="1" :max="5000" />
 			</Tq.Parameter>
 
 			<Tq.ParameterHeading>Rig</Tq.ParameterHeading>
@@ -426,30 +340,12 @@ function setParkFromRig() {
 				/>
 			</Tq.Parameter>
 			<Tq.ParameterHeading>Calibration</Tq.ParameterHeading>
-			<Tq.Parameter label="Pupil d" icon="mdi:eye" hint="Entrance pupil offset from the head's rotation centre (mm)">
-				<Tq.InputNumber v-model="project.addsub.calibration.pupilOffset" :precision="2" />
-			</Tq.Parameter>
-			<Tq.Parameter label="Film origin" icon="mdi:axis-arrow" hint="World position of block A's bottom corner before any block was added (lift = 0)">
-				<Tq.InputVec v-model="project.addsub.calibration.filmOriginWorld" />
-			</Tq.Parameter>
-			<Tq.Parameter label="Rig offset" icon="mdi:axis-arrow" hint="rig = world + offset">
-				<Tq.InputVec v-model="project.addsub.calibration.rigOffset" />
-			</Tq.Parameter>
-			<Tq.Parameter label="Mill offset" icon="mdi:axis-arrow" hint="world = cycle(mill) + offset, at the shoot position">
-				<div class="buttons">
-					<Tq.InputVec v-model="project.addsub.calibration.millOffset" />
-					<Tq.InputButton
-						icon="mdi:crosshairs-gps"
-						subtle
-						narrow
-						tooltip="Tool tip is at the film origin now → solve the offset"
-						:disabled="!mill.connected"
-						@click="setMillOffsetFromHere"
-					/>
-				</div>
-			</Tq.Parameter>
-			<Tq.Parameter label="LED optional" icon="mdi:led-strip" hint="Skip the LED step when the wall isn't connected">
-				<Tq.InputSwitch v-model="project.addsub.ledOptional" />
+			<Tq.Parameter
+				label="Pupil offset"
+				icon="mdi:eye"
+				hint="Entrance pupil from the head's rotation centre, camera coordinates (mm): X right, Y up, Z back. The lens looks down −Z, so a pupil 80 mm in front is Z −80."
+			>
+				<Tq.InputVec v-model="project.addsub.calibration.pupilOffset" />
 			</Tq.Parameter>
 		</template>
 	</Tq.ParameterGroup>

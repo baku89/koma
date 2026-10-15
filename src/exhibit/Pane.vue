@@ -5,7 +5,7 @@
  * placeholder until the relay exists (§15.2).
  */
 import QRCode from 'qrcode'
-import {computed, onUnmounted, ref, shallowRef, watch} from 'vue'
+import {computed, nextTick, onUnmounted, ref, shallowRef, watch} from 'vue'
 
 import type {CompactToolpath} from '@/utils/fluidnc/toolpath.worker'
 import {clearToolpathCache, parseToolpathCached} from '@/utils/fluidnc/toolpathParser'
@@ -41,7 +41,6 @@ interface SequenceLive {
 	step: string | null
 	message: string | null
 	progress: {frame: number; step: string; done: string[]; status: string; error?: string; updatedAt: number} | null
-	filmLift: number
 	captureFrame: number
 	captureLayer: number
 	gcode: {frame: number; path: string; index: number; total: number} | null
@@ -102,20 +101,16 @@ const rig = computed(() => shown.value?.rig ?? null)
 const sequence = computed(
 	() => live(liveSequence)?.progress ?? store.project.value?.addsub?.sequence ?? null
 )
-const filmLift = computed(() => {
-	const a = store.project.value?.addsub
-	return live(liveSequence)?.filmLift ?? a?.filmLift ?? (a?.kBase === undefined ? 0 : 60 * a.kBase)
-})
 const captureFrame = computed(
 	() => live(liveSequence)?.captureFrame ?? store.project.value?.captureShot?.frame ?? null
 )
 const sequenceMessage = computed(() => live(liveSequence)?.message ?? null)
 
 const STEPS = [
-	'cut',
-	'extend',
 	'rig',
 	'led',
+	'cut',
+	'extend',
 	'settle',
 	'capture',
 	'park',
@@ -245,15 +240,28 @@ function tickGcode() {
 // LIVE VIEW: the camera's MediaStream over WebRTC
 
 const $video = shallowRef<HTMLVideoElement | null>(null)
+const $held = shallowRef<HTMLImageElement | null>(null)
+// The <video> has a frame of its current stream to show. Until then (and
+// with no stream at all) the held picture underneath is what the pane shows,
+// as it is: the last thing received is the picture, not a degraded state.
+const hasFrame = ref(false)
 let releaseLive: (() => void) | null = null
 if (props.kind === 'live') releaseLive = relay.requestLive()
 watch(
 	[$video, relay.liveStream],
-	([video, stream]) => {
+	async ([video, stream]) => {
 		if (!video || video.srcObject === stream) return
-		// The stream is going away: hold on to the picture it leaves behind.
-		if (!stream) keepLastLive(video)
+		if (!stream) {
+			// The stream is going away: hold on to the picture it leaves behind.
+			// The video keeps its frozen frame up until that picture is on
+			// screen below it, so the hand-over doesn't flash.
+			await keepLastLive(video)
+			await nextTick()
+			await $held.value?.decode().catch(() => {})
+			if (relay.liveStream.value || $video.value !== video) return
+		}
 		video.srcObject = stream
+		hasFrame.value = false
 	},
 	{immediate: true}
 )
@@ -261,14 +269,11 @@ watch(
 // The picture shown while there is no stream (lastLive.ts). Also saved every
 // few seconds while live, for a reload or a power cut on this machine.
 const lastLive = useLastLive()
-const lastLiveTime = computed(() =>
-	lastLive.value ? new Date(lastLive.value.t).toLocaleString('ja-JP', {hour12: false}) : null
-)
 const KEEP_LIVE_MS = 10_000
 const keepTimer =
 	props.kind === 'live'
 		? setInterval(() => {
-				if ($video.value && relay.liveActive.value) keepLastLive($video.value)
+				if ($video.value && relay.liveActive.value) void keepLastLive($video.value)
 			}, KEEP_LIVE_MS)
 		: undefined
 
@@ -329,8 +334,6 @@ watch(
 			<dd class="mono">{{ shown ? shown.frame + 1 : '—' }}</dd>
 			<dt>Exposure</dt>
 			<dd class="mono">{{ exposure }}</dd>
-			<dt>Lift</dt>
-			<dd class="mono">{{ shown?.filmLift === undefined ? '—' : `${shown.filmLift} mm` }}</dd>
 			<dt>Rig</dt>
 			<dd class="mono small">
 				<template v-if="rig">
@@ -346,7 +349,6 @@ watch(
 			<div class="mono">
 				capture frame
 				<span class="big">{{ captureFrame === null ? '—' : captureFrame + 1 }}</span>
-				<span class="dim"> · lift {{ filmLift }} mm</span>
 			</div>
 			<ol class="steps mono">
 				<li v-for="s in STEPS" :key="s" :class="stepState(s)">{{ s }}</li>
@@ -394,7 +396,7 @@ watch(
 					<div v-for="k in RIG_AXES" :key="k" class="axis">
 						<span class="dim">{{ k.toUpperCase() }}</span>
 						<span :class="{dim: !rigLive}">
-							{{ fmtAxis(k, rigLive?.connected ? rigLive.mpos[k] : rig?.[k]) }}
+							{{ fmtAxis(k, rigLive?.connected ? rigLive.wpos[k] : rig?.[k]) }}
 						</span>
 					</div>
 				</div>
@@ -424,23 +426,23 @@ watch(
 
 		<!-- LIVE VIEW: WebRTC from the shooting machine -->
 		<div v-else-if="kind === 'live'" class="live">
+			<img v-if="lastLive" ref="$held" class="live-video live-held" :src="lastLive.url" />
 			<video
-				v-show="relay.liveStream.value"
 				ref="$video"
 				class="live-video"
 				autoplay
 				muted
 				playsinline
-				:class="{off: !relay.liveActive.value}"
+				:class="{waiting: !hasFrame}"
+				@loadeddata="hasFrame = true"
 			/>
-			<img v-if="!relay.liveStream.value && lastLive" class="live-video off" :src="lastLive.url" />
-			<div v-if="!relay.liveActive.value" class="placeholder mono live-overlay">
+			<!-- Only when there has never been a picture to show -->
+			<div v-if="!hasFrame && !lastLive" class="placeholder mono live-overlay">
 				<div class="dim">
 					<template v-if="!online">
 						shooting machine offline<template v-if="lastSeen"><br />last seen {{ lastSeen }}</template>
 					</template>
 					<template v-else>live view is off on the shooting machine</template>
-					<template v-if="!relay.liveStream.value && lastLiveTime"><br />last picture {{ lastLiveTime }}</template>
 				</div>
 			</div>
 		</div>
@@ -613,8 +615,18 @@ dd {
 	background: #000;
 }
 
-.live-video.off {
-	opacity: 0.25;
+video.live-video {
+	position: relative;
+}
+
+/* Not display: none, so the element keeps loading its stream. */
+.live-video.waiting {
+	opacity: 0;
+}
+
+.live-held {
+	position: absolute;
+	inset: 0;
 }
 
 .live-overlay {

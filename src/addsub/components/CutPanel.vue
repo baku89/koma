@@ -51,9 +51,6 @@ const runText = computed(() => {
 	return `stopped at ${r.linesSent}/${r.total} after ${formatDuration(r.durationMs)} · ${when}`
 })
 
-// What "Set G54" would send before the cut (null while it is off).
-const workOffsetLine = computed(() => sequence.cutWorkOffsetLine())
-
 const progress = computed(() => sequence.cutProgress)
 const cuttingThis = computed(
 	() => !!progress.value && progress.value.frame === frame.value && progress.value.layer === layer.value
@@ -222,13 +219,6 @@ function pickWithInput(): Promise<File[]> {
 
 		<Tq.Parameter label="Require" icon="mdi:shield-check-outline" hint="Refuse the shutter while the capture frame's G-code has not run to the end (shoot condition). Turn off for dry runs without the mill.">
 			<Tq.InputSwitch v-model="project.addsub.requireCut" />
-		</Tq.Parameter>
-
-		<Tq.Parameter label="Set G54" icon="mdi:axis-arrow" hint="Before each cut, overwrite the mill's G54 origin with the film origin (G10 L2 P1, from Mill offset and Film lift). Off: the G-code runs in the work zero set on the machine, like any sender. Turn on only after Mill offset is calibrated.">
-			<div class="row">
-				<Tq.InputSwitch v-model="project.addsub.cutSetsWorkOffset" />
-				<span v-if="workOffsetLine" class="mute small tq-font-numeric">{{ workOffsetLine }}</span>
-			</div>
 		</Tq.Parameter>
 
 		<Tq.Parameter label="Mill time" icon="mdi:timer-outline" hint="Total time the mill has spent on this project's recorded cuts">

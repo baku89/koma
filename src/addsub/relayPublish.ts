@@ -5,6 +5,9 @@
  * - `machine:mill`, `machine:rig` — FluidNC state and positions (~10 Hz)
  * - `sequence`                    — step / status, and the G-code file + line
  *                                   being streamed to the mill
+ * - `project`                     — name, in/out points, the selected and the
+ *                                   capture layer, previz frame offset (what
+ *                                   Houdini's "Send Plans" needs to know)
  * - the extra files of the display copy: previz/frames.json, set.json and the
  *   G-code they reference, plus per-layer G-code (addsub.layerGcode)
  */
@@ -14,6 +17,7 @@ import {watch} from 'vue'
 import {useProjectStore} from '@/stores/project'
 import {useRelayStore, type WantedFile} from '@/stores/relay'
 import {useRemoteJogStore} from '@/stores/remoteJog'
+import {useViewportStore} from '@/stores/viewport'
 
 import {useMillStore, useRigStore} from './stores/machines'
 import {PREVIZ_DIR, usePrevizStore} from './stores/previz'
@@ -32,6 +36,31 @@ export function setupAddsubRelay() {
 	const rig = useRigStore()
 	const sequence = useSequenceStore()
 	const previz = usePrevizStore()
+	const viewport = useViewportStore()
+
+	//--------------------------------------------------------------------------
+	// Project (for controllers such as Houdini)
+
+	watch(
+		() => {
+			const layerAt = (i: number) => {
+				const l = project.layers[i]
+				return l ? {index: i, id: l.id, name: l.name} : null
+			}
+			return {
+				name: project.name,
+				previewRange: [...project.previewRange],
+				currentFrame: viewport.currentFrame,
+				currentLayer: layerAt(viewport.currentLayer),
+				captureFrame: project.captureShot.frame,
+				captureLayer: layerAt(project.captureShot.layer),
+				previzFrameOffset: project.addsub.previzFrameOffset,
+				layers: project.layers.map((l, i) => ({index: i, id: l.id, name: l.name, deleted: !!l.deleted})),
+			}
+		},
+		v => relay.publishThrottled('project', {...v, t: Date.now()}, 300),
+		{immediate: true, deep: true}
+	)
 
 	//--------------------------------------------------------------------------
 	// Machines
@@ -86,7 +115,6 @@ export function setupAddsubRelay() {
 				step: sequence.currentStep,
 				message: sequence.message,
 				progress: project.addsub.sequence,
-				filmLift: project.addsub.filmLift,
 				captureFrame: project.captureShot.frame,
 				captureLayer: project.captureShot.layer,
 				gcode: cutting ? {frame: cutting.frame, path: cutting.path, index: p?.index ?? 0, total: p?.total ?? 0} : null,

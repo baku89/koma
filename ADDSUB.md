@@ -532,11 +532,11 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - koma 側は timeline frame + `project.addsub.previzFrameOffset` = previz `frame`。`FileSystemObserver` があれば監視、無ければ 3 秒ポーリング。parse 失敗は書きかけとみなし再試行。
 
 ### シーケンス（§2）
-- `src/addsub/stores/sequence.ts`。ステップ: `cut → extend → (rig ∥ led) → settle → capture → park → retract`（主軸停止・退避は CAM の G-code に含まれるので `cut` の一部。rig 移動と LED は別機器なので並列）。各ステップ完了ごとに `project.addsub.sequence` に進行を保存（frame / step / done / status / returnPosition）。パネルの「Resume」でステップを選んで再開。
+- `src/addsub/stores/sequence.ts`。ステップ: `(rig ∥ led) → cut → extend → settle → capture → park → retract`（2026-10-16 に rig / led を先頭へ。主軸停止・退避は CAM の G-code に含まれるので `cut` の一部。rig 移動と LED は別機器なので並列）。各ステップ完了ごとに `project.addsub.sequence` に進行を保存（frame / step / done / status / returnPosition）。パネルの「Resume」でステップを選んで再開。
 - `cut` は（`cutSetsWorkOffset` がオンなら）先に `G10 L2 P1` で G54 原点を `filmOriginMill(filmLift)` に合わせてから G-code を流す。`extend` 前の table 位置を `returnPosition` に保存し `retract` で戻す。
 - `stop()` = abort + 両機に feed hold。**ESTOP**（タイトルバーの赤ボタン / コマンド `estop` / `shift+escape`）= シーケンス実行中でなくても両機を同時に feed hold + 主軸停止（0x9E）。復帰（`~`/`$X`/reset）は機械パネルから。
 - Sigma fp の撮影は App.vue の `shoot()` をそのまま使う（`sequence.registerCapture`）。park 参照ショットは kind `park` のレイヤー（無ければ作る）に入る。
-- **再演パス（§7.2）**: `startReplay(range)`。記録済みショットの rig 軸を `Δlift`（現在の filmLift − 撮影時の `shot.filmLift`）だけ持ち上げ、LED 画像を現在の lift で再サンプル、露出を再適用して kind `replay`・ラベル `Replay +<lift>mm` のレイヤーに撮り直す（rig ∥ led → settle → capture）。
+- **再演パス（§7.2）**: `startReplay(range)`。記録済みショットの rig 軸を `Δlift`（現在の filmLift − 撮影時の `shot.filmLift`）だけ持ち上げ、記録した LED の粒をそのまま戻し、露出を再適用して kind `replay`・ラベル `Replay +<lift>mm` のレイヤーに撮り直す（rig ∥ led → settle → capture）。
 - **レイヤー（§14.1 の実装）**: レイヤーは「名前付きの独立したタイムライン（本編とフレーム番号を共有）」で、いくつでも作れる（`project.layers[i] = {id, name}`、index = `koma.shots[]` のスロット。追加のみで並べ替え・削除はしない）。機能の割り当ては無く、テストも再演も park もただの名前付きレイヤー。**表示情報はプリセット** `project.layerPresets[]`（`{id, name, layers: [{layerId, opacity, mixBlendMode}]}`、配列順 = 表示順（下→上）、載っていないレイヤーは非表示）で、`activeLayerPreset` で切替。Layers ダイアログ（`command+shift+L` / Timeline 左端のレイヤー名クリック）でプリセットの作成・改名・削除、レイヤーの表示/順序/ブレンド/不透明度、追加、撮影先の指定。タイムライン・プレビューはアクティブなプリセットの順で合成（`compositeLayers`）。**「画像の下をクリックするとレイヤーが増える」挙動は廃止**（↑↓は表示順で移動）。旧ファイルはレイヤーの opacity/blend を "Default" プリセットへ移行。
 - **レイヤーの削除と一覧の並び（2026-10-01）**: レイヤーは保存スロット（index = `koma.shots[]` の位置、ファイル名にも入る）なので、**削除はスロットに印を付けるだけ**（`layer.deleted`）。ショット・ファイル・plan はそのまま、番号の振り直しもファイル移動も無い。削除したレイヤーは全プリセット・タイムライン・Park layer の選択肢・relay の push・exhibit（本編の穴埋め previz、他テイク、そのレイヤーの `_trash`）から消える。Layers ダイアログの各行のゴミ箱で削除、下の「Deleted」欄の Restore で戻せる（全プリセットの一番上に非表示で戻る）。本編（layer 0）は削除不可、撮影スロットが載っていたら同じコマの本編へ移す。undo には乗らない。**ディスクは空かない**（完全消去は未実装）。
   - プリセットは `stack`（非表示も含む全レイヤーの並び、`hidden` 付き）を正とし、`layers`（表示中だけ）はそこから毎回作り直す派生。古いビルド（配信中の exhibit など）は `layers` だけを読むので従来どおり動く。Show のオン/オフは `hidden` を切り替えるだけなので**行が動かない**（以前は非表示にするとプリセットから外れ、戻すと一番上に入り直し、blend / opacity も消えていた）。Order の上下は非表示の行にも効く。旧ファイルはプリセットに無いレイヤーを一番上に非表示で足す。
@@ -782,6 +782,84 @@ cncjs の 10〜200% スライダは Grbl 1.1 の**リアルタイム文字を生
 
 ### ショットの LED 記録（2026-10-01）
 撮影した時点で壁に出ていた**全粒の RGB をそのまま記録**する。LED 画像が無い照明（faces / Houdini live / 手動 fill / work light）で撮ったショットでも「Recall Shot Lighting (LED)」が効く。
+
+### 左下ペインのタブ化（2026-10-02）
+- 左下のパネル群（縦に全部並べてスクロールしていた）を、Blender の Properties エディタ風の 2 カラムにした。左がアイコン 1 個ぶんの幅の縦タブ、右が選んだタブのパネル。タブは上から **Tool**（ツールの切り替え + Tool Options）/ Shot Sequence / Cut / Plan / Box Rig / Mill / LED Wall / Houdini Live / Camera Control / Retakes。
+- **Tweeq 側（汎用、main に戻せる）**: `Tq.PaneTabs`（`name` = 選択中のタブを app config に保存するキー、`defaultTab`）と `Tq.PaneTab`（`id` / `label` / `icon`）。`dev_modules/tweeq/src/PaneTabs/`。選んでいないタブは unmount せず隠すだけ（パネル内の状態、たとえば MachinePanel の編集中のターゲットが残る）。スクロールはタブごとで、位置も覚える。ラベルはアイコンのツールチップに出る。
+- ツールチップに `placement` を追加（`v-tooltip="{content, placement: 'right'}"`、既定は従来どおり `top`）。縦に並んだアイコンで上に出すと、1 つ上のアイコンに被さってクリックを奪うため。
+- **タブの中のグループは折りたためない**（ユーザー指定）: 見出しと、全部開いた中身だけ。`Tq.PaneTab` が `ParameterGroupCollapsibleKey` を `false` で provide し、中の `Tq.ParameterGroup` は chevron 無し・クリック無効・常に展開になる（以前に折りたたんで保存された状態は無視。保存値は消さない）。タブの外の `ParameterGroup` は従来どおり折りたためる。グループ単位で変えるなら `collapsible` prop。
+- 機械のアイコンは `MachineDefinition.icon` に 1 か所で持つ（2026-10-08）: フライス盤 = `mdi:screw-machine-flat-top`、Box Rig = `game-icons:mechanical-arm`。タイトルバーの接続アイコン・左下のタブ・MachinePanel の見出しはすべてこれを読む（以前はタイトルバーだけ丸鋸だった）。丸鋸 `mdi:saw-blade` は「切削」の操作（Cut タブ・Cut パネル・タイトルバー中央の Cut ボタン・セルのバッジ）専用。
+- **Plan パネルのリグ軸は 2 行 × 3 カラム**: `Position`（X Y Z、mm）と `Rotation`（A B C = tilt / pan / roll、°）。単位は行のツールチップに出し、欄には数値だけ（幅 ~57 px に `-560.125` が収まる）。値の扱い（`step` 0.001、可動域でクランプ、未設定は半透明）は変えていない。
+- **MachinePanel の軸セル**: − / + は `Tq.InputGroup` で 1 つにまとめ、軸ごとのホームボタンはその右に少し離して置いた（上の段の「go」ボタンの真下）。見出しの段は 名前 + ランプ / Machine 座標 / zero / set だけになり、80 px のセルに収まる。
+- 確認はヘッドレス Chromium（機器なし）: 10 タブの切り替え、タブごとのスクロール位置、リロード後も同じタブ、ツールチップが右に出て隣のタブを塞がない、折りたたんで保存済みのグループも開いて出る。
+
+### MachinePanel の軸セル（2026-10-02）
+Box Rig もフライス盤も同じセル（行レイアウトは廃止）。`MachineDefinition.panel` は `gridColumns`（既定 3）と `showFeed` だけ。
+
+- **セル 1 段目**: 軸名 + リミットのランプ（灰。そのスイッチが active の間は軸名ごと黄）｜ **Machine 座標**（灰の小さい数字、表示だけ）｜ ここをゼロ / Set…（どちらも `G10 L20`、Work 座標に効く）。
+- **2 段目**: **Work 座標**の入力 + 照準ボタン（従来どおり: 編集するとターゲットとして保持し、照準ボタンで `$J=G90 G21 <軸><値> F<jogFeed>` = 作業座標の絶対ジョグ。スライダーの範囲は `limits` prop（機械座標）から WCO を引いたもの）。
+  - **人が操作するのは Work 座標、Machine 座標は読むだけ**（ユーザー指定）。Box Rig の Machine 原点は Y が一番上・X/Z が枠の中央、Work 原点は 60 角のワークの底面の中心。最初 Machine を入力にして出したが、同日に直した。
+- **3 段目**: − / +（`jogStep`）と、**その軸のホーミング**（`$H<軸>`、照準ボタンの真下）。
+- 「Limits」行、「Work」行（Zero all here / Go to 0）は削除。limit 以外の入力（Probe / Door など）は、active の間だけ「Inputs」行が出る。
+- **Home 行**: `XYZ` / `ABC` / `All`。グループは機械の定義（`MachineDefinition.panel.homeGroups`、`{label, steps}`）で決める。`steps` は順に実行する手順で、1 軸（`$HX`）か、同時にホーミングする軸の組（`$H=XZ`）。フライス盤は `All` だけ。
+  - **Box Rig の `XYZ` = `$HY` → `$H=XZ`**（吊り下げの縦軸を先に上げてから、X と Z を同時に。ユーザー指定、2026-10-02）。`ABC` = `$HA` → `$HB` → `$HC`。`All` = `$H`（config のホーミングサイクル順）。
+  - 各手順は `ok`（= その手順のホーミング完了）を待ってから次を送る。FluidNC v3.9.9 に `$HXYZ` というコマンドは無い（以前の `machine.home(axes)` は複数軸でこれを送っていたので通らなかった）。`$H=<軸>` は config のサイクル順を無視して指定した軸を同時に動かす。軸を指定するホーミングは、各軸の config に `allow_single_axis` が要る。
+- 確認はハード無し（Playwright + 偽の FluidNC 2 台）: 表示、`Pn:` でランプと軸名が黄、XYZ → `$HY` `$H=XZ`、ABC → `$HA` `$HB` `$HC`、軸のホーム → `$HY`、Work 座標を編集 → Go → `$J=G90 G21 X10 …`（灰の Machine 座標は WCO ぶんずれた値で追従）。**実機では未確認**（ホーミングの順番がリグにとって安全か、`allow_single_axis` の設定）。
+
+### 手打ち G-code の行は Step の下（2026-10-07）
+- MachinePanel の「G-code」行（1 行入力 + 右端の chevron で直近 12 行のログ）を **Step のすぐ下**に置いた（Box Rig / Mill 両タブ）。タイトルバーの機械ポップオーバーからは入力と Send を外し、接続・Unlock・Home とログだけにした。ストリーミング中の進捗行は「Streaming」に改名（「G-code」の重複を避けるため）。
+- **以前の Console 行は一度も表示されていなかった**: `console?: boolean` を付けずに使うと Vue が boolean prop を `false` に cast するので、`$props.console !== false` が常に偽だった。`withDefaults` で既定 `true` に。
+- `parseBuildInfo` は `[MSG:INFO: Machine: X]`（レベル付き）も受け、`[MSG: Board: …]` があれば `BuildInfo.board` に入れて接続ログに `(PiBot V588)` のように出す。AST200 のコントローラを PiBot V5.88 Ultra に戻した時点（2026-10-07）の対応。識別そのものは従来どおり `name:` 一致（`AST200`）→ 名前無し → Grbl っぽいもの = mill。
+- 確認はヘッドレス Chromium（機器なし）: 両タブで Step → G-code → Feed の並び、chevron、ポップオーバーに Send が無い。vitest に `$I` のレベル付き / Board 行。**実機の Ultra での自動接続は未確認。** 注意: 開発中の `yarn dev`（5555）はファイル変更後も古い MachinePanel を返し続けたことがある（別ポートで立て直すと新しいコードが出た）。リロードで変更が出ないときは vite を再起動する。
+
+### Box Rig は Work 座標で扱う（2026-10-02）
+ユーザーの前提: **Box Rig の Machine 座標は Y が一番上・X/Z が枠の中央、Work 座標（G54）は 60 角のワークの底面の中心が原点。人が明示的に操作するのは Work 座標で、Machine 座標ではない。project.json に入れるのも Work 座標。**
+
+- **project.json のリグ座標は Work 座標**: `plan[layer][frame].rig`、`shot.rig`（live / backup / `_trash`）、`parkPose`。`project.addsub.rigStorage: 'work'` がその印。inbox の `setPlan` の `rig`、`scripts/addsub-zstep.mjs` が読む・書く plan も Work 座標。
+- **機械座標のままのもの**: `rigLimits`（物理的な可動域なので Work 原点と一緒には動かない）、`calibration.rigOffset` / `rotaryZero`（= Work 原点の機械座標）、コントローラの status、koma が送る移動（`G53`）。Houdini の `rig:pose` の `axes` と `frame: "rig"` も機械座標のまま（未変更）。
+- 換算は `src/addsub/stores/rigWork.ts`（`toWork` / `toMachine` / `axisToWork` / `axisToMachine`、小数 3 桁に丸める）: 機械 = Work + オフセット。動かす直前（Go to Plan、シーケンス、recall、park、撮影後の自動移動）と、可動域・shoot condition の判定、3D ビューで機械座標に直す。撮影時の記録と「現在値から Plan」は Work に直して保存する。
+- **Work 原点 = world 原点**: コントローラの WCO（`machine.wco`、`?` の `WCO:` で最初に届くまで null）が、X/Y/Z は `calibration.rigOffset`、A/B/C は `calibration.rotaryZero` になる。リグが繋がっている間（識別済み、プロジェクトを開き終わってから）、コントローラの値が変わるたびにプロジェクトへ写す。koma からコントローラへ書き戻すことはない。未接続の間は最後に見た値で換算する。
+  - 3D ビューの原点、Orbit の縦軸（world X=0, Z=0）、previz のカメラ姿勢からの IK、`set.json` の `frame: "rig"` の LED 配置が、すべて「ワークの底面中心」基準になる。
+  - kinematics: 雲台の角度 = (機械角 − `rotaryZero`) × `rotarySigns`。A/B/C の Work 0 = カメラがまっすぐ（tilt / pan / roll = 0）。
+- **Work のゼロを取り直すと、保存済みの Plan・ショットの位置は物理的にワークと一緒に動く**（数字はそのまま、機械座標での行き先が変わる）。行き先が可動域を出れば、動かす前の limits check で止まる。コントローラの G54 がリセットされて 0 になると Work = Machine になり、Plan の行き先が丸ごとずれる（可動域内に収まる値なら止まらない）ので、**ゼロが消えたら取り直してから動かす**。
+- **古いファイルの変換**（`migrateAddsubData`、`rigStorage` の無い project.json）: 開いたときに Work = 機械 − ファイルの `rigOffset` / `rotaryZero` で全部を直し、`rigRebase` を立てる。そのオフセットがコントローラの実際の値と違っていた場合（一度も写していない既定値 [0, −1300, 0] のままなど）に備えて、次にコントローラが WCO を報告したとき、**機械座標での位置が変わらないように**保存値をずらし直す（`shiftStoredRigAxes`、undo 履歴は消す）。それまでの間、パネルの数字は仮のオフセットでの値。新しく作ったプロジェクトはずらし直さない。変換の前に、元の `project.json` を `project.machine-coords.json` としてプロジェクトフォルダに 1 度だけ残す（`stores/project.ts` `keepCopy`）。
+  - 古いビルドの koma で変換後のファイルを開くと、Work の値を機械座標として読む。撮影機は必ず新しいビルドで開く。`addsub-zstep.mjs` は `rigStorage` の無いファイルに plan を書こうとすると止まる（先に koma で開く）。
+- Plan パネルの罠（Tweeq の `InputNumber`）: (1) 表示値を step に量子化して emit し返すので、補間コマを選んだだけでキーになっていた → 表示値と 0.0005 未満の差の emit は編集と見なさない。(2) **新しい値を、更新前の min / max でクランプして emit し返す**（sync の watcher が props の更新順に走る）。オフセットが変わると値と範囲が同時に変わるので、選択中のコマの Plan が古い範囲の端に書き換えられた → Plan パネルは `clampMin` / `clampMax` を切り、実際の編集のときだけ `setAxis` でクランプする。
+- 確認（ヘッドレス Chromium、偽の FluidNC、WCO = X −100 / Y −500）: 機械座標の古いファイルを開く → Work に変換（−123.456 → −23.456）、「現在値から Plan」が Work で入る、Plan (20, −60, 300) の Go → `G53 G1 X-80 Y-560 Z300`、shoot condition の文言、仮のオフセット [0, −1300, 0] からのずらし直し（Plan パネルを開いたままでも値が壊れない）、WCO を Y −480 に変えても保存値はそのまま、可動域外の入力は端にクランプ。vitest に変換・ずらし直し・`rotaryZero`。**実機、撮影時の `shot.rig` の記録、recall、再演、park は未確認。**
+
+### 設定の削減: film 座標・ブロック・ミルのオフセットを廃止（2026-10-16）
+ユーザー指定で「余計な設定項目」を消した。**koma は G-code にオフセットを掛けず、ただ送出するだけ**、座標は world（= Box Rig の Work 座標）1 本にする。
+
+- **film 座標を廃止、film ≡ world**。`coords.ts` は `worldToRig` / `rigToWorld` と、ミルの Work 座標 ↔ world の巡回置換（`millToWorld(m) = (m.y, m.z, m.x)`、オフセット無し）だけ。**ミルの Work 原点（手で取った G54）= world 原点 = リグの Work 原点**という約束。previz の `frames.json` の `position`、`plan.camera`、Houdini の `rig:pose` はすべて world mm（`frame: "film"` は world の別名として受ける）。`cameraPoseToRigAxes(pose, cal)` / `rigAxesToCameraPose(axes, cal)` から lift 引数が消えた。
+- **Calibration に残るのは `pupilOffset` と `rotarySigns`**（`rigOffset` / `rotaryZero` はコントローラの WCO から自動追従する値なので UI から外した。データは Work↔Machine 換算に必要）。`filmOriginWorld` / `millOffset` は削除。
+- **ブロック（§7）の実装を全部削除**: `filmLift` / `blockHeight` / Append Block / 「Film lift」「Mill offset」の照準ボタン / `shot.filmLift` の記録 / recall・再演の lift 補正 / `kBase` 移行 / 3D のブロックの立方体 / exhibit の `lift … mm`（FRAME・SEQUENCE 区画、`store.ts` の `filmLift` / `kBase`）/ relay の `sequence.filmLift`。**再演パス（`startReplay`、`SequenceMode 'replay'`、`REPLAY_STEPS`、`Replay +<lift>mm` レイヤー、`replayLayerId`）も削除**（lift 差分が前提の機能だったため）。
+- **Cut は G54 を触らない**: `cutSetsWorkOffset` / `cutWorkOffsetLine` / `G10 L2 P1` / Cut パネルの「Set G54」を削除。`runCut` は stream して Idle を待つだけ。`CutRun.filmLift` は旧 run の読み取り用に optional で残る（書かない）。
+- **Shot Sequence の Mill 設定を削除**: `shootPosition`（Shoot X）/ `cutPosition` / `millFeed`。`extend` は **Work X 0 へ `G90 G0 X0`**（撮影位置 = 原点、送りは rapid）、直前の Work X を `sequence.returnPosition` に覚えて `retract` で `G90 G0 X<x>`。Y は動かさない。
+- **`ledOptional` を削除**: `led` ステップは壁が未接続なら何もしない、失敗は warning で続行（以前の既定 true と同じ挙動）。
+- **ステップ順を `(rig ∥ led) → cut → extend → settle → capture → park → retract` に**（ユーザー指定）: カメラは切削の前に所定の姿勢へ行くので、切削が終わる頃には揺れは収まっていて `settle` はテーブルの出し入れぶんだけで済む。切削後の掃除のタイミングで、人がアングルやフォーカスを手で詰められる。**注意**: 手で詰めた姿勢は plan から外れるので、`planTolerance` の shoot condition がシャッターを止める。詰めたあと Plan パネルの「From current」で plan を更新するか、force-shoot。**extend の経路とカメラの干渉**（カメラが先に所定位置にいる状態でテーブルが突き出る）は実機で要確認。
+- 3D ビュー: 工具先端はミルの **WPos** を巡回置換した位置、ツールパスは world 原点に描く（G-code が走る作業原点 = world 原点）。テーブルの移動に合わせた「ブロックのシフト」（`tableShiftWorld`）は廃止（工具とブロックの相対位置は Work 座標で正しい）。
+- `migrateAddsubData` が旧キー（`kBase` / `filmLift` / `blockHeight` / `shootPosition` / `cutPosition` / `millFeed` / `ledOptional` / `cutSetsWorkOffset`、calibration の `filmOriginWorld` / `millOffset`、ショットの `filmLift` / `kBase`）を消す。`SequenceProgress.mode` / `replayLayerId` は型から消えた（残っていても無害）。
+- `scripts/addsub-zstep.mjs`（`--rig-dy` で plan の Y を刻む）と `scripts/houdini/koma_bridge.py` は別セッションの持ち分なので触っていない。`koma_bridge.py` が `frame: "film"` を送っても world として受ける。
+- 確認: vitest 32 本、`vite build`、ヘッドレス Chromium + 偽の FluidNC（Shot Sequence の設定が Plan: Previz offset / Plan tolerance / Auto move、Rig: Feed / Settle / Until Still / Park…、Calibration: Pupil offset だけになる。Cut タブに Set G54 が無い）。**実機（extend / retract の `G0`、新しいステップ順）は未確認。**
+
+### 瞳まわりの回転と瞳オフセットの vec3 化（2026-10-16）
+雲台の回転中心と入射瞳（frustum の頂点）は光軸方向にずれているので、A/B を生で回すと絵が視差つきで振れる。**瞳基準の回転は「生軸を計算する入力モード」として上に乗せ、機械に送る値と保存する値は生軸（Work 座標）のまま**にした（ユーザーと合意: 撮影済みショットは生軸が真、d を校正し直しても物理的に同じ姿勢を再現できる。plan の意図・表示・補間の意味は瞳）。
+
+- **`calibration.pupilOffset` は vec3**（カメラ座標 mm、X 右 / Y 上 / Z 後ろ。レンズは −Z を向くので 80 mm 前の瞳は `[0, 0, −80]`）。旧ファイルのスカラー d は `migrateAddsubData` が `[0, 0, −d]` に変換。横成分は瞳がロール軸から外れている場合の受け皿（roll を 180° 振って視差が出れば非ゼロ）。Shot Sequence 設定の「Pupil offset」（`InputVec`）。
+- **3D ビューの回転リングに `Head | Pupil` トグル**（app config `addsub.view.rotatePivot`、既定 Pupil、`Local | Global` の隣）。Head = 従来どおりその軸 1 本の生ステップ（`jogStepAxis`）。Pupil = `kinematics.ts rotateAboutPupil(axes, {pan|tilt|roll}, cal)` で瞳を動かさずに回す行き先を出し、X/Y/Z/A/B/C の差分を **1 本の `$J=G91`** で送る（経路は弦）。pan は world Y まわり（B と同じ。tilt が入っていても水平に振れる）、tilt / roll はカメラ自身の X / Z。回転軸は現在角から近回り（`wrap180`）。X/Y/Z が `rigLimits` を出るなら送らず notice（Orbit と同じ `jogToMachineTarget`）。リングは pivot（Head なら回転中心、Pupil なら瞳）に描く（以前は瞳に描いて頭を回していた）。Pupil モードのステップは pan/tilt/roll の意味角で `rotarySigns` を通る。Head モードは生の符号なので、`rotarySigns` が −1 の軸では矢印の向きが逆になる（実機で要確認）。
+- **Plan の補間は瞳空間**（`interpolatePlan(a, b, t, cal)`、`effectivePlanFor` が `project.addsub.calibration` を渡す）: 両キーが 6 軸そろっているとき、角度は従来どおり軸ごとの lerp、**位置は両キーの瞳（FK）を lerp して、補間した角度で回転中心に戻す**。瞳オフセットが 0 なら従来と同じ値。片方でも軸が欠けていれば従来の軸ごと lerp。explicit なキーは不変。
+- **読み取り専用の瞳表示**: Plan パネルの「Pupil」行（表示中の 6 軸から FK、world mm）、ショットのツールチップ末尾の `Pupil x, y, z mm`。`kinematics.ts workAxesToCameraPose(axes, cal)` = Work 座標の軸 → world の姿勢（Work 原点 = world 原点、回転の Work 0 = 正面なので符号と瞳オフセットだけ）。
+- `orbitAboutPupil` の pan を intrinsic（camera Y）から world Y に変更（それまで呼び出し元が無かった）。`orbitRigAxes`（縦軸まわり）と `aimRigAxes`（瞳は光軸上なので回転中心から向ければよい）は d≠0 でも正しいので変更なし。`linearRigPlan`（New Rig Move Test）は軸空間のまま。
+- 確認は vitest（瞳が動かない / pan で tilt・roll 不変 / オフセット 0 なら X/Y/Z 不動 / 近回り / 補間の弦 / 旧ファイルの変換）。**UI と実機は未確認**（ヘッドレスでの Pupil クリック → 6 軸 `$J=`、`rotarySigns` の向き）。
+- **校正（未実装）**: 視差ゼロ法。光軸上の近・遠 2 点を置き、Pupil モードで pan ±θ して視差 Δpx を測る。Δpx は仮定 d と真の d の差に線形なので、d を 2 つ仮定して測り Δpx = 0 になる d を線形補間（fx や距離は不要）。tilt で光軸上の確認、roll 180° で横成分。マクロレンズは内焦なので瞳位置がフォーカス距離で動く: MF 固定（§12.3 手順 0）なら 1 値、`plan.cameraConfigs.focusDistance` をコマごとに変える運用なら d を focusDistance の表にする。
+
+### カメラをワーク上の点に向ける（2026-10-02）
+コマンド **`Aim Camera at Work Point…`**（`aim_rig_at`、コマンドパレット）。Work 座標の点（mm、既定 (0, 0, 0) = ワーク底面の中心）を入れると、**いまのリグ位置から tilt（A）と pan（B）だけを回して**その点を光軸に乗せる。X/Y/Z と **roll（C）は動かさない**。
+
+- 計算は `kinematics.ts aimRigAxes(axes, target, cal)`。光軸は R·(0,0,−1)、R = Ry(pan)·Rz(roll)·Rx(tilt) なので、高さ成分 = cos(roll)·sin(tilt) から tilt、残りを Y まわりに回して pan。入射瞳は光軸上にあるので、回転中心から点へ向ければレンズも向く。
+- pan はいまの角度から近い側へ回る（±360° の巻きは保つ）。真上・真下の点では pan を変えない。点が回転中心そのもの、または今の roll では届かない向き（roll が大きく、点が上下に急なとき）は「can't be aimed」で動かさない。
+- 送るのは `sequence.aimRigAt(target)` → `rig.moveTo({a, b})`（`G53 G1 A.. B.. F<rigFeed>`、Idle まで待つ）。シーケンス実行中・未接続は拒否。最後に入れた点は `project.addsub.aimTarget` に残る。
+- 確認: vitest（roll 3 通り × 3 点で光軸と点の向きが一致、pan の近回り、真下・中心）、偽の FluidNC で Work (−23.456, −50.5, 320) から原点 → `G53 G1 A8.9444 B-4.1923`。**実機では未確認**（`rotarySigns` と A/B/C の Work 0 の向きが合っていないと、別の方向を向く）。
 
 - **記録**: `led.recordForShot()`（App.vue の `shoot()` が露光前に呼び、ショット確定時に await）。中身はデバイス側のバッファ（`device.getLine(i)` = 実際に LINE で送ったもの、gain 適用後）を露光時点でコピーしたもの。**壁が繋がっているときだけ**記録する（未接続のプレビュー用バッファは「送出した」ものではないので記録しない）。書き込みに失敗しても撮影は止めない（console.error のみ）。
 - **保存先**: プロジェクトフォルダの `led-wall/<SHA-1 先頭 16 桁>.ledwall`（`src/addsub/led/wallRecord.ts`）。内容ハッシュが名前なので、同じ照明のショットは 1 ファイルを共有する。形式は `'KLW1' | u8 ライン数 | u16le 粒数 × ライン | RGB…`（ws-fanout のライン順、3108 粒で 9,345 byte）。project.json には入れない（3000 コマで ~37 MB になり autosave が重くなるため）。

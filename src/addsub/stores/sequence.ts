@@ -1,16 +1,13 @@
 /**
  * The per-frame shooting sequence (ADDSUB.md §2), as a resumable step machine:
  *
- *   cut → extend → (rig ∥ led) → settle → capture → park → retract
+ *   (rig ∥ led) → cut → extend → settle → capture → park → retract
  *
  * (Spindle stop and head retract are part of the CAM-generated G-code, so
  * they belong to `cut`, not to a step of their own. `rig` and `led` talk to
- * different devices and run concurrently.)
- *
- * Replay mode (§7.2, after appending a block): rig ∥ led → settle → capture,
- * driven by what each *recorded* shot has (rig axes lifted by the film-lift
- * difference, its LED image re-sampled at the new lift, its exposure) into a
- * "replay" layer, one per pass.
+ * different devices and run concurrently, and go first so the camera has
+ * the whole cut to settle and the operator can touch it up while cleaning
+ * up — `settle` then only covers the table coming out.)
  *
  * Every step waits for its device to confirm completion (FluidNC Idle, LED
  * SHOW ack, capture resolved) before the next starts. Progress is written to
@@ -36,13 +33,11 @@ import {
 	type Axis,
 	FluidNCError,
 	prepareGCode,
-	setWorkOffsetLine,
 } from '@/utils/fluidnc'
 import type {CompactToolpath} from '@/utils/fluidnc/toolpath.worker'
 import {parseToolpathCached, toolpathTimeAt} from '@/utils/fluidnc/toolpathParser'
 import {buzz, speak} from '@/utils/sound'
 
-import {filmOriginMill} from '../coords'
 import {
 	CUTS_DIR,
 	cutFilePath,
@@ -54,7 +49,7 @@ import {
 	readProjectText,
 	setCut,
 } from '../cuts'
-import {cameraPoseToRigAxes} from '../kinematics'
+import {aimRigAxes, cameraPoseToRigAxes} from '../kinematics'
 import {createMotionMeter, median} from '../motion'
 import {
 	type EffectivePlan,
@@ -65,15 +60,8 @@ import {
 	planFor as planForFrame,
 	setPlan as setPlanFrame,
 } from '../plan'
-import {
-	REPLAY_STEPS,
-	SEQUENCE_STEPS,
-	type SequenceMode,
-	type SequenceProgress,
-	type SequenceStep,
-	type ShotLedRecord,
-} from '../projectData'
-import {LIVE_SOURCE, useLedStore} from './led'
+import {SEQUENCE_STEPS, type SequenceProgress, type SequenceStep} from '../projectData'
+import {useLedStore} from './led'
 import {useMillStore, useRigStore} from './machines'
 import {PREVIZ_DIR, usePrevizStore} from './previz'
 
@@ -81,7 +69,7 @@ export interface CaptureRequest {
 	/** Timeline frame being shot. */
 	frame: number
 	layer: number
-	kind: 'main' | 'park' | 'replay'
+	kind: 'main' | 'park'
 	previzFrame: number
 	cameraConfigs?: Record<string, unknown>
 }
@@ -143,14 +131,10 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		project.addsub.sequence = {...cur, ...patch, updatedAt: Date.now()}
 	}
 
-	function stepsFor(mode: SequenceMode | undefined): readonly SequenceStep[] {
-		return mode === 'replay' ? REPLAY_STEPS : SEQUENCE_STEPS
-	}
-
 	function markDone(step: SequenceStep) {
 		const cur = project.addsub.sequence
 		if (!cur) return
-		const steps = stepsFor(cur.mode)
+		const steps = SEQUENCE_STEPS
 		const done = cur.done.includes(step) ? cur.done : [...cur.done, step]
 		const next = steps.find(s => !done.includes(s))
 		patchProgress({done, step: next ?? step})
@@ -194,51 +178,25 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	//--------------------------------------------------------------------------
-	// What to do for a frame, per mode
+	// What to do for a frame
 
 	interface FrameSource {
 		/** Partial: axes left out are not moved. */
 		rigTarget: AxesPosition | null
-		ledFile: string | null
-		/** Replay: the source shot's recorded pixels, for when it has no image. */
-		ledWall?: string
 		cameraConfigs?: Record<string, unknown>
 		/** Timeline frame whose lighting `led.ensureFrame` should show. */
 		ledFrame: number
 	}
 
-	function resolveSource(frame: number, mode: SequenceMode): FrameSource {
-		const {calibration, filmLift} = project.addsub
-		if (mode === 'replay') {
-			const src = project.shot(frame, 0)
-			if (!src?.rig || src.rig.x === undefined) {
-				return {rigTarget: null, ledFile: null, ledFrame: frame}
-			}
-			// Raise the recorded axes by the blocks added since (§7.2).
-			const dLift = filmLift - (src.filmLift ?? 0)
-			const r = src.rig
-			return {
-				rigTarget: {
-					x: r.x ?? 0,
-					y: (r.y ?? 0) + dLift,
-					z: r.z ?? 0,
-					a: r.a ?? 0,
-					b: r.b ?? 0,
-					c: r.c ?? 0,
-				},
-				ledFile: ledImageOf(src.led),
-				ledWall: src.led?.wall,
-				cameraConfigs: src.cameraConfigs as Record<string, unknown> | undefined,
-				ledFrame: frame,
-			}
-		}
+	function resolveSource(frame: number): FrameSource {
+		const {calibration} = project.addsub
 		// The koma-side plan for this frame (plan.ts) overrides previz field by
 		// field: explicit rig axes first, else a camera pose to solve, else previz.
 		const pf = previz.frameFor(frame)
 		const plan = effectivePlan(frame)?.plan
 		const rigTarget =
 			planRigTarget(plan) ??
-			(pf?.pose ? cameraPoseToRigAxes(pf.pose, filmLift, calibration) : null)
+			(pf?.pose ? cameraPoseToRigAxes(pf.pose, calibration) : null)
 		return {
 			rigTarget,
 			ledFile: pf?.led ?? null,
@@ -274,8 +232,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		if (!plan) return null
 		if (plan.rig) return {...plan.rig}
 		if (plan.camera) {
-			const {calibration, filmLift} = project.addsub
-			return cameraPoseToRigAxes(plan.camera, filmLift, calibration)
+			return cameraPoseToRigAxes(plan.camera, project.addsub.calibration)
 		}
 		return null
 	}
@@ -447,14 +404,13 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	 * shot on that cell yet).
 	 */
 	function rigTargetForShot(frame: number, layer: number): AxesPosition | null {
-		const {calibration, filmLift} = project.addsub
+		const {calibration} = project.addsub
 		const shot = project.shot(frame, layer)
 		if (shot?.rig && shot.rig.x !== undefined) {
-			const dLift = filmLift - (shot.filmLift ?? 0)
 			const r = shot.rig
 			return {
 				x: r.x ?? 0,
-				y: (r.y ?? 0) + dLift,
+				y: r.y ?? 0,
 				z: r.z ?? 0,
 				a: r.a ?? 0,
 				b: r.b ?? 0,
@@ -464,7 +420,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		const pf = previz.frameFor(frame)
 		return (
 			planRigTarget(effectivePlan(frame, layer)?.plan) ??
-			(pf?.pose ? cameraPoseToRigAxes(pf.pose, filmLift, calibration) : null)
+			(pf?.pose ? cameraPoseToRigAxes(pf.pose, calibration) : null)
 		)
 	}
 
@@ -512,21 +468,36 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	/**
-	 * Put the lighting this shot was taken with on the LED wall. The pixels
-	 * recorded at capture go back verbatim; only when blocks were appended
-	 * since (§7.2) and the shot has a lighting image is the image re-sampled
-	 * with the current lift instead, as the rig recall lifts Y. A shot with no
-	 * recorded pixels falls back to its image, then the frame's previz
-	 * lighting. Turns the work light off; the wall keeps showing it until the
-	 * capture frame or a lighting mode changes.
+	 * Turn tilt (A) and pan (B) so the camera looks at `target` (work
+	 * coordinates, mm) from where the rig is now. Nothing else moves: X/Y/Z
+	 * stay, and so does roll (C). Refuses while the sequence runs.
+	 */
+	async function aimRigAt(target: readonly [number, number, number]) {
+		if (running.value) throw new SequenceError('rig', 'Sequence is running')
+		if (!rig.connected) throw new SequenceError('rig', 'Box Rig is not connected')
+		if (rig.mpos.x === undefined) throw new SequenceError('rig', 'Box Rig has not reported its position')
+		const point = target.map(v => Number(v.toFixed(3))).join(', ')
+		const aim = aimRigAxes(rig.mpos, [...target], project.addsub.calibration)
+		if (!aim) throw new SequenceError('rig', `The camera can't be aimed at (${point}) from here`)
+		rigLimitsCheck(aim)
+		message.value = `Aiming the camera at (${point})`
+		try {
+			await rig.moveTo(aim, {feed: project.addsub.rigFeed})
+			message.value = null
+		} catch (e) {
+			message.value = e instanceof Error ? e.message : String(e)
+			throw e
+		}
+	}
+
+	/**
+	 * Put the lighting this shot was taken with on the LED wall: the pixels
+	 * recorded at capture, verbatim. Turns the work light off; the wall keeps
+	 * showing it until a lighting mode changes.
 	 */
 	async function recallLed(frame: number, layer: number) {
-		const shot = project.shot(frame, layer)
-		const wall = shot?.led?.wall
-		const lifted = (shot?.filmLift ?? 0) !== project.addsub.filmLift
-		const resample = !wall || (lifted && !!ledImageOf(shot?.led))
-		const file = resample ? ledFileForShot(frame, layer) : null
-		if (resample && !file) throw new SequenceError('led', `Frame ${frame}: no lighting recorded`)
+		const wall = project.shot(frame, layer)?.led?.wall
+		if (!wall) throw new SequenceError('led', `Frame ${frame}: no lighting recorded`)
 		if (!led.connected) throw new SequenceError('led', 'LED wall is not connected')
 		led.setWorkLight(false)
 		try {
@@ -669,22 +640,10 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	/**
-	 * Stream the frame's G-code to the mill (G54 first pointed at the film
-	 * origin for the current lift, §7.1) and record the run. Shared by the
-	 * sequence's `cut` step and the stand-alone Cut button.
+	 * Stream the frame's G-code to the mill as it is — in whatever work zero
+	 * is set on the machine, like any sender would — and record the run.
+	 * Shared by the sequence's `cut` step and the stand-alone Cut button.
 	 */
-	/**
-	 * The `G10 L2 P1 …` a cut sends first to put G54 on the film origin, or
-	 * null when the project leaves the machine's work zero alone
-	 * (`cutSetsWorkOffset` off).
-	 */
-	function cutWorkOffsetLine(): string | null {
-		const {calibration, filmLift, cutSetsWorkOffset} = project.addsub
-		if (!cutSetsWorkOffset) return null
-		const origin = filmOriginMill(filmLift, calibration.filmOriginWorld, calibration.millOffset)
-		return setWorkOffsetLine(1, {x: origin[0], y: origin[1], z: origin[2]})
-	}
-
 	async function runCut(frame: number, layer: number) {
 		const g = gcodeFor(frame, layer)
 		if (!g) {
@@ -707,13 +666,6 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		}
 		const stamp = gcodeStamp(g)
 		cuttingToolpath.value = await toolpathFor(g.path, stamp)
-		// Point G54 at the film origin for the current lift (§7.1) — only when
-		// asked to. Otherwise the file runs in the work zero set on the machine,
-		// untouched: G10 L2 is persistent, so sending it uninvited would throw
-		// away a zero that was touched off by hand.
-		const {filmLift} = project.addsub
-		const offsetLine = cutWorkOffsetLine()
-		if (offsetLine) await mill.send(offsetLine)
 		message.value = `Cutting frame ${frame} (${lines.length} lines)`
 		cutting.value = {frame, layer, path: g.path}
 		const startedAt = Date.now()
@@ -724,7 +676,6 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			linesSent: 0,
 			total: lines.length,
 			done: false,
-			filmLift,
 			estimatedSec: cuttingToolpath.value?.seconds ?? g.cut?.estimatedSec,
 		}
 		try {
@@ -976,20 +927,14 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			warn('Mill not connected — table not moved')
 			return
 		}
-		const {shootPosition, cutPosition, millFeed} = project.addsub
-		const cur = mill.mpos
-		if (!project.addsub.sequence?.returnPosition) {
-			patchProgress({
-				returnPosition: cutPosition ?? {
-					x: cur.x ?? shootPosition.x,
-					y: shootPosition.y !== undefined ? cur.y : undefined,
-				},
-			})
+		// Shooting happens with the table at work X 0 — the origin the block
+		// was zeroed at. Remember where it was, to return to after the shot.
+		if (!project.addsub.sequence?.returnPosition && mill.wpos.x !== undefined) {
+			patchProgress({returnPosition: {x: mill.wpos.x}})
 		}
-		const target: AxesPosition = {x: shootPosition.x}
-		if (shootPosition.y !== undefined) target.y = shootPosition.y
-		message.value = 'Extending table to the shoot position'
-		await mill.moveTo(target, {feed: millFeed, signal: signal()})
+		message.value = 'Extending table to X 0'
+		await mill.send('G90 G0 X0')
+		await mill.waitIdle({signal: signal()})
 	}
 
 	async function stepRig(frame: number, src: FrameSource) {
@@ -1002,37 +947,19 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		await rig.moveTo(src.rigTarget, {feed: project.addsub.rigFeed, signal: signal()})
 	}
 
-	async function stepLed(frame: number, src: FrameSource, mode: SequenceMode) {
-		if (!src.ledFile && !src.ledWall) {
-			warn(`Frame ${frame}: no LED image`)
-			return
-		}
-		if (!led.connected) {
-			if (project.addsub.ledOptional) {
-				warn('LED wall not connected — skipped')
-				return
-			}
-			throw new SequenceError('led', 'LED wall is not connected')
-		}
-		led.setWorkLight(false)
+	/**
+	 * The lighting isn't planned per frame: the wall shows whatever mode is on
+	 * (faces, live feed, a manual fill). This step takes the work light off
+	 * and waits for the latch. Without the wall there is nothing of this
+	 * frame's to set: shoot with it as it is.
+	 */
+	async function stepLed() {
+		if (!led.connected) return
+		led.leaveWorkLight()
 		try {
-			if (mode === 'replay' && src.ledFile) {
-				const blob = await previz.readBlob(src.ledFile)
-				await led.showImageBlob(blob, {file: src.ledFile})
-			} else if (mode === 'replay' && src.ledWall) {
-				// No image to re-sample: the recorded pixels go back as they were.
-				await led.showWallRecord(src.ledWall)
-			} else {
-				// Usually already on the wall (the store follows the capture
-				// frame); this just waits for the latch.
-				await led.ensureFrame(src.ledFrame)
-			}
+			await led.ensureShown()
 		} catch (e) {
-			if (project.addsub.ledOptional) {
-				warn(`LED: ${e instanceof Error ? e.message : String(e)}`)
-				return
-			}
-			throw new SequenceError('led', e instanceof Error ? e.message : String(e))
+			warn(`LED: ${e instanceof Error ? e.message : String(e)}`)
 		}
 	}
 
@@ -1155,7 +1082,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		}
 	}
 
-	function layerFor(kind: 'main' | 'park' | 'replay'): number {
+	function layerFor(kind: 'main' | 'park'): number {
 		switch (kind) {
 			case 'main':
 				// Whatever layer the capture slot is on: the film (0) or a named
@@ -1169,29 +1096,12 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 				project.addsub.parkLayerId = project.layers[created].id
 				return created
 			}
-			case 'replay': {
-				const id = project.addsub.sequence?.replayLayerId
-				const idx = id ? project.layerIndexOf(id) : -1
-				if (idx !== -1) return idx
-				const created = project.addLayer(`Replay +${project.addsub.filmLift}mm`)
-				patchProgress({replayLayerId: project.layers[created].id})
-				return created
-			}
 		}
 	}
 
-	async function stepCapture(
-		frame: number,
-		kind: 'main' | 'park' | 'replay',
-		src?: FrameSource
-	) {
+	async function stepCapture(frame: number, kind: 'main' | 'park', src?: FrameSource) {
 		if (!capture) throw new SequenceError('capture', 'No capture handler registered')
-		message.value =
-			kind === 'park'
-				? 'Park reference shot'
-				: kind === 'replay'
-					? `Re-shooting frame ${frame}`
-					: `Capturing frame ${frame}`
+		message.value = kind === 'park' ? 'Park reference shot' : `Capturing frame ${frame}`
 		await capture({
 			frame,
 			layer: layerFor(kind),
@@ -1216,7 +1126,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			if (millNeeded(frame)) throw new SequenceError('retract', 'Mill is not connected')
 			return
 		}
-		const back = project.addsub.sequence?.returnPosition ?? project.addsub.cutPosition
+		const back = project.addsub.sequence?.returnPosition
 		if (!back) {
 			warn('No return position recorded — table left at the shoot position')
 			return
@@ -1224,15 +1134,11 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		const target: AxesPosition = {x: back.x}
 		if (back.y !== undefined) target.y = back.y
 		message.value = 'Returning table'
-		await mill.moveTo(target, {feed: project.addsub.millFeed, signal: signal()})
+		await mill.send(`G90 G0 X${back.x}`)
+		await mill.waitIdle({signal: signal()})
 	}
 
-	async function runStep(
-		step: SequenceStep,
-		frame: number,
-		src: FrameSource,
-		mode: SequenceMode
-	) {
+	async function runStep(step: SequenceStep, frame: number, src: FrameSource) {
 		checkStop(step)
 		currentStep.value = step
 		patchProgress({step, status: 'running'})
@@ -1244,11 +1150,11 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			case 'rig':
 				return stepRig(frame, src)
 			case 'led':
-				return stepLed(frame, src, mode)
+				return stepLed()
 			case 'settle':
 				return stepSettle()
 			case 'capture':
-				return stepCapture(frame, mode === 'replay' ? 'replay' : 'main', src)
+				return stepCapture(frame, 'main', src)
 			case 'park':
 				return stepPark(frame)
 			case 'retract':
@@ -1266,13 +1172,11 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	async function runFrame(
 		frame: number,
 		fromStep: SequenceStep | undefined,
-		mode: SequenceMode,
 		range?: [number, number]
 	) {
-		const steps = stepsFor(mode)
+		const steps = SEQUENCE_STEPS
 		const saved = project.addsub.sequence
-		const resume =
-			saved && saved.frame === frame && saved.status !== 'done' && (saved.mode ?? 'shoot') === mode
+		const resume = saved && saved.frame === frame && saved.status !== 'done'
 		const known = (s: SequenceStep) => steps.includes(s)
 		let done = resume ? saved.done.filter(known) : []
 		const start = fromStep ?? (resume && known(saved.step) ? saved.step : steps[0])
@@ -1281,7 +1185,6 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		}
 
 		setProgress({
-			mode,
 			range,
 			frame,
 			step: start,
@@ -1291,7 +1194,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			updatedAt: Date.now(),
 		})
 
-		const src = resolveSource(frame, mode)
+		const src = resolveSource(frame)
 		const isDone = (s: SequenceStep) => !!project.addsub.sequence?.done.includes(s)
 
 		for (const step of steps.slice(steps.indexOf(start))) {
@@ -1303,7 +1206,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 				const tasks: Promise<void>[] = []
 				for (const s of ['rig', 'led'] as const) {
 					if (steps.includes(s) && !isDone(s)) {
-						tasks.push(runStep(s, frame, src, mode).then(() => markDone(s)))
+						tasks.push(runStep(s, frame, src).then(() => markDone(s)))
 					}
 				}
 				const results = await Promise.allSettled(tasks)
@@ -1311,7 +1214,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 				if (failed && failed.status === 'rejected') throw failed.reason
 				continue
 			}
-			await runStep(step, frame, src, mode)
+			await runStep(step, frame, src)
 			markDone(step)
 		}
 		patchProgress({status: 'done', step: steps[steps.length - 1]})
@@ -1330,15 +1233,13 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			frame?: number
 			fromStep?: SequenceStep
 			continuous?: boolean
-			mode?: SequenceMode
-			/** Inclusive range of timeline frames to run (replay: to re-shoot). */
+			/** Inclusive range of timeline frames to run. */
 			range?: [number, number]
 		} = {}
 	) {
 		if (running.value) return
-		const mode: SequenceMode = opts.mode ?? 'shoot'
 		running.value = true
-		continuous.value = mode === 'replay' ? true : (opts.continuous ?? false)
+		continuous.value = opts.continuous ?? false
 		stopRequested.value = false
 		abort = new AbortController()
 		warnings.value = []
@@ -1352,31 +1253,23 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 
 		try {
 			for (;;) {
-				await runFrame(frame, fromStep, mode, range)
+				await runFrame(frame, fromStep, range)
 				fromStep = undefined
 				// Each shot drags the out-point to the capture cursor; a run over
 				// in → out keeps the range it was given.
-				if (mode === 'shoot' && range) project.$patch({previewRange: [range[0], range[1]]})
+				if (range) project.$patch({previewRange: [range[0], range[1]]})
 				if (!continuous.value || stopRequested.value) break
-				if (mode === 'replay') {
-					frame += 1
-					// Skip frames without a recorded shot; stop at the range end.
-					while (range && frame <= range[1] && !project.shot(frame, 0)?.rig) frame++
-					if (!range || frame > range[1]) break
-				} else {
-					frame = range ? frame + 1 : project.captureShot.frame
-					if (range && frame > range[1]) {
-						ended = `Frames ${range[0]}–${range[1]} done`
-						break
-					}
-					if (!hasSource(frame)) {
-						ended = `No plan or previz data for frame ${frame} — stopped`
-						break
-					}
+				frame = range ? frame + 1 : project.captureShot.frame
+				if (range && frame > range[1]) {
+					ended = `Frames ${range[0]}–${range[1]} done`
+					break
+				}
+				if (!hasSource(frame)) {
+					ended = `No plan or previz data for frame ${frame} — stopped`
+					break
 				}
 			}
-			message.value =
-				ended ?? (mode === 'replay' ? 'Replay done' : continuous.value ? 'Stopped' : 'Done')
+			message.value = ended ?? (continuous.value ? 'Stopped' : 'Done')
 		} catch (e) {
 			const step = e instanceof SequenceError ? e.step : currentStep.value
 			const text = e instanceof Error ? e.message : String(e)
@@ -1387,7 +1280,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			patchProgress({
 				status: stopped ? 'stopped' : 'error',
 				error: stopped ? undefined : text,
-				step: step ?? project.addsub.sequence?.step ?? stepsFor(mode)[0],
+				step: step ?? project.addsub.sequence?.step ?? SEQUENCE_STEPS[0],
 			})
 			message.value = stopped ? 'Stopped' : `Error at ${step}: ${text}`
 			if (!stopped) {
@@ -1395,7 +1288,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 				console.error('[sequence]', e)
 			}
 		} finally {
-			if (mode === 'shoot' && range) project.$patch({previewRange: [range[0], range[1]]})
+			if (range) project.$patch({previewRange: [range[0], range[1]]})
 			running.value = false
 			currentStep.value = null
 			abort = null
@@ -1448,9 +1341,8 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		return start({
 			frame: p.frame,
 			fromStep: fromStep ?? p.step,
-			mode: p.mode ?? 'shoot',
 			range: p.range,
-			continuous: p.mode === 'replay' || !!p.range,
+			continuous: !!p.range,
 		})
 	}
 
@@ -1468,37 +1360,6 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		return start({frame: r[0], continuous: true, range: r})
 	}
 
-	/**
-	 * Replay pass (§7.2): re-shoot every recorded frame in `range` (inclusive,
-	 * default = preview in/out) with its recorded pose lifted to the current
-	 * film lift, its LED image and exposure, into a "Replay +<lift>mm" layer.
-	 */
-	function startReplay(range?: [number, number]) {
-		const r: [number, number] = range ?? [
-			project.previewRange[0],
-			project.previewRange[1],
-		]
-		let first = r[0]
-		while (first <= r[1] && !project.shot(first, 0)?.rig) first++
-		if (first > r[1]) {
-			message.value = 'No recorded frames in range to replay'
-			return Promise.resolve()
-		}
-		return start({frame: first, mode: 'replay', range: r})
-	}
-
-	//--------------------------------------------------------------------------
-	// Block append (§7)
-
-	/**
-	 * A block of `height` mm was glued under the stack: the film frame rises
-	 * by that much. Remembers the height as the default for the next one.
-	 */
-	function appendBlock(height = project.addsub.blockHeight) {
-		project.addsub.filmLift += height
-		project.addsub.blockHeight = height
-	}
-
 	return {
 		running: readonly(running),
 		continuous: readonly(continuous),
@@ -1510,13 +1371,11 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		registerCapture,
 		start,
 		startRange,
-		startReplay,
 		resume,
 		stop,
 		estop,
 		pauseAfterFrame,
 		clearProgress,
-		appendBlock,
 		gcodeFor,
 		toolpathFor,
 		gcodeStamp,
@@ -1538,9 +1397,6 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		recallRig,
 		recallLed,
 		rigTargetForShot,
-		cutWorkOffsetLine,
-		ledFileForShot,
 		steps: SEQUENCE_STEPS,
-		replaySteps: REPLAY_STEPS,
 	}
 })

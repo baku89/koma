@@ -8,7 +8,6 @@ import type {AxesPosition} from '@/utils/fluidnc'
 
 import {
 	type AddsubCalibration,
-	DEFAULT_BLOCK_HEIGHT,
 	DEFAULT_CALIBRATION,
 	DEFAULT_LED_LAYOUT,
 	LED_LAYOUT_VERSION,
@@ -18,7 +17,12 @@ import {
 } from './config'
 import type {PlanTable} from './plan'
 
-/** One step of the per-frame sequence, in order. §2 */
+/**
+ * One step of the per-frame sequence, in order. §2. The rig and the wall go
+ * first (concurrently): the camera is in place before the cut starts, so by
+ * the time the table is out again it has long stopped swinging, and the
+ * operator can touch up the angle / focus while cleaning up after the cut.
+ */
 export const SEQUENCE_STEPS = [
 	'cut',
 	'extend',
@@ -47,18 +51,9 @@ export const SEQUENCE_STEP_LABELS: Record<SequenceStep, string> = {
  * Where the sequence was when it last ran, so a helper can resume after a
  * stop, a crash or a reload. Persisted with the project.
  */
-export type SequenceMode = 'shoot' | 'replay'
-
-/** Steps of a replay pass (§7.2): no cutting, no table moves. */
-export const REPLAY_STEPS: readonly SequenceStep[] = ['rig', 'led', 'settle', 'capture']
-
 export interface SequenceProgress {
-	/** 'shoot' (default) = the normal per-frame sequence; 'replay' = §7.2 pass. */
-	mode?: SequenceMode
-	/** Replay: inclusive frame range being re-shot. */
+	/** A run over in → out: the inclusive frame range being shot. */
 	range?: [number, number]
-	/** Replay: id of the layer this pass shoots into. */
-	replayLayerId?: string
 	frame: number
 	/** The step that was running (or about to run) when progress was saved. */
 	step: SequenceStep
@@ -83,8 +78,8 @@ export interface CutRun {
 	/** Ran to the end (the mill went Idle after the last line). */
 	done: boolean
 	error?: string
-	/** Film lift (mm) the G54 origin was set for. */
-	filmLift: number
+	/** Runs before 2026-10-16 recorded the film lift the G54 origin was set for. */
+	filmLift?: number
 	/** The parser's estimate (s) for this file, for calibrating later ETAs. */
 	estimatedSec?: number
 }
@@ -114,23 +109,20 @@ export type CutTable = Record<string, Record<number, FrameCut>>
 
 export interface AddsubProjectData {
 	/**
-	 * How far the film frame has risen above its original place (mm): the
-	 * summed height of the blocks glued under block A so far. world Y = film Y
-	 * + filmOriginWorld.y + filmLift. §7.1
+	 * The coordinates stored rig axes are in — plans, shot records, the park
+	 * pose: the rig's work coordinates (G54), what people read and type. A
+	 * file without this holds machine coordinates (before 2026-10-02) and is
+	 * converted when it is opened.
 	 */
-	filmLift: number
-	/** Height (mm) of the next block to append — the default for the prompt. */
-	blockHeight: number
-	/** previz frame number = timeline frame + this offset. */
-	previzFrameOffset: number
-	/** Mill table position (machine coords) for shooting. `y` optional. §2 */
-	shootPosition: {x: number; y?: number}
+	rigStorage: 'work'
 	/**
 	 * Table position to return to after the shot. Undefined = the position it
 	 * was at before extending.
 	 */
-	cutPosition?: {x: number; y?: number}
-	/** Rig axes for the park reference frame (machine coords). null = none. */
+	rigRebase?: boolean
+	/** previz frame number = timeline frame + this offset. */
+	previzFrameOffset: number
+	/** Rig axes for the park reference frame (work coords). null = none. */
 	parkPose: AxesPosition | null
 	/** Layer (id) park reference shots go to. null = create "Park" on first use. */
 	parkLayerId: string | null
@@ -151,12 +143,8 @@ export interface AddsubProjectData {
 	settleMaxMs: number
 	/** Feed for rig moves (mm/min). Rotary axes follow the same F word. */
 	rigFeed: number
-	/** Feed for the mill's extend/retract moves (mm/min). */
-	millFeed: number
 	/** Soft travel limits for the rig, checked before every move. */
 	rigLimits: Partial<Record<keyof AxesPosition, [number, number]>>
-	/** Skip the LED step when the wall isn't connected (instead of failing). */
-	ledOptional: boolean
 	calibration: AddsubCalibration
 	led: {
 		layout: LedLayoutParams
@@ -204,24 +192,13 @@ export interface AddsubProjectData {
 	 * run to the end (shoot condition). Off for dry runs without the mill.
 	 */
 	requireCut: boolean
-	/**
-	 * Before each cut, overwrite the mill's G54 origin with the film origin
-	 * (`G10 L2 P1`, from `calibration.millOffset` and `filmLift`; §7.1). Off =
-	 * the G-code runs in whatever work zero is set on the machine, as any
-	 * sender would. Only turn it on once `millOffset` is calibrated: with the
-	 * placeholder offset it points G54 at the machine origin.
-	 */
-	cutSetsWorkOffset: boolean
 	/** Rapid rate (mm/min) assumed by the cut time estimate. */
 	millRapidFeed: number
 }
 
 export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
-	filmLift: 0,
-	blockHeight: DEFAULT_BLOCK_HEIGHT,
+	rigStorage: 'work',
 	previzFrameOffset: 0,
-	shootPosition: {x: 0},
-	cutPosition: undefined,
 	parkPose: null,
 	parkLayerId: null,
 	takeParkShot: false,
@@ -229,9 +206,7 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	settleStill: true,
 	settleMaxMs: 20000,
 	rigFeed: 1500,
-	millFeed: 1000,
 	rigLimits: {x: [...RIG_LIMITS.x], y: [...RIG_LIMITS.y], z: [...RIG_LIMITS.z]},
-	ledOptional: true,
 	calibration: DEFAULT_CALIBRATION,
 	led: {
 		layout: DEFAULT_LED_LAYOUT,
@@ -247,7 +222,6 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	autoMoveMaxDistance: 100,
 	cuts: {},
 	requireCut: true,
-	cutSetsWorkOffset: false,
 	millRapidFeed: 1500,
 }
 
@@ -275,8 +249,6 @@ export interface ShotMachineData {
 	rig?: AxesPosition
 	/** Mill axes (machine coords) at capture. */
 	mill?: AxesPosition
-	/** Film lift (mm, see AddsubProjectData.filmLift) at capture. */
-	filmLift?: number
 	/** The lighting at capture. §8 */
 	led?: ShotLedRecord
 	/** previz frame this shot realises (may differ from the timeline frame). */
@@ -288,21 +260,21 @@ export interface ShotMachineData {
 //------------------------------------------------------------------------------
 // Migration
 
-/** Block height the retired integer `kBase` (base block index) stood for. */
-const LEGACY_BLOCK_HEIGHT = 60
-
 /**
- * Upgrade a loaded project in place from the `kBase` era (lift = 60·kBase, all
- * blocks 60 mm) to `filmLift` (mm). Idempotent: files already on `filmLift`
- * are untouched.
+ * Upgrade a loaded project in place. Idempotent: a file already in the
+ * current shape is untouched.
  */
-type LegacyShot = ShotMachineData & {kBase?: number}
-
-export function migrateAddsubData(project: {
-	addsub: AddsubProjectData & {kBase?: number}
-	komas: ({shots: (LegacyShot | null | undefined)[]} | null | undefined)[]
-	trash?: {shot: LegacyShot}[]
-}) {
+export function migrateAddsubData(
+	project: RigAxesHolder & {
+		addsub: AddsubProjectData
+		komas: ({shots: (ShotMachineData | null | undefined)[]} | null | undefined)[]
+		trash?: {shot: ShotMachineData}[]
+	},
+	opts: {
+		/** The file's rig axes are machine coordinates (it has no `rigStorage`). */
+		rigInMachine?: boolean
+	} = {}
+) {
 	const a = project.addsub
 	// 2026-09-29: the rig's travel was re-measured (X/Z ±550 about the centre,
 	// not 0…1200). Projects still carrying the old placeholder defaults get
@@ -314,9 +286,34 @@ export function migrateAddsubData(project: {
 	if (a.calibration && same(a.calibration.rigOffset, [-600, -1300, -600])) {
 		a.calibration.rigOffset = [...DEFAULT_CALIBRATION.rigOffset] as typeof a.calibration.rigOffset
 	}
-	if (a.kBase !== undefined) {
-		if (a.filmLift === undefined || a.filmLift === 0) a.filmLift = LEGACY_BLOCK_HEIGHT * a.kBase
-		delete a.kBase
+	// 2026-10-16: the pupil offset is a vector in camera coordinates; it was
+	// the scalar distance d in front of the centre (= (0, 0, −d)).
+	const pupil = a.calibration?.pupilOffset as unknown
+	if (typeof pupil === 'number') {
+		a.calibration.pupilOffset = [0, 0, -pupil]
+	}
+	// 2026-10-16: the LED placement is hard-coded (led/layout.ts); the
+	// per-project layout parameters are gone.
+	if (a.led) {
+		for (const key of ['layout', 'layoutVersion', 'stripsPerLine', 'topFilmY']) {
+			delete (a.led as Record<string, unknown>)[key]
+		}
+	}
+	// 2026-10-16: blocks / film lift, the mill's shoot position and feed, the
+	// G54-setting cut and the LED-optional switch are gone (ADDSUB.md
+	// 実装メモ「設定の削減」). Film coordinates are world coordinates now.
+	const legacy = a as unknown as Record<string, unknown>
+	for (const key of [
+		'kBase',
+		'filmLift',
+		'blockHeight',
+		'shootPosition',
+		'cutPosition',
+		'millFeed',
+		'ledOptional',
+		'cutSetsWorkOffset',
+	]) {
+		delete legacy[key]
 	}
 	const shots: LegacyShot[] = []
 	for (const koma of project.komas) {
@@ -324,8 +321,66 @@ export function migrateAddsubData(project: {
 	}
 	for (const t of project.trash ?? []) shots.push(t.shot)
 	for (const shot of shots) {
-		if (shot.kBase === undefined) continue
-		shot.filmLift ??= LEGACY_BLOCK_HEIGHT * shot.kBase
-		delete shot.kBase
+		const s = shot as unknown as Record<string, unknown>
+		delete s.kBase
+		delete s.filmLift
+	}
+	// 2026-10-02: rig axes are stored in work coordinates. work = machine −
+	// the work offset, taken from the file's calibration; the controller may
+	// know better (rigRebase).
+	if (opts.rigInMachine) {
+		const {rigOffset, rotaryZero} = a.calibration
+		const converted = shiftStoredRigAxes(project, {
+			x: -rigOffset[0],
+			y: -rigOffset[1],
+			z: -rigOffset[2],
+			a: -rotaryZero.a,
+			b: -rotaryZero.b,
+			c: -rotaryZero.c,
+		})
+		if (converted > 0) a.rigRebase = true
+	}
+	a.rigStorage = 'work'
+}
+
+//------------------------------------------------------------------------------
+// Stored rig axes
+
+/** What carries stored rig axes: plans, shot records, the park pose. */
+export interface RigAxesHolder {
+	addsub: Pick<AddsubProjectData, 'plan' | 'parkPose'>
+	komas: (
+		| {
+				shots: (ShotMachineData | null | undefined)[]
+				backupShots?: (ShotMachineData | null | undefined)[]
+		  }
+		| null
+		| undefined
+	)[]
+	trash?: {shot: ShotMachineData}[]
+}
+
+/**
+ * Add `delta` (per axis) to every stored set of rig axes, in place: every
+ * plan, every shot record (live, backup, trash) and the park pose. Returns
+ * how many sets there were.
+ */
+export function shiftStoredRigAxes(project: RigAxesHolder, delta: AxesPosition): number {
+	let count = 0
+	const shift = (axes: AxesPosition | null | undefined) => {
+		if (!axes) return
+		count++
+		for (const [axis, d] of Object.entries(delta) as [keyof AxesPosition, number][]) {
+			const v = axes[axis]
+			// Rounded: the offsets carry float noise, positions have 3 decimals.
+			if (v !== undefined && d) axes[axis] = Math.round((v + d) * 1e6) / 1e6
+		}
+	}
+	for (const frames of Object.values(project.addsub.plan ?? {})) {
+		for (const plan of Object.values(frames ?? {})) shift(plan?.rig)
+	}
+	for (const koma of project.komas) {
+		for (const shot of koma?.shots ?? []) shift(shot?.rig)
+		for (const shot of koma?.backupShots ?? []) shift(shot?.rig)
 	}
 }

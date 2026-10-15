@@ -6,9 +6,9 @@
  * about X, so the camera rotation is R = Ry(pan) · Rz(roll) · Rx(tilt) —
  * Houdini rotate order "xzy" (first applied first). The camera looks down −Z.
  *
- * The entrance pupil sits d in front of the rotation centre along the optical
- * axis: o = (0, 0, −d) in camera coordinates, so for a desired pupil p and
- * rotation R the head centre is c = p − R·o.
+ * The entrance pupil sits at o from the rotation centre in camera
+ * coordinates (nominally (0, 0, −d): d in front along the optical axis), so
+ * for a desired pupil p and rotation R the head centre is c = p − R·o.
  *
  * All angles in degrees; positions in world mm.
  */
@@ -18,7 +18,7 @@ import {mat4, quat, vec3} from 'linearly'
 import type {AxesPosition} from '@/utils/fluidnc'
 
 import type {AddsubCalibration} from './config'
-import {filmToWorld, rigToWorld,worldToFilm, worldToRig} from './coords'
+import {rigToWorld, worldToRig} from './coords'
 
 export interface CameraPose {
 	/** Entrance pupil position. */
@@ -85,88 +85,162 @@ export function rotationToAngles(r: quat): HeadAngles {
 	}
 }
 
-/** Head rotation centre for a camera pose. */
-export function rotationCentre(pose: CameraPose, pupilOffset: number): vec3 {
-	const o: vec3 = [0, 0, -pupilOffset]
-	return vec3.sub(pose.position, vec3.transformQuat(o, pose.rotation))
+/** Head rotation centre for a camera pose (`pupilOffset` = o, camera coords). */
+export function rotationCentre(pose: CameraPose, pupilOffset: vec3): vec3 {
+	return vec3.sub(pose.position, vec3.transformQuat(pupilOffset, pose.rotation))
 }
 
 /** Pupil position for a head centre and rotation (inverse of the above). */
-export function pupilFromCentre(centre: vec3, rotation: quat, pupilOffset: number): vec3 {
-	const o: vec3 = [0, 0, -pupilOffset]
-	return vec3.add(centre, vec3.transformQuat(o, rotation))
+export function pupilFromCentre(centre: vec3, rotation: quat, pupilOffset: vec3): vec3 {
+	return vec3.add(centre, vec3.transformQuat(pupilOffset, rotation))
 }
 
-export type RigTarget = Required<Pick<AxesPosition, 'x' | 'y' | 'z' | 'a' | 'b' | 'c'>>
+/** What the work-coordinate conversions need of the calibration. */
+export type WorkKinematics = Pick<AddsubCalibration, 'pupilOffset' | 'rotarySigns'>
 
 /**
- * Inverse kinematics: a camera pose in *film* coordinates → rig axis values
- * (machine coordinates, absolute).
+ * Rig axes in *work* coordinates → camera pose in *world*. The rig's work
+ * origin is the world origin and its rotary work zeros are the head looking
+ * straight (stores/rigWork.ts), so only the signs and the pupil offset are
+ * involved. Axes left out count as 0.
  */
-export function cameraPoseToRigAxes(
-	pose: CameraPose,
-	lift: number,
-	cal: AddsubCalibration
-): RigTarget {
-	const worldPose: CameraPose = {
-		position: filmToWorld(pose.position, lift, cal.filmOriginWorld),
-		rotation: pose.rotation,
-	}
-	const centre = worldToRig(rotationCentre(worldPose, cal.pupilOffset), cal.rigOffset)
-	const {tilt, pan, roll} = rotationToAngles(pose.rotation)
-	return {
-		x: centre[0],
-		y: centre[1],
-		z: centre[2],
-		a: tilt * cal.rotarySigns.a,
-		b: pan * cal.rotarySigns.b,
-		c: roll * cal.rotarySigns.c,
-	}
-}
-
-/**
- * Forward kinematics: rig axis values → camera pose in *film* coordinates.
- * Missing axes are treated as 0.
- */
-export function rigAxesToCameraPose(
-	axes: AxesPosition,
-	lift: number,
-	cal: AddsubCalibration
-): CameraPose {
+export function workAxesToCameraPose(axes: AxesPosition, cal: WorkKinematics): CameraPose {
 	const rotation = anglesToRotation({
 		tilt: (axes.a ?? 0) * cal.rotarySigns.a,
 		pan: (axes.b ?? 0) * cal.rotarySigns.b,
 		roll: (axes.c ?? 0) * cal.rotarySigns.c,
 	})
-	const centreWorld = rigToWorld(
-		[axes.x ?? 0, axes.y ?? 0, axes.z ?? 0],
-		cal.rigOffset
-	)
-	const pupilWorld = pupilFromCentre(centreWorld, rotation, cal.pupilOffset)
+	const centre: vec3 = [axes.x ?? 0, axes.y ?? 0, axes.z ?? 0]
+	return {position: pupilFromCentre(centre, rotation, cal.pupilOffset), rotation}
+}
+
+export type RigTarget = Required<Pick<AxesPosition, 'x' | 'y' | 'z' | 'a' | 'b' | 'c'>>
+
+/**
+ * Inverse kinematics: a camera pose in *world* coordinates → rig axis values
+ * (machine coordinates, absolute).
+ */
+export function cameraPoseToRigAxes(pose: CameraPose, cal: AddsubCalibration): RigTarget {
+	const centre = worldToRig(rotationCentre(pose, cal.pupilOffset), cal.rigOffset)
+	const {tilt, pan, roll} = rotationToAngles(pose.rotation)
 	return {
-		position: worldToFilm(pupilWorld, lift, cal.filmOriginWorld),
-		rotation,
+		x: centre[0],
+		y: centre[1],
+		z: centre[2],
+		a: tilt * cal.rotarySigns.a + cal.rotaryZero.a,
+		b: pan * cal.rotarySigns.b + cal.rotaryZero.b,
+		c: roll * cal.rotarySigns.c + cal.rotaryZero.c,
 	}
 }
 
 /**
- * Rotate the current pose by a delta expressed in the *view* frame (screen
- * pan / tilt / roll) about the entrance pupil, so the picture swings without
- * parallax; returns the new pose. (§11.2)
+ * Forward kinematics: rig axis values (machine coordinates) → camera pose
+ * in *world* coordinates. Missing axes are treated as 0.
  */
-export function orbitAboutPupil(
-	pose: CameraPose,
-	delta: {pan?: number; tilt?: number; roll?: number}
-): CameraPose {
-	// Screen-relative axes: pan about the camera's local Y, tilt about local X,
-	// roll about local Z. Applied intrinsically.
+export function rigAxesToCameraPose(axes: AxesPosition, cal: AddsubCalibration): CameraPose {
+	const rotation = anglesToRotation({
+		tilt: ((axes.a ?? 0) - cal.rotaryZero.a) * cal.rotarySigns.a,
+		pan: ((axes.b ?? 0) - cal.rotaryZero.b) * cal.rotarySigns.b,
+		roll: ((axes.c ?? 0) - cal.rotaryZero.c) * cal.rotarySigns.c,
+	})
+	const centreWorld = rigToWorld(
+		[axes.x ?? 0, axes.y ?? 0, axes.z ?? 0],
+		cal.rigOffset
+	)
+	return {position: pupilFromCentre(centreWorld, rotation, cal.pupilOffset), rotation}
+}
+
+export interface RotationDelta {
+	/** About world Y (deg) — the head's pan, so it stays level whatever the tilt. */
+	pan?: number
+	/** About the camera's own X (deg). */
+	tilt?: number
+	/** About the camera's own Z, the optical axis (deg). */
+	roll?: number
+}
+
+/**
+ * Rotate a pose about its entrance pupil: the picture swings without
+ * parallax and the pupil stays where it is. Pan is about world Y (like the
+ * head's B), tilt and roll about the camera's own X and Z. (§11.2)
+ */
+export function orbitAboutPupil(pose: CameraPose, delta: RotationDelta): CameraPose {
 	const q = quat.mul(
-		pose.rotation,
 		quat.fromAxisAngle([0, 1, 0], delta.pan ?? 0),
+		pose.rotation,
 		quat.fromAxisAngle([1, 0, 0], delta.tilt ?? 0),
 		quat.fromAxisAngle([0, 0, 1], delta.roll ?? 0)
 	)
 	return {position: pose.position, rotation: quat.normalize(q)}
+}
+
+/**
+ * The rig axes (machine coordinates) that turn the camera by `delta` about
+ * its entrance pupil from where it is: X/Y/Z move so the pupil stays put
+ * while A/B/C turn. The rotaries take the short way from their current
+ * angle (no unwinding through ±180°). One `$J=`/G53 line with all six axes
+ * ends there; the path between is a chord, which is fine for a stop-motion
+ * move that settles before the shot.
+ */
+export function rotateAboutPupil(
+	axes: AxesPosition,
+	delta: RotationDelta,
+	cal: AddsubCalibration
+): RigTarget {
+	const pose = rigAxesToCameraPose(axes, cal)
+	const target = cameraPoseToRigAxes(orbitAboutPupil(pose, delta), cal)
+	const near = (now: number | undefined, v: number) =>
+		now === undefined ? v : now + wrap180(v - now)
+	return {
+		x: target.x,
+		y: target.y,
+		z: target.z,
+		a: near(axes.a, target.a),
+		b: near(axes.b, target.b),
+		c: near(axes.c, target.c),
+	}
+}
+
+/**
+ * Aim the camera at a point: the tilt (A) and pan (B) that put `target`
+ * (world = the rig's work coordinates, mm) on the optical axis from where the
+ * head is, with roll (C) left as it is. The pupil sits on that axis, so
+ * aiming the rotation centre aims the lens. Pan takes the shorter way round
+ * from where it is, and stays put for a target straight above / below.
+ * Returns machine coordinates; null when the target is at the rotation
+ * centre or can't be met at this roll (too steep for the rolled tilt axis).
+ */
+export function aimRigAxes(
+	axes: AxesPosition,
+	target: vec3,
+	cal: AddsubCalibration
+): Required<Pick<AxesPosition, 'a' | 'b'>> | null {
+	const centre = rigToWorld([axes.x ?? 0, axes.y ?? 0, axes.z ?? 0], cal.rigOffset)
+	const to = vec3.sub(target, centre)
+	const distance = vec3.length(to)
+	if (distance < 1e-6) return null
+	const [dx, dy, dz] = vec3.scale(to, 1 / distance)
+
+	// The optical axis is R·(0, 0, −1) with R = Ry(pan)·Rz(roll)·Rx(tilt):
+	// its height is cos(roll)·sin(tilt), and pan turns the rest about Y.
+	const roll = (((axes.c ?? 0) - cal.rotaryZero.c) * cal.rotarySigns.c) / RAD
+	const sinTilt = dy / Math.cos(roll)
+	if (!Number.isFinite(sinTilt) || Math.abs(sinTilt) > 1) return null
+	const tilt = Math.asin(sinTilt)
+
+	const panNow = ((axes.b ?? 0) - cal.rotaryZero.b) * cal.rotarySigns.b
+	let pan = panNow
+	if (Math.hypot(dx, dz) > 1e-9) {
+		// The axis before panning, Rz(roll)·Rx(tilt)·(0, 0, −1), seen from above.
+		const vx = -Math.sin(roll) * Math.sin(tilt)
+		const vz = -Math.cos(tilt)
+		pan = panNow + wrap180((Math.atan2(dx, dz) - Math.atan2(vx, vz)) * RAD - panNow)
+	}
+
+	return {
+		a: tilt * RAD * cal.rotarySigns.a + cal.rotaryZero.a,
+		b: pan * cal.rotarySigns.b + cal.rotaryZero.b,
+	}
 }
 
 /**

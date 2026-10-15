@@ -21,6 +21,13 @@
  * - `timeline:frame` {frame}  (previz frame numbering)
  *                Moves koma's preview to that frame (onion skin / previz
  *                render comparison). Gated by `followTimeline`.
+ * - `inbox`      {id, patch}  An inbox patch (stores/inbox.ts, the same
+ *                format as a file in `_inbox/`), applied to the open project
+ *                at once — all-or-nothing, same ops. The outcome goes back as
+ *                the `inbox:result` state {id, from, …outcome}. Not gated: a
+ *                patch changes data, never moves anything. Houdini's "Send
+ *                Plans" uses it to write the camera and the wall of every
+ *                frame between koma's in and out points into plans.
  */
 
 import type {quat, vec3} from 'linearly'
@@ -32,8 +39,8 @@ import {useProjectStore} from '@/stores/project'
 import {useRelayStore} from '@/stores/relay'
 import {useViewportStore} from '@/stores/viewport'
 
-import {rigToWorld, worldToFilm} from '../coords'
-import {anglesToRotation, type CameraPose, cameraPoseToRigAxes, type RigTarget} from '../kinematics'
+import {cameraPoseToRigAxes, type RigTarget} from '../kinematics'
+import {parseCameraPoseMessage} from '../poseMessage'
 import {useLedStore} from './led'
 import {useRigStore} from './machines'
 import {useSequenceStore} from './sequence'
@@ -80,7 +87,7 @@ export const useHoudiniStore = defineStore('addsub:houdini', () => {
 			data?.layoutVersion !== undefined &&
 			Number(data.layoutVersion) !== led.layout.version
 		) {
-			error.value = `led:frame: layout version ${data.layoutVersion} ≠ set.json ${led.layout.version}`
+			error.value = `led:frame: layout version ${data.layoutVersion} ≠ koma's ${led.layout.version}`
 		}
 		led.pushLiveFrame(rgb)
 	})
@@ -136,27 +143,8 @@ export const useHoudiniStore = defineStore('addsub:houdini', () => {
 				c: Number(a.c ?? 0),
 			}
 		}
-		const scale = data?.unit === 'm' ? 1000 : 1
-		const p = data?.position
-		if (!Array.isArray(p) || p.length < 3) throw new Error('position must be [x, y, z]')
-		let position: vec3 = [num(p[0], 'x') * scale, num(p[1], 'y') * scale, num(p[2], 'z') * scale]
-		const rotation: quat = Array.isArray(data.rotation)
-			? (data.rotation.map(Number) as [number, number, number, number])
-			: data.angles
-				? anglesToRotation({
-						tilt: Number(data.angles.tilt ?? 0),
-						pan: Number(data.angles.pan ?? 0),
-						roll: Number(data.angles.roll ?? 0),
-					})
-				: [0, 0, 0, 1]
-		const {calibration, filmLift} = project.addsub
-		const frame = data.frame ?? 'film'
-		if (frame === 'rig') position = rigToWorld(position, calibration.rigOffset)
-		if (frame === 'rig' || frame === 'world') {
-			position = worldToFilm(position, filmLift, calibration.filmOriginWorld)
-		} else if (frame !== 'film') throw new Error(`unknown frame '${frame}'`)
-		const pose: CameraPose = {position, rotation}
-		return cameraPoseToRigAxes(pose, filmLift, calibration)
+		const {calibration} = project.addsub
+		return cameraPoseToRigAxes(parseCameraPoseMessage(data, calibration), calibration)
 	}
 
 	function num(v: unknown, name: string): number {

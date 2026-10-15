@@ -19,15 +19,20 @@ import type {ConfigType} from 'tethr'
 import type {Project} from '@/stores/project'
 import {AXES, type AxesPosition} from '@/utils/fluidnc'
 
-import type {CameraPose} from './kinematics'
+import {
+	type CameraPose,
+	rotationCentre,
+	workAxesToCameraPose,
+	type WorkKinematics,
+} from './kinematics'
 
 export interface FramePlan {
 	/**
-	 * Rig axes (machine coords) to move to before the shot. Partial: axes left
+	 * Rig axes (work coords) to move to before the shot. Partial: axes left
 	 * out keep their current position. Takes precedence over `camera`.
 	 */
 	rig?: AxesPosition
-	/** Camera pose in film coords (mm + quat), solved to rig axes at shoot time. */
+	/** Camera pose in world coords (mm + quat), solved to rig axes at shoot time. */
 	camera?: CameraPose
 	/** Exposure etc., applied to the camera before the shot. */
 	cameraConfigs?: Partial<ConfigType>
@@ -76,18 +81,33 @@ function lerp(a: number, b: number, t: number) {
 }
 
 /**
- * Interpolate between two plans (`t` 0→1). Rig axes present in both are
- * interpolated linearly, an axis in only one is held; a camera pose in both
- * is lerp/slerp'ed; camera configs and the note are held from `a` (exposure
- * steps, it doesn't glide).
+ * Interpolate between two plans (`t` 0→1). Rig angles are interpolated
+ * linearly per axis, an axis in only one key is held. The *position* of two
+ * full six-axis keys is interpolated at the entrance pupil (given `cal`): the
+ * pupil glides in a straight line and the head centre follows it, so what the
+ * camera sees moves evenly even though the head is offset from the lens —
+ * identical to the per-axis result while the pupil offset is zero. A camera
+ * pose in both keys is lerp/slerp'ed; camera configs and the note are held
+ * from `a` (exposure steps, it doesn't glide).
  */
-export function interpolatePlan(a: FramePlan, b: FramePlan, t: number): FramePlan {
+export function interpolatePlan(
+	a: FramePlan,
+	b: FramePlan,
+	t: number,
+	cal?: WorkKinematics
+): FramePlan {
 	const out: FramePlan = {}
 	if (a.rig || b.rig) {
 		const rig: AxesPosition = {}
 		for (const axis of AXES) {
 			const va = a.rig?.[axis]
 			const vb = b.rig?.[axis]
+const RIG_AXES = ['x', 'y', 'z', 'a', 'b', 'c'] as const
+
+function hasAllRigAxes(rig: AxesPosition | undefined): rig is Required<AxesPosition> {
+	return !!rig && RIG_AXES.every(axis => rig[axis] !== undefined)
+}
+
 			if (va === undefined && vb === undefined) continue
 			rig[axis] = va === undefined ? vb! : vb === undefined ? va : lerp(va, vb, t)
 		}
@@ -104,6 +124,16 @@ export function interpolatePlan(a: FramePlan, b: FramePlan, t: number): FramePla
 	return out
 }
 
+		if (cal && hasAllRigAxes(a.rig) && hasAllRigAxes(b.rig)) {
+			const pupil = vec3.lerp(
+				workAxesToCameraPose(a.rig, cal).position,
+				workAxesToCameraPose(b.rig, cal).position,
+				t
+			)
+			const {rotation} = workAxesToCameraPose(rig, cal)
+			const [x, y, z] = rotationCentre({position: pupil, rotation}, cal.pupilOffset)
+			Object.assign(rig, {x, y, z})
+		}
 export function effectivePlanFor(
 	project: Project,
 	frame: number,
@@ -126,7 +156,7 @@ export function effectivePlanFor(
 	const a = planFor(project, prev, layer)!
 	const b = planFor(project, next, layer)!
 	return {
-		plan: interpolatePlan(a, b, (frame - prev) / (next - prev)),
+		plan: interpolatePlan(a, b, (frame - prev) / (next - prev), project.addsub.calibration),
 		kind: 'interpolated',
 		from: prev,
 		to: next,

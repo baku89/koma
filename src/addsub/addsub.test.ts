@@ -3,28 +3,25 @@ import {describe, expect, it} from 'vitest'
 
 import type {Project} from '@/stores/project'
 
-import {DEFAULT_CALIBRATION, DEFAULT_LED_LAYOUT} from './config'
-import {
-	filmOriginMill,
-	filmToWorld,
-	millToWorld,
-	tableShiftWorld,
-	worldToFilm,
-	worldToMill,
-} from './coords'
+import {DEFAULT_CALIBRATION} from './config'
+import {millToWorld, rigToWorld, worldToMill, worldToRig} from './coords'
 import {
 	anglesToRotation,
 	cameraPoseToRigAxes,
 	orbitRigAxes,
+	orbitAboutPupil,
 	rigAxesToCameraPose,
 	rotationCentre,
+	rotateAboutPupil,
 	rotationToAngles,
 } from './kinematics'
+	workAxesToCameraPose,
 import {buildLedLayout, faceToWorld, ledLayoutFromSet} from './led/layout'
 import {sampleLedFrame} from './led/sampler'
 import {decodeWall, encodeWall, wallRecordPath} from './led/wallRecord'
 import {frameDifference, median} from './motion'
-import {effectivePlanFor, interpolatedFrames, type PlanTable} from './plan'
+import {effectivePlanFor, interpolatedFrames, interpolatePlan, type PlanTable} from './plan'
+import {DEFAULT_ADDSUB_DATA, migrateAddsubData, shiftStoredRigAxes} from './projectData'
 
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps
 
@@ -39,23 +36,17 @@ describe('coords', () => {
 	it('mill ↔ world is a cyclic permutation plus offset', () => {
 		const t: vec3 = [100, 200, 300]
 		// mill +X → world +Z, +Y → +X, +Z → +Y
-		expect(millToWorld([1, 0, 0], t)).toEqual([100, 200, 301])
-		expect(millToWorld([0, 1, 0], t)).toEqual([101, 200, 300])
-		expect(millToWorld([0, 0, 1], t)).toEqual([100, 201, 300])
+		expect(millToWorld([1, 0, 0])).toEqual([0, 0, 1])
+		expect(millToWorld([0, 1, 0])).toEqual([1, 0, 0])
+		expect(millToWorld([0, 0, 1])).toEqual([0, 1, 0])
 		const m: vec3 = [7, 8, 9]
-		expect(worldToMill(millToWorld(m, t), t)).toEqual(m)
+		expect(worldToMill(millToWorld(m))).toEqual(m)
 	})
 
-	it('table shift moves the block opposite to the table travel', () => {
-		expect(tableShiftWorld({x: 250, y: 0}, {x: 200})).toEqual([-0, 0, -50])
-		expect(tableShiftWorld({x: 200, y: 30}, {x: 200, y: 10})).toEqual([-20, 0, -0])
-	})
-
-	it('G54 origin rises by the film lift', () => {
-		const a = filmOriginMill(0, [0, 12, 0], [0, 0, 0])
-		const b = filmOriginMill(60, [0, 12, 0], [0, 0, 0])
-		expect(a).toEqual([0, 0, 12])
-		expect(b).toEqual([0, 0, 72])
+	it('rig ↔ world is the work offset', () => {
+		const offset: vec3 = [0, -1300, 0]
+		expect(worldToRig([1, 2, 3], offset)).toEqual([1, -1298, 3])
+		expect(rigToWorld(worldToRig([1, 2, 3], offset), offset)).toEqual([1, 2, 3])
 	})
 })
 
@@ -99,19 +90,33 @@ describe('kinematics', () => {
 	it('IK → FK round-trips a film-space pose', () => {
 		const cal = {
 			...DEFAULT_CALIBRATION,
-			pupilOffset: 80,
-			filmOriginWorld: [100, 20, -50] as vec3,
+			pupilOffset: [0, 0, -80] as vec3,
 			rigOffset: [5, -3, 7] as vec3,
 		}
 		const pose = {
 			position: [300, 400, 500] as vec3,
 			rotation: anglesToRotation({tilt: -25, pan: 60, roll: 3}),
 		}
-		const axes = cameraPoseToRigAxes(pose, 2, cal)
+		const axes = cameraPoseToRigAxes(pose, cal)
 		expect(near(axes.a, -25, 1e-4)).toBe(true)
 		expect(near(axes.b, 60, 1e-4)).toBe(true)
+	it('rotary zeros shift the commanded angles (the work zero of A/B/C)', () => {
+		const cal = {
+			...DEFAULT_CALIBRATION,
+			rotaryZero: {a: 12, b: -90, c: 1.5},
+			rotarySigns: {a: -1 as const, b: 1 as const, c: 1 as const},
+		}
+		const pose = {position: [0, 0, 0] as vec3, rotation: anglesToRotation({tilt: 10, pan: 20, roll: 3})}
+		const axes = cameraPoseToRigAxes(pose, cal)
+		expect(near(axes.a, 2, 1e-4)).toBe(true)
+		expect(near(axes.b, -70, 1e-4)).toBe(true)
+		expect(near(axes.c, 4.5, 1e-4)).toBe(true)
+		const back = rigAxesToCameraPose(axes, cal)
+		expect(quat.angle(back.rotation, pose.rotation) < 1e-4).toBe(true)
+	})
+
 		expect(near(axes.c, 3, 1e-4)).toBe(true)
-		const back = rigAxesToCameraPose(axes, 2, cal)
+		const back = rigAxesToCameraPose(axes, cal)
 		for (let i = 0; i < 3; i++) {
 			expect(near(back.position[i], pose.position[i], 1e-6)).toBe(true)
 		}
@@ -121,11 +126,102 @@ describe('kinematics', () => {
 	it('rotary signs flip the commanded angles', () => {
 		const cal = {...DEFAULT_CALIBRATION, rotarySigns: {a: -1 as const, b: 1 as const, c: -1 as const}}
 		const pose = {position: [0, 0, 0] as vec3, rotation: anglesToRotation({tilt: 10, pan: 20, roll: 30})}
-		const axes = cameraPoseToRigAxes(pose, 0, cal)
+		const axes = cameraPoseToRigAxes(pose, cal)
+describe('aim', () => {
+	const cal = {
+		...DEFAULT_CALIBRATION,
+		pupilOffset: [0, 0, -80] as vec3,
+		rigOffset: [-100, -500, 0] as vec3,
+		rotaryZero: {a: 5, b: -90, c: 2},
+		rotarySigns: {a: -1 as const, b: 1 as const, c: 1 as const},
+	}
+
+	/** Angle (deg) between the optical axis and the line pupil → target. */
+	function miss(axes: {x: number; y: number; z: number; a: number; b: number; c: number}, target: vec3) {
+		const pose = rigAxesToCameraPose(axes, cal) // film = world here
+		const forward = vec3.transformQuat([0, 0, -1], pose.rotation)
+		const to = vec3.normalize(vec3.sub(target, pose.position))
+		return (Math.acos(Math.min(1, vec3.dot(forward, to))) * 180) / Math.PI
+	}
+
+	it('puts the work point on the optical axis, roll untouched', () => {
+		for (const c of [2, 14, -28]) {
+			const axes = {x: 150, y: -180, z: 320, a: 40, b: 200, c}
+			for (const target of [[0, 0, 0], [30, 60, -20], [-200, 10, 400]] as vec3[]) {
+				const aim = aimRigAxes(axes, target, cal)!
+				expect(Object.keys(aim).sort()).toEqual(['a', 'b'])
+				// acos near 1 only resolves ~1e-6°.
+				expect(miss({...axes, ...aim}, target)).toBeLessThan(1e-4)
+			}
+		}
+	})
+
+	it('turns pan the shorter way from where it is', () => {
+		const target: vec3 = [0, 0, 0]
+		const near = aimRigAxes({x: 150, y: -180, z: 320, a: 0, b: 0, c: 2}, target, cal)!
+		const far = aimRigAxes({x: 150, y: -180, z: 320, a: 0, b: 720, c: 2}, target, cal)!
+		expect(Math.abs(near.b)).toBeLessThanOrEqual(180)
+		expect(far.b - near.b).toBeCloseTo(720)
+	})
+
+	it('keeps pan for a point straight below, gives up at the centre itself', () => {
+		const axes = {x: -100, y: -200, z: 0, a: 0, b: 33, c: 2} // centre at world (0, 300, 0), no roll
+		const aim = aimRigAxes(axes, [0, 0, 0], cal)!
+		expect(aim.b).toBeCloseTo(33)
+		expect(aim.a).toBeCloseTo(-1 * -90 + 5)
+		expect(aimRigAxes(axes, [0, 300, 0], cal)).toBeNull()
+	})
+})
+
+describe('rotate about the pupil', () => {
+	const cal = {
+		...DEFAULT_CALIBRATION,
+		pupilOffset: [4, -2, -80] as vec3,
+		rigOffset: [-100, -500, 0] as vec3,
+		rotaryZero: {a: 5, b: -90, c: 2},
+		rotarySigns: {a: -1 as const, b: 1 as const, c: 1 as const},
+	}
+	const axes = {x: 20, y: -400, z: 300, a: 15, b: -60, c: 3}
+
+	it('keeps the pupil where it is and turns the camera by the delta', () => {
+		const before = rigAxesToCameraPose(axes, cal)
+		for (const delta of [{pan: 10}, {tilt: -7}, {roll: 20}, {pan: 5, tilt: 5, roll: -5}]) {
+			const target = rotateAboutPupil(axes, delta, cal)
+			const after = rigAxesToCameraPose(target, cal)
+			for (let i = 0; i < 3; i++) {
+				expect(near(after.position[i], before.position[i], 1e-6)).toBe(true)
+			}
+			// (quat.angle is NaN when the dot rounds just past 1, so compare dots.)
+			expect(Math.abs(quat.dot(after.rotation, orbitAboutPupil(before, delta).rotation))).toBeCloseTo(1, 8)
+		}
+	})
+
+	it('pan is about world Y: a tilted camera stays level', () => {
+		const target = rotateAboutPupil(axes, {pan: 30}, cal)
+		expect(near(target.a, axes.a, 1e-6)).toBe(true)
+		expect(near(target.c, axes.c, 1e-6)).toBe(true)
+		expect(near(target.b, axes.b + 30, 1e-6)).toBe(true)
+	})
+
+	it('moves the head only as far as the offset makes it', () => {
+		// With no offset the head centre is the pupil: X/Y/Z stay.
+		const noOffset = {...cal, pupilOffset: [0, 0, 0] as vec3}
+		const target = rotateAboutPupil(axes, {pan: 30, tilt: 10}, noOffset)
+		expect(near(target.x, axes.x, 1e-6)).toBe(true)
+		expect(near(target.y, axes.y, 1e-6)).toBe(true)
+		expect(near(target.z, axes.z, 1e-6)).toBe(true)
+	})
+
+	it('takes the rotaries the short way round', () => {
+		const target = rotateAboutPupil({...axes, b: 350}, {pan: 20}, cal)
+		expect(near(target.b, 370, 1e-6)).toBe(true)
+	})
+})
+
 		expect(near(axes.a, -10, 1e-4)).toBe(true)
 		expect(near(axes.b, 20, 1e-4)).toBe(true)
 		expect(near(axes.c, -30, 1e-4)).toBe(true)
-		const back = rigAxesToCameraPose(axes, 0, cal)
+		const back = rigAxesToCameraPose(axes, cal)
 		expect(quat.angle(back.rotation, pose.rotation) < 1e-4).toBe(true)
 	})
 })
@@ -134,22 +230,16 @@ describe('orbit', () => {
 	it('rotates the whole camera pose about the vertical axis at X = Z = 0', () => {
 		const cal = {
 			...DEFAULT_CALIBRATION,
-			pupilOffset: 80,
+			pupilOffset: [0, 0, -80] as vec3,
 			rigOffset: [30, -1300, -20] as vec3,
 			rotarySigns: {a: 1, b: -1, c: 1} as const,
 		}
 		const axes = {x: 300, y: -400, z: 450, a: -20, b: 35, c: 4}
-		const before = rigAxesToCameraPose(axes, 0, cal)
-		const after = rigAxesToCameraPose({...axes, ...orbitRigAxes(axes, 25, cal)}, 0, cal)
+		const before = rigAxesToCameraPose(axes, cal)
+		const after = rigAxesToCameraPose({...axes, ...orbitRigAxes(axes, 25, cal)}, cal)
 
 		const turn = quat.fromAxisAngle([0, 1, 0], 25)
-		const origin = cal.filmOriginWorld
-		// Poses are in film coordinates: rotate about the world axis.
-		const expected = worldToFilm(
-			vec3.transformQuat(filmToWorld(before.position, 0, origin), turn),
-			0,
-			origin
-		)
+		const expected = vec3.transformQuat(before.position, turn)
 		expect(vec3.distance(after.position, expected)).toBeLessThan(1e-6)
 		const q = quat.mul(turn, before.rotation)
 		expect(Math.abs(quat.dot(after.rotation, q))).toBeCloseTo(1, 9)
@@ -228,6 +318,26 @@ describe('led sampler', () => {
 		const lines = sampleLedFrame(layout, img, {topFilmY: 1500, lift: 0})
 		expect(lines.length).toBe(8)
 		expect([...lines[0].slice(0, 3)]).toEqual([255, 0, 0])
+	it('glides the pupil in a straight line between six-axis keys', () => {
+		const cal = {pupilOffset: [0, 0, -80] as vec3, rotarySigns: {a: 1 as const, b: 1 as const, c: 1 as const}}
+		const a = {rig: {x: 0, y: 0, z: 0, a: 0, b: 0, c: 0}}
+		const b = {rig: {x: 0, y: 0, z: 0, a: 0, b: 90, c: 0}}
+		// Same head centre, a quarter turn: the pupil goes from (0,0,−80) to
+		// (−80,0,0); half way the pupil is on the chord, not where the head is.
+		const mid = interpolatePlan(a, b, 0.5, cal).rig!
+		expect(mid.b).toBeCloseTo(45)
+		const pupil = workAxesToCameraPose(mid, cal).position
+		expect(pupil[0]).toBeCloseTo(-40)
+		expect(pupil[2]).toBeCloseTo(-40)
+		expect(mid.x).not.toBeCloseTo(0)
+		// Without the calibration (or with no offset) the axes are plain lerps.
+		expect(interpolatePlan(a, b, 0.5).rig).toEqual({x: 0, y: 0, z: 0, a: 0, b: 45, c: 0})
+		const flat = interpolatePlan(a, b, 0.5, {...cal, pupilOffset: [0, 0, 0]}).rig
+		expect(flat).toEqual({x: 0, y: 0, z: 0, a: 0, b: 45, c: 0})
+		// A key missing an axis falls back to per-axis.
+		expect(interpolatePlan({rig: {x: 0, b: 0}}, {rig: {x: 10, b: 90}}, 0.5, cal).rig).toEqual({x: 5, b: 45})
+	})
+
 		expect([...lines[1].slice(0, 3)]).toEqual([255, 0, 0])
 		expect([...lines[2].slice(0, 3)]).toEqual([0, 255, 0])
 		expect([...lines[5].slice(0, 3)]).toEqual([0, 0, 255])
@@ -269,6 +379,90 @@ describe('led layout from set.json', () => {
 			{name: 'L1', pixels: [[-0.95, 0.3936, 0.9, 0.0955] as [number, number, number, number]]},
 			{name: 'L2', pixels: []},
 		],
+
+describe('stored rig axes', () => {
+	const legacy = () => ({
+		addsub: {
+			...structuredClone(DEFAULT_ADDSUB_DATA),
+			calibration: {
+				...structuredClone(DEFAULT_CALIBRATION),
+				rigOffset: [-100, -500, 0] as vec3,
+				rotaryZero: {a: 0, b: 90, c: 0},
+			},
+			plan: {main: {3: {rig: {x: -90, y: -550.5}}, 4: {cameraConfigs: {iso: 100}}}},
+			parkPose: {x: 0, y: -100, z: 0, a: 0, b: 90, c: 0},
+		},
+		komas: [
+			{shots: [{rig: {x: -123.456, y: -550.5, z: 320, a: -86.019, b: 12.5, c: 0}}, null]},
+			{shots: [null], backupShots: [{rig: {x: 1, y: 2, z: 3}}]},
+			null,
+		],
+		trash: [{shot: {rig: {x: -100, y: -500, z: 0}}}],
+	})
+
+	it('turns a scalar pupil distance into the camera-space offset', () => {
+		const project = {
+			addsub: {calibration: {...DEFAULT_CALIBRATION, pupilOffset: 80 as unknown as vec3}, plan: {}, rigLimits: {}},
+			komas: [],
+		} as any
+		migrateAddsubData(project)
+		expect(project.addsub.calibration.pupilOffset).toEqual([0, 0, -80])
+		migrateAddsubData(project)
+		expect(project.addsub.calibration.pupilOffset).toEqual([0, 0, -80])
+	})
+
+	it('drops the retired block / shoot-position / G54 settings and shot lifts', () => {
+		const project = {
+			addsub: {
+				...DEFAULT_ADDSUB_DATA,
+				plan: {},
+				calibration: {...DEFAULT_CALIBRATION, filmOriginWorld: [0, 12, 0], millOffset: [1, 2, 3]},
+				kBase: 1,
+				filmLift: 60,
+				blockHeight: 60,
+				shootPosition: {x: 200},
+				millFeed: 1000,
+				ledOptional: true,
+				cutSetsWorkOffset: true,
+			},
+			komas: [{shots: [{rig: {x: 1}, filmLift: 60, kBase: 1}]}],
+			trash: [{shot: {rig: {x: 2}, filmLift: 0}}],
+		} as any
+		migrateAddsubData(project)
+		for (const key of ['kBase', 'filmLift', 'blockHeight', 'shootPosition', 'millFeed', 'ledOptional', 'cutSetsWorkOffset']) {
+			expect(key in project.addsub).toBe(false)
+		}
+		expect('filmOriginWorld' in project.addsub.calibration).toBe(false)
+		expect('millOffset' in project.addsub.calibration).toBe(false)
+		expect(project.komas[0].shots[0]).toEqual({rig: {x: 1}})
+		expect(project.trash[0].shot).toEqual({rig: {x: 2}})
+	})
+
+	it('a file in machine coordinates is converted to work coordinates once', () => {
+		const p = legacy()
+		migrateAddsubData(p, {rigInMachine: true})
+		expect(p.addsub.rigStorage).toBe('work')
+		expect(p.addsub.rigRebase).toBe(true)
+		expect(p.addsub.plan.main[3].rig).toEqual({x: 10, y: -50.5})
+		expect(p.komas[0]!.shots[0]!.rig).toEqual({x: -23.456, y: -50.5, z: 320, a: -86.019, b: -77.5, c: 0})
+		expect(p.komas[1]!.backupShots![0].rig).toEqual({x: 101, y: 502, z: 3})
+		expect(p.trash[0].shot.rig).toEqual({x: 0, y: 0, z: 0})
+		expect(p.addsub.parkPose).toEqual({x: 100, y: 400, z: 0, a: 0, b: 0, c: 0})
+		// Already in work coordinates: left alone.
+		migrateAddsubData(p)
+		expect(p.addsub.plan.main[3].rig).toEqual({x: 10, y: -50.5})
+	})
+
+	it('re-basing keeps machine = work + offset when the offset changes', () => {
+		const p = legacy()
+		migrateAddsubData(p, {rigInMachine: true})
+		// The controller says the work origin is at machine Y −480, not −500.
+		shiftStoredRigAxes(p, {y: -500 - -480})
+		expect(p.addsub.plan.main[3].rig).toEqual({x: 10, y: -70.5})
+		expect(p.addsub.plan.main[3].rig.y + -480).toBeCloseTo(-550.5)
+	})
+})
+
 	}
 	const rigOffset: vec3 = [-600, -1300, -600]
 

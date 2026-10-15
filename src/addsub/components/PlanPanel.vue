@@ -1,7 +1,8 @@
 <script lang="ts" setup>
 /**
  * Edit the plan of the *selected* timeline cell (viewport.currentFrame /
- * currentLayer): rig axes as numbers with the travel limits as sliders,
+ * currentLayer): rig axes (work coordinates, as stored) as numbers with the
+ * travel limits as sliders,
  * camera settings with the same inputs the camera panel uses (the connected
  * camera's option lists; a plain field while no camera is connected).
  *
@@ -20,14 +21,19 @@ import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 import {AXES, type AxesPosition,type Axis} from '@/utils/fluidnc'
 
+import {workAxesToCameraPose} from '../kinematics'
 import {type FramePlan, PLAN_CAMERA_CONFIG_NAMES, type PlanCameraConfigName} from '../plan'
+import {useLedStore} from '../stores/led'
 import {useRigStore} from '../stores/machines'
+import {useRigWorkStore} from '../stores/rigWork'
 import {useSequenceStore} from '../stores/sequence'
 
 const project = useProjectStore()
+const led = useLedStore()
 const viewport = useViewportStore()
 const camera = useCameraStore()
 const rig = useRigStore()
+const rigWork = useRigWorkStore()
 const sequence = useSequenceStore()
 
 const frame = computed(() => viewport.currentFrame)
@@ -56,33 +62,90 @@ function write(plan: FramePlan) {
 	sequence.setPlan(frame.value, plan, layer.value)
 }
 
-/** Start values for the axes when the plan has none: the rig now, else 0. */
+/** Where the rig is now, in work coordinates (0 while it isn't connected). */
+function rigNow(axis: Axis) {
+	const machine = rig.connected ? rig.mpos[axis] : undefined
+	return machine === undefined ? 0 : rigWork.axisToWork(axis, machine)
+}
+
+/** Start values for the axes when the plan has none: the rig now. */
 function seedRig(): AxesPosition {
 	const out: AxesPosition = {}
-	for (const a of AXES) out[a] = rig.connected ? (rig.mpos[a] ?? 0) : 0
+	for (const a of AXES) out[a] = rigNow(a)
 	return out
 }
 
+/** The planned axes (work coordinates). */
 const rigValues = computed<AxesPosition>(() => effective.value?.plan.rig ?? {})
 
+/** What an axis field shows: the planned position, else where the rig is now. */
+function shownAxis(axis: Axis) {
+	return rigValues.value[axis] ?? rigNow(axis)
+}
+
 function setAxis(axis: Axis, value: number) {
+	// The input writes back what it shows, quantized to its step: not an edit
+	// (it would turn an interpolated plan into a key just by being selected).
+	if (Math.abs(value - shownAxis(axis)) < 0.0005) return
+	// Clamped here, on a real edit — not by the input (see the template).
+	const [min, max] = axisLimits(axis)
+	const clamped = Math.min(Math.max(value, min), max)
 	const plan = basePlan()
-	const rigAxes: AxesPosition = {...(plan.rig ?? seedRig()), [axis]: value}
+	const rigAxes: AxesPosition = {...(plan.rig ?? seedRig()), [axis]: clamped}
 	delete plan.camera
 	write({...plan, rig: rigAxes})
 }
 
+/** Slider range in work coordinates (the travel limits are machine). */
 function axisLimits(axis: Axis): [number, number] {
 	const lim = project.addsub.rigLimits[axis]
-	if (lim) return lim
+	if (lim) return [rigWork.axisToWork(axis, lim[0]), rigWork.axisToWork(axis, lim[1])]
 	return axis === 'a' || axis === 'b' || axis === 'c' ? [-180, 180] : [0, 1500]
 }
 
-function isRotary(axis: Axis) {
-	return axis === 'a' || axis === 'b' || axis === 'c'
-}
+// The six axes as two rows of three, like a transform: the unit is the
+// row's, so the fields carry only the number.
+const rigRows: {label: string; icon: string; axes: Axis[]; hint: string}[] = [
+	{
+		label: 'Position',
+		icon: 'mdi:axis-arrow',
+		axes: ['x', 'y', 'z'],
+		hint: 'X · Y · Z — work coordinates, mm',
+	},
+	{
+		label: 'Rotation',
+		icon: 'mdi:rotate-orbit',
+		axes: ['a', 'b', 'c'],
+		hint: 'A · B · C (tilt · pan · roll) — work coordinates, degrees',
+	},
+]
+
+/**
+ * Where the entrance pupil is for the axes shown (world mm): what the picture
+ * is taken from, as opposed to the head centre the axes place. Read-only —
+ * the axes are what is stored.
+ */
+const pupilWorld = computed(() => {
+	const axes: AxesPosition = {}
+	for (const a of AXES) axes[a] = shownAxis(a)
+	return workAxesToCameraPose(axes, project.addsub.calibration).position
+})
 
 const cameraValues = computed(() => (effective.value?.plan.cameraConfigs ?? {}) as Partial<ConfigType>)
+
+/** The planned wall (a record file), shown by its hash. */
+const plannedLed = computed(() => effective.value?.plan.led)
+const plannedLedText = computed(() => {
+	const f = plannedLed.value?.file
+	if (!f) return ''
+	return f.replace(/^.*\//, '').replace(/\.ledwall$/, '')
+})
+
+function clearLed() {
+	const plan = basePlan()
+	delete plan.led
+	write(plan)
+}
 
 function setCameraConfig(name: PlanCameraConfigName, value: unknown) {
 	const plan = basePlan()
@@ -227,27 +290,69 @@ void (PLAN_CAMERA_CONFIG_NAMES satisfies readonly ConfigName[])
 		<!-- Rig axes: the travel limits give the slider its range. Editing an
 		     interpolated plan makes it this frame's own (all six axes). -->
 		<Tq.Parameter
-			v-for="axis in AXES"
-			:key="axis"
-			:label="axis.toUpperCase()"
-			:hint="{
-				title: `Planned ${axis.toUpperCase()}`,
-				description: isRotary(axis) ? 'Machine coordinates, degrees' : 'Machine coordinates, mm',
-			}"
+			v-for="row in rigRows"
+			:key="row.label"
+			:label="row.label"
+			:icon="row.icon"
+			:hint="row.hint"
 		>
-			<!-- The step is the stored resolution, not a drag increment: InputNumber
-			     writes back the value quantized to it as soon as it shows one, so
-			     a coarse step would round every plan that is merely selected. -->
-			<Tq.InputNumber
-				:modelValue="rigValues[axis] ?? (rig.connected ? (rig.mpos[axis] ?? 0) : 0)"
-				:min="axisLimits(axis)[0]"
-				:max="axisLimits(axis)[1]"
-				:precision="3"
-				:step="0.001"
-				:suffix="isRotary(axis) ? ' °' : ' mm'"
-				:class="{unset: rigValues[axis] === undefined}"
-				@update:modelValue="setAxis(axis, $event)"
-			/>
+			<Tq.InputGroup>
+				<!-- The step is the stored resolution, not a drag increment: InputNumber
+				     writes back the value quantized to it as soon as it shows one, so
+				     a coarse step would round every plan that is merely selected.
+				     It must not clamp either: it clamps (and writes back) a new value
+				     against the range it had before, so a plan would be rewritten
+				     whenever the work offset — the value and the range — changes. -->
+				<Tq.InputNumber
+					v-for="axis in row.axes"
+					:key="axis"
+					:modelValue="shownAxis(axis)"
+					:min="axisLimits(axis)[0]"
+					:max="axisLimits(axis)[1]"
+					:clampMin="false"
+					:clampMax="false"
+					:precision="3"
+					:step="0.001"
+					:class="{unset: rigValues[axis] === undefined}"
+					@update:modelValue="setAxis(axis, $event)"
+				/>
+			</Tq.InputGroup>
+		</Tq.Parameter>
+
+		<Tq.Parameter
+			label="Pupil"
+			icon="mdi:eye-outline"
+			hint="Entrance pupil for the axes above — world coordinates, mm. Derived from the calibration's pupil offset; the axes are what is stored."
+		>
+			<div class="pupil tq-font-numeric" :class="{unset: !rigValues.x}">
+				<span v-for="(v, i) in pupilWorld" :key="i">{{ v.toFixed(1) }}</span>
+			</div>
+		</Tq.Parameter>
+
+		<Tq.Parameter
+			label="LED"
+			icon="mdi:led-strip-variant"
+			hint="The wall for this frame: a recorded wall (led-wall/*.ledwall) put back pixel for pixel before the shot. Set from Houdini (Send Plans)."
+		>
+			<div class="row">
+				<span class="tq-font-numeric" :class="{mute: !plannedLed}">{{ plannedLedText || '—' }}</span>
+				<Tq.InputButton
+					v-if="plannedLed"
+					icon="mdi:lightbulb-on-outline"
+					label="Show"
+					tooltip="Put this wall on the LEDs now"
+					:disabled="sequence.running"
+					@click="run(() => led.showWallRecord(plannedLed!.file))"
+				/>
+				<Tq.InputButton
+					v-if="plannedLed"
+					icon="mdi:close"
+					subtle
+					narrow
+					tooltip="Take the wall out of this frame's plan"
+					@click="clearLed"
+				/>
+			</div>
 		</Tq.Parameter>
 
 		<!-- Camera settings: the connected camera's choices; free text without one. -->
@@ -303,4 +408,13 @@ void (PLAN_CAMERA_CONFIG_NAMES satisfies readonly ConfigName[])
 
 .unset
 	opacity 0.5
+
+.pupil
+	display grid
+	grid-template-columns repeat(3, 1fr)
+	gap var(--tq-gap-control)
+	color var(--tq-color-text-mute)
+
+	span
+		text-align right
 </style>

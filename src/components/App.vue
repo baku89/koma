@@ -350,7 +350,6 @@ const {fn: shoot} = preventConcurrentExecution(
 				// addsub: what the machines and the wall were doing (§13).
 				rig: rig.connected ? {...rig.mpos} : undefined,
 				mill: mill.connected ? {...mill.mpos} : undefined,
-				filmLift: project.addsub.filmLift,
 				led: await ledRecord,
 				previzFrame: frame + project.addsub.previzFrameOffset,
 				cut: cutRecordFor(frame, layer),

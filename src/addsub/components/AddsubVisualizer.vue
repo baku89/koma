@@ -31,13 +31,20 @@ import {useViewportStore} from '@/stores/viewport'
 import type {AxesPosition, Axis} from '@/utils/fluidnc'
 import type {CompactToolpath} from '@/utils/fluidnc/toolpath.worker'
 
-import {filmOriginMill, filmToWorld, millToWorld, tableShiftWorld} from '../coords'
-import {orbitRigAxes, rigAxesToCameraPose} from '../kinematics'
-import {ledBottomY} from '../led/layout'
+import {millToWorld} from '../coords'
+import {
+	orbitRigAxes,
+	rigAxesToCameraPose,
+	rotateAboutPupil,
+	rotationCentre,
+	type RotationDelta,
+} from '../kinematics'
+import {LED_WALL} from '../led/layout'
 import {effectivePlanFor, type FramePlan, interpolatedFrames, planFor, plannedFrames} from '../plan'
 import {useLedStore} from '../stores/led'
 import {useMillStore, useRigStore} from '../stores/machines'
 import {usePrevizStore} from '../stores/previz'
+import {useRigWorkStore} from '../stores/rigWork'
 import {useSequenceStore} from '../stores/sequence'
 
 const Tq = useTweeq()
@@ -45,6 +52,7 @@ const project = useProjectStore()
 const viewport = useViewportStore()
 const mill = useMillStore()
 const rig = useRigStore()
+const rigWork = useRigWorkStore()
 const led = useLedStore()
 const previz = usePrevizStore()
 const sequence = useSequenceStore()
@@ -52,19 +60,17 @@ const sequence = useSequenceStore()
 const S = 0.001 // mm → m
 
 const cal = computed(() => project.addsub.calibration)
-const filmLift = computed(() => project.addsub.filmLift)
 
 //------------------------------------------------------------------------------
 // Poses
 
 /** Current camera pose (world) from the rig's reported axes. */
-const cameraPoseWorld = computed(() => {
-	const pose = rigAxesToCameraPose(rig.mpos, filmLift.value, cal.value)
-	return {
-		position: filmToWorld(pose.position, filmLift.value, cal.value.filmOriginWorld),
-		rotation: pose.rotation,
-	}
-})
+const cameraPoseWorld = computed(() => rigAxesToCameraPose(rig.mpos, cal.value))
+
+/** The head's rotation centre (world): the pupil pulled back by the offset. */
+const headCentreWorld = computed(() =>
+	rotationCentre(cameraPoseWorld.value, cal.value.pupilOffset)
+)
 
 const cameraObject = computed(() => matrixToThree(
 	mat4.fromRotationTranslation(
@@ -73,34 +79,27 @@ const cameraObject = computed(() => matrixToThree(
 	)
 ))
 
-/** Tool tip and block stack in world (see coords.ts). */
-const tableShift = computed(() =>
-	tableShiftWorld(mill.mpos, project.addsub.shootPosition)
-)
-
+/**
+ * Tool tip in world: the mill's work coordinates, whose zero is taken to be
+ * the world origin (coords.ts). Axes the mill hasn't reported count as 0.
+ */
 const toolTipWorld = computed(() => {
-	const m = mill.mpos
-	const p = millToWorld([m.x ?? 0, m.y ?? 0, m.z ?? 0], cal.value.millOffset)
-	return vec3.add(p, tableShift.value)
+	const w = mill.wpos
+	return millToWorld([w.x ?? 0, w.y ?? 0, w.z ?? 0])
 })
-
-const blockOriginWorld = computed(() =>
-	vec3.add(filmToWorld([0, 0, 0], 0, cal.value.filmOriginWorld), tableShift.value)
-)
-
-// Nominal block for display (mm): the project's block height; the footprint
-// isn't specified, so draw a cube. Two blocks high = the mill's max stack.
-const blockHeight = computed(() => project.addsub.blockHeight)
 
 //------------------------------------------------------------------------------
 // LED wall outline
 
-const wall = computed(() => {
-	const p = project.addsub.led.layout
-	const top = p.topY * S
-	const bottom = ledBottomY(p) * S
-	return {top, bottom, hx: (p.sizeX / 2) * S, hz: (p.sizeZ / 2) * S}
-})
+// The LED planes (led/layout.ts), scaled to scene units.
+const wall = {
+	top: LED_WALL.y[1] * S,
+	bottom: LED_WALL.y[0] * S,
+	x0: LED_WALL.x[0] * S,
+	x1: LED_WALL.x[1] * S,
+	z0: LED_WALL.z[0] * S,
+	z1: LED_WALL.z[1] * S,
+}
 
 //------------------------------------------------------------------------------
 // Renderer plumbing
@@ -148,11 +147,12 @@ function onRendererReady(trois: any) {
 	guide.add(new THREE.GridHelper(4, 40, 0x555555, 0x333333))
 	guide.add(new THREE.AxesHelper(0.5))
 	guide.add(outline)
+	guide.add(wallLabels())
 }
 
 //------------------------------------------------------------------------------
 // Set geometry from previz/set.json (glTF exported by Houdini, mm). While
-// none is loaded, the parametric wall outline stands in.
+// none is loaded, the outline of the LED planes stands in.
 
 const outline = new THREE.Group()
 const setGroup = new THREE.Group()
@@ -199,30 +199,76 @@ watch(
 )
 
 function wallOutline() {
-	const {top, bottom, hx, hz} = wall.value
+	const {top, bottom, x0, x1, z0, z1} = wall
 	const pts: THREE.Vector3[] = []
 	for (const y of [top, bottom]) {
 		const ring = [
-			[-hx, y, hz],
-			[-hx, y, -hz],
-			[hx, y, -hz],
-			[hx, y, hz],
-			[-hx, y, hz],
+			[x0, y, z1],
+			[x0, y, z0],
+			[x1, y, z0],
+			[x1, y, z1],
+			[x0, y, z1],
 		]
 		for (let i = 0; i < ring.length - 1; i++) {
 			pts.push(new THREE.Vector3(...ring[i]), new THREE.Vector3(...ring[i + 1]))
 		}
 	}
 	for (const [x, z] of [
-		[-hx, hz],
-		[-hx, -hz],
-		[hx, -hz],
-		[hx, hz],
+		[x0, z1],
+		[x0, z0],
+		[x1, z0],
+		[x1, z1],
 	]) {
 		pts.push(new THREE.Vector3(x, top, z), new THREE.Vector3(x, bottom, z))
 	}
 	const geo = new THREE.BufferGeometry().setFromPoints(pts)
 	return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({color: 0x666666}))
+}
+
+/**
+ * A faint L / B / R / F on the centre of each LED plane, as a plate standing
+ * in the wall. Two single-sided plates back to back, so the letter reads the
+ * right way round from inside the box and from outside.
+ */
+function wallLabels() {
+	const group = new THREE.Group()
+	const {top, bottom, x0, x1, z0, z1} = wall
+	const y = (top + bottom) / 2
+	const size = 0.5
+	const faces: {letter: string; pos: [number, number, number]; normal: [number, number, number]}[] = [
+		{letter: 'L', pos: [x0, y, (z0 + z1) / 2], normal: [1, 0, 0]},
+		{letter: 'B', pos: [(x0 + x1) / 2, y, z0], normal: [0, 0, 1]},
+		{letter: 'R', pos: [x1, y, (z0 + z1) / 2], normal: [-1, 0, 0]},
+		{letter: 'F', pos: [(x0 + x1) / 2, y, z1], normal: [0, 0, -1]},
+	]
+	for (const {letter, pos, normal} of faces) {
+		const canvas = document.createElement('canvas')
+		canvas.width = canvas.height = 128
+		const ctx = canvas.getContext('2d')!
+		ctx.fillStyle = '#ffffff'
+		ctx.font = 'bold 110px sans-serif'
+		ctx.textAlign = 'center'
+		ctx.textBaseline = 'middle'
+		ctx.fillText(letter, 64, 70)
+		const texture = new THREE.CanvasTexture(canvas)
+		texture.colorSpace = THREE.SRGBColorSpace
+		const material = new THREE.MeshBasicMaterial({
+			map: texture,
+			color: 0x888888,
+			transparent: true,
+			opacity: 0.35,
+			depthWrite: false,
+			side: THREE.FrontSide,
+		})
+		const n = new THREE.Vector3(...normal)
+		for (const sign of [1, -1]) {
+			const plate = new THREE.Mesh(new THREE.PlaneGeometry(size, size), material)
+			plate.position.set(...pos)
+			plate.lookAt(new THREE.Vector3(...pos).addScaledVector(n, sign))
+			group.add(plate)
+		}
+	}
+	return group
 }
 
 //------------------------------------------------------------------------------
@@ -371,24 +417,10 @@ watch(sentLines, sent => {
 	if (toolpathData.value) fillToolpathColors(toolpathData.value, sent)
 })
 
-// Where the file's origin (work zero) is in the mill's machine coordinates:
-// the film origin when the cut points G54 there first (§7.1), otherwise the
-// work offset the controller holds now — the one the G-code will run in.
-const toolpathOriginMill = computed<vec3>(() => {
-	if (project.addsub.cutSetsWorkOffset) {
-		return filmOriginMill(filmLift.value, cal.value.filmOriginWorld, cal.value.millOffset)
-	}
-	const m = mill.mpos
-	const w = mill.wpos
-	const wco = (a: 'x' | 'y' | 'z') => (m[a] ?? 0) - (w[a] ?? m[a] ?? 0)
-	return [wco('x'), wco('y'), wco('z')]
-})
-
-// The same in world, shifted with the table like the tool tip marker, so the
-// marker sits on the path where the tool is in the program.
-const toolpathOriginWorld = computed(() =>
-	vec3.add(millToWorld(toolpathOriginMill.value, cal.value.millOffset), tableShift.value)
-)
+// The file runs in the mill's work zero, which is the world origin
+// (coords.ts): the path sits there, and the tool marker, drawn from the same
+// work coordinates, lands on it where the tool is in the program.
+const toolpathOriginWorld = computed<vec3>(() => [0, 0, 0])
 
 watch(
 	toolpathOriginWorld,
@@ -419,10 +451,8 @@ const shotPositions = computed(() => {
 	project.komas.forEach(koma => {
 		const shot = koma?.shots[0]
 		if (!shot?.rig) return
-		const lift = shot.filmLift ?? filmLift.value
-		const pose = rigAxesToCameraPose(shot.rig, lift, cal.value)
-		const w = filmToWorld(pose.position, lift, cal.value.filmOriginWorld)
-		pts.push(new THREE.Vector3(...vec3.scale(w, S)))
+		const pose = rigAxesToCameraPose(rigWork.toMachine(shot.rig), cal.value)
+		pts.push(new THREE.Vector3(...vec3.scale(pose.position, S)))
 	})
 	return pts
 })
@@ -442,8 +472,7 @@ const previzPositions = computed(() => {
 	for (let f = from; f < from + 400; f++) {
 		const pf = previz.frameFor(f)
 		if (!pf?.pose) break
-		const w = filmToWorld(pf.pose.position, filmLift.value, cal.value.filmOriginWorld)
-		pts.push(new THREE.Vector3(...vec3.scale(w, S)))
+		pts.push(new THREE.Vector3(...vec3.scale(pf.pose.position, S)))
 	}
 	return pts
 })
@@ -458,17 +487,15 @@ watch(
 )
 
 function planWorldPoint(plan: FramePlan): THREE.Vector3 | null {
-	const lift = filmLift.value
 	let pose: {position: vec3} | null = null
 	if (plan.rig) {
 		// Axes the plan leaves out stay where the rig is now.
-		pose = rigAxesToCameraPose({...rig.mpos, ...plan.rig}, lift, cal.value)
+		pose = rigAxesToCameraPose({...rig.mpos, ...rigWork.toMachine(plan.rig)}, cal.value)
 	} else if (plan.camera) {
 		pose = plan.camera
 	}
 	if (!pose) return null
-	const w = filmToWorld(pose.position, lift, cal.value.filmOriginWorld)
-	return new THREE.Vector3(...vec3.scale(w, S))
+	return new THREE.Vector3(...vec3.scale(pose.position, S))
 }
 
 const planPositions = computed(() => {
@@ -568,6 +595,17 @@ interface Arrow {
 type GizmoSpace = 'local' | 'global'
 const gizmoSpace = Tq.config.ref<GizmoSpace>('addsub.view.gizmoSpace', 'local')
 
+// What the rotation rings turn the camera about: the head's own rotation
+// centre (one rotary axis, as the controller sees it) or the entrance pupil
+// (X/Y/Z move along so the picture swings without parallax, §11.2).
+type RotatePivot = 'head' | 'pupil'
+const rotatePivot = Tq.config.ref<RotatePivot>('addsub.view.rotatePivot', 'pupil')
+
+/** Where the rotation rings sit (world mm). */
+const rotPivotWorld = computed(() =>
+	rotatePivot.value === 'pupil' ? cameraPoseWorld.value.position : headCentreWorld.value
+)
+
 const RIG_AXES: {axis: 'x' | 'y' | 'z'; unit: vec3; color: string}[] = [
 	{axis: 'x', unit: [1, 0, 0], color: '#ff5555'},
 	{axis: 'y', unit: [0, 1, 0], color: '#55ff55'},
@@ -628,9 +666,12 @@ function arrowAt(position: vec3, dir: vec3) {
 
 /**
  * Rotation jogs for the head (§11.2): pairs of tangential cones on a ring
- * around the camera. Pan (B) turns about world Y; tilt (A) and roll (C) ride
- * on the camera's own X and Z, so their rings follow the camera rotation.
- * Which physical direction each sign is has to be confirmed on the machine.
+ * around the pivot (head centre or pupil). Pan (B) turns about world Y; tilt
+ * (A) and roll (C) ride on the camera's own X and Z, so their rings follow
+ * the camera rotation. About the head, a click is one raw step of that axis
+ * (its physical direction has to be confirmed on the machine); about the
+ * pupil, one step of the pan / tilt / roll angle, which goes through the
+ * calibration's rotary signs.
  */
 interface RotArrow {
 	axis: Axis
@@ -641,7 +682,7 @@ interface RotArrow {
 }
 
 const rotArrows = computed<RotArrow[]>(() => {
-	const c = vec3.scale(cameraPoseWorld.value.position, S)
+	const c = vec3.scale(rotPivotWorld.value, S)
 	const R = cameraPoseWorld.value.rotation
 	const local = (v: vec3) => vec3.transformQuat(v, R)
 	const out: RotArrow[] = []
@@ -667,9 +708,46 @@ function rotArrowKey(a: RotArrow) {
 	return `rot${a.axis}${a.sign}`
 }
 
+const ROTATION_NAMES: Partial<Record<Axis, keyof RotationDelta>> = {a: 'tilt', b: 'pan', c: 'roll'}
+
 function onRotArrowClick(a: RotArrow) {
 	if (!rig.connected || sequence.running) return
-	rig.jogStepAxis(a.axis, a.sign).catch(() => {})
+	if (rotatePivot.value === 'head') {
+		rig.jogStepAxis(a.axis, a.sign).catch(() => {})
+		return
+	}
+	const name = ROTATION_NAMES[a.axis]
+	if (!name || rig.mpos.x === undefined) return
+	const target = rotateAboutPupil(rig.mpos, {[name]: a.sign * rig.jogStep}, cal.value)
+	jogToMachineTarget(target, `${AXIS_LABELS[a.axis]} about the pupil`)
+}
+
+/**
+ * One relative jog that ends at `target` (machine coordinates, the axes
+ * given), refused with a notice when a linear axis would leave the travel:
+ * these moves depend on where the rig really is, so they're checked here
+ * rather than left to the controller.
+ */
+function jogToMachineTarget(target: AxesPosition, what: string) {
+	const limits = project.addsub.rigLimits
+	for (const axis of ['x', 'y', 'z'] as const) {
+		const range = limits[axis]
+		const v = target[axis]
+		if (range && v !== undefined && (v < range[0] || v > range[1])) {
+			showNotice(
+				`${what} would take ${axis.toUpperCase()} to ${v.toFixed(1)} (travel ${range[0]}…${range[1]})`
+			)
+			return
+		}
+	}
+	const round = (v: number) => Math.round(v * 1000) / 1000
+	const delta: AxesPosition = {}
+	for (const [axis, v] of Object.entries(target) as [Axis, number][]) {
+		const d = round(v - (rig.mpos[axis] ?? 0))
+		if (d !== 0) delta[axis] = d
+	}
+	if (Object.keys(delta).length === 0) return
+	rig.jog(delta).catch(() => {})
 }
 
 const hovered = ref<string | null>(null)
@@ -741,26 +819,7 @@ function showNotice(text: string) {
 
 function onOrbitArrowClick(a: OrbitArrow) {
 	if (!rig.connected || sequence.running) return
-	const target = orbitRigAxes(rig.mpos, a.sign * rig.jogStep, cal.value)
-	// The swing depends on where the rig really is, so stay inside its travel.
-	const limits = project.addsub.rigLimits
-	for (const axis of ['x', 'z'] as const) {
-		const range = limits[axis]
-		if (range && (target[axis] < range[0] || target[axis] > range[1])) {
-			showNotice(
-				`Orbit would take ${axis.toUpperCase()} to ${target[axis].toFixed(1)} (travel ${range[0]}…${range[1]})`
-			)
-			return
-		}
-	}
-	const round = (v: number) => Math.round(v * 1000) / 1000
-	rig
-		.jog({
-			x: round(target.x - (rig.mpos.x ?? 0)),
-			z: round(target.z - (rig.mpos.z ?? 0)),
-			b: round(target.b - (rig.mpos.b ?? 0)),
-		})
-		.catch(() => {})
+	jogToMachineTarget(orbitRigAxes(rig.mpos, a.sign * rig.jogStep, cal.value), 'Orbit')
 }
 
 const showArrows = computed(() => !viewport.isPlaying)
@@ -890,16 +949,16 @@ function rebuildDecorations() {
 	decorations.clear()
 	if (!showArrows.value) return
 
-	const cam = vec3.scale(cameraPoseWorld.value.position, S)
+	const pivot = vec3.scale(rotPivotWorld.value, S)
 	const R = cameraPoseWorld.value.rotation
 
-	// Rotation rings: pan about world Y (ring in XZ), tilt about camera X (ring
-	// in local YZ), roll about camera Z (ring in local XY).
+	// Rotation rings about the pivot: pan about world Y (ring in XZ), tilt
+	// about camera X (ring in local YZ), roll about camera Z (ring in local XY).
 	const ringX = quat.fromAxisAngle([0, 1, 0], 90) // local XY → YZ plane
 	const ringY = quat.fromAxisAngle([1, 0, 0], 90) // local XY → XZ plane
-	decorations.add(makeRing(cam, ringY, RING_R, '#ff66ff'))
-	decorations.add(makeRing(cam, quat.mul(R, ringX), RING_R, '#ffaa33'))
-	decorations.add(makeRing(cam, R, RING_R, '#66ffff'))
+	decorations.add(makeRing(pivot, ringY, RING_R, '#ff66ff'))
+	decorations.add(makeRing(pivot, quat.mul(R, ringX), RING_R, '#ffaa33'))
+	decorations.add(makeRing(pivot, R, RING_R, '#66ffff'))
 
 	// Orbit: the ring the camera rides round the vertical axis at X = Z = 0,
 	// and that axis.
@@ -955,10 +1014,10 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 				</div>
 				<div class="axes">
 					<span v-for="ax in ['x', 'y', 'z'] as const" :key="ax" class="axis">
-						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rig.mpos[ax]) }}
+						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rig.wpos[ax]) }}
 					</span>
 					<span v-for="ax in ['a', 'b', 'c'] as const" :key="ax" class="axis">
-						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rig.mpos[ax], 2) }}°
+						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rig.wpos[ax], 2) }}°
 					</span>
 				</div>
 				<div v-if="notice" class="notice">{{ notice }}</div>
@@ -977,7 +1036,6 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 			<div class="block">
 				<div class="head">
 					<span class="name">Sequence</span>
-					<span class="state">lift {{ filmLift }} mm</span>
 				</div>
 				<div class="seq">{{ sequence.currentStep ?? (sequence.message ?? 'idle') }}</div>
 			</div>
@@ -993,6 +1051,12 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 			</div>
 		</div>
 		<div v-if="showArrows" class="tools">
+			<InputRadio
+				v-model="rotatePivot"
+				v-tooltip="'Rotation rings turn the camera about the head\'s rotation centre (one axis at a time), or about the entrance pupil (X/Y/Z move along, no parallax)'"
+				:options="['head', 'pupil']"
+				:labels="['Head', 'Pupil']"
+			/>
 			<InputRadio
 				v-model="gizmoSpace"
 				v-tooltip="'Camera arrows: along the camera, or along the rig axes'"
@@ -1035,17 +1099,7 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 					/>
 				</Group>
 
-				<!-- Block stack + tool tip -->
-				<Group :position="v3(blockOriginWorld)">
-					<Box
-						:width="blockHeight * S"
-						:height="blockHeight * 2 * S"
-						:depth="blockHeight * S"
-						:position="{x: (blockHeight / 2) * S, y: blockHeight * S, z: (blockHeight / 2) * S}"
-					>
-						<BasicMaterial color="#c8a878" :props="{wireframe: true}" />
-					</Box>
-				</Group>
+				<!-- Tool tip -->
 				<Sphere :radius="0.006" :position="v3(toolTipWorld)">
 					<BasicMaterial color="#ffcc00" />
 				</Sphere>
@@ -1150,6 +1204,8 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 	bottom var(--tq-gap-control)
 	right var(--tq-gap-control)
 	z-index 2
+	display flex
+	gap var(--tq-gap-related)
 
 .labels
 	position absolute

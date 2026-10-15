@@ -8,6 +8,7 @@ import {computed, ref, useTemplateRef} from 'vue'
 
 import {RIG_DEFINITION} from '@/addsub/config'
 import {formatDuration, isGcodeFilename} from '@/addsub/cuts'
+import {workAxesToCameraPose} from '@/addsub/kinematics'
 import {effectivePlanFor, formatPlan} from '@/addsub/plan'
 import {useRigStore} from '@/addsub/stores/machines'
 import {useSequenceStore} from '@/addsub/stores/sequence'
@@ -193,14 +194,7 @@ function printRigInfo(shot: Shot) {
 	const mute = 'color:var(--tq-color-text-mute)'
 	const row = 'display:flex;justify-content:space-between'
 
-	// recallRig lifts Y by the blocks appended since the shot (§7.2), so say so
-	// when where it goes differs from what is listed.
-	const dLift = project.addsub.filmLift - (shot.filmLift ?? 0)
-	const hint = !rig.connected
-		? 'Not connected'
-		: dLift !== 0
-			? `Click to move (Y ${dLift > 0 ? '+' : ''}${dLift} mm lift)`
-			: 'Click to move'
+	const hint = rig.connected ? 'Click to move' : 'Not connected'
 
 	const cells = axes
 		.map(axis => {
@@ -215,6 +209,16 @@ function printRigInfo(shot: Shot) {
 		})
 		.join('')
 
+	// The entrance pupil those axes put the picture at (world mm) — derived
+	// from the calibration, so not a move target of its own.
+	const pupil =
+		pos.x !== undefined && pos.y !== undefined && pos.z !== undefined
+			? `<span style="${row};gap:.8em"><span style="${mute}">Pupil</span>` +
+				`<span>${workAxesToCameraPose(pos, project.addsub.calibration).position
+					.map(v => v.toFixed(1))
+					.join(', ')} mm</span></span>`
+			: ''
+
 	// Column flow, three rows: X Y Z down the left, A B C down the right.
 	return (
 		'<div style="grid-column:1/-1;display:grid;gap:.4em">' +
@@ -224,7 +228,9 @@ function printRigInfo(shot: Shot) {
 		'<div style="display:grid;grid-auto-flow:column;' +
 		'grid-template-rows:repeat(3,auto);gap:.4em 1.4em">' +
 		cells +
-		'</div></div>'
+		'</div>' +
+		pupil +
+		'</div>'
 	)
 }
 

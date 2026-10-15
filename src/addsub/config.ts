@@ -9,16 +9,6 @@ import type {vec3} from 'linearly'
 
 import type {MachineDefinition} from '@/stores/machine'
 
-/**
- * Nominal block height (mm): the default for "Append block" and the display
- * cube. Blocks need not all be this tall — what the coordinates use is the
- * project's `filmLift`, the summed height of the blocks added under A. §7
- */
-export const DEFAULT_BLOCK_HEIGHT = 60
-
-/** Max stack on the mill table: two blocks. */
-export const MILL_MAX_HEIGHT = 100
-
 /** Target frame rate of the final film. */
 export const FILM_FPS = 18
 
@@ -117,28 +107,30 @@ export const RIG_Y_DOWN_HEIGHT = 400
 export const LED_LAYOUT_VERSION = 1
 
 //------------------------------------------------------------------------------
-// Calibration / placement (ADDSUB.md §3.0, §7.1, §10, §12) — project-level
+// Calibration / placement (ADDSUB.md §3.0, §10, §12) — project-level
 // defaults. All in mm / degrees, world = Y-up right-handed (previz).
 
 export interface AddsubCalibration {
 	/**
-	 * Entrance-pupil offset along the optical axis from the head's rotation
-	 * centre (mm). o = (0, 0, −d); d > 0 = pupil in front of the centre.
+	 * Entrance pupil relative to the head's rotation centre, in camera
+	 * coordinates (mm): X right, Y up, Z back — the lens looks down −Z, so a
+	 * pupil d in front of the centre is (0, 0, −d). Side components catch a
+	 * lens that isn't on the roll axis. (Was a scalar d until 2026-10-16;
+	 * projectData.ts migrates it.)
 	 */
-	pupilOffset: number
+	pupilOffset: vec3
 	/**
 	 * World position of the film origin (block A's bottom corner) with no
 	 * blocks added underneath (filmLift = 0). Its Y is the mill table / vise
 	 * floor height in world.
 	 */
-	filmOriginWorld: vec3
-	/** Rig machine coords = world + rigOffset. Ideally ≈ 0 after homing setup. */
 	rigOffset: vec3
 	/**
-	 * Mill table frame → world: world = cycle(millTable) + millOffset, valid
-	 * with the table at the shoot position (§3.0, §12 step 3).
+	 * Machine angle of each rotary axis where the head looks straight (tilt,
+	 * pan, roll = 0): the controller's work offset on A/B/C, followed like
+	 * `rigOffset`.
 	 */
-	millOffset: vec3
+	rotaryZero: {a: number; b: number; c: number}
 	/**
 	 * Sign of each rotary axis relative to the previz convention, to be
 	 * confirmed on the machine (the head is mounted upside down). §10
@@ -147,12 +139,11 @@ export interface AddsubCalibration {
 }
 
 export const DEFAULT_CALIBRATION: AddsubCalibration = {
-	pupilOffset: 0,
-	filmOriginWorld: [0, 0, 0],
-	// rig = world + offset. X/Z: travel centre assumed at world origin. Y: at
-	// machine Y = −900 (fully down) the head is RIG_Y_DOWN_HEIGHT high:
-	// −900 = 400 + offsetY. X/Z: machine origin = centre of travel = world 0.
-	rigOffset: [0, RIG_LIMITS.y[0] - RIG_Y_DOWN_HEIGHT, 0],
-	millOffset: [0, 0, 0],
+	pupilOffset: [0, 0, 0],
+	// rig = world + offset. A placeholder until the rig's controller reports
+	// its work offset (stores/rigWork.ts): X/Z at the centre of travel, the
+	// work origin 1300 mm below the top of Y.
+	rigOffset: [0, -1300, 0],
+	rotaryZero: {a: 0, b: 0, c: 0},
 	rotarySigns: {a: 1, b: 1, c: 1},
 }

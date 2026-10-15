@@ -41,11 +41,7 @@ interface RawShot {
 	cameraConfigs?: Record<string, unknown>
 	rig?: Record<string, number>
 	mill?: Record<string, number>
-	filmLift?: number
-	/** Pre-filmLift files: base block index (lift = 60·kBase). */
-	kBase?: number
 	previzFrame?: number
-	led?: {file: string}
 }
 
 interface RawTrashed {
@@ -71,8 +67,6 @@ interface RawProject {
 		stack?: {layerId: string; hidden?: boolean}[]
 	}[]
 	addsub?: {
-		filmLift?: number
-		kBase?: number
 		parkLayer?: number
 		sequence?: {
 			frame: number
@@ -98,9 +92,7 @@ export interface ExhibitFrame {
 	captureDate?: number
 	cameraConfigs?: Record<string, unknown>
 	rig?: Record<string, number>
-	filmLift?: number
 	previzFrame?: number
-	led?: string
 }
 
 function refFilename(r: BlobRef | undefined): string | null {
@@ -223,9 +215,7 @@ const frames = computed<ExhibitFrame[]>(() => {
 			captureDate: shot.captureDate,
 			cameraConfigs: shot.cameraConfigs,
 			rig: shot.rig,
-			filmLift: shot.filmLift ?? (shot.kBase === undefined ? undefined : 60 * shot.kBase),
 			previzFrame: shot.previzFrame,
-			led: shot.led?.file,
 		})
 	}
 
