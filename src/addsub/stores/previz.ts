@@ -6,16 +6,15 @@
  *   {
  *     "version": 1,
  *     "fps": 18,
- *     "paths": {"gcode": "gcode/%04d.nc", "led": "led/%04d.png",
+ *     "paths": {"gcode": "gcode/%04d.nc",
  *               "render": "render/%04d.jpg"},          // optional defaults
- *     "ledTopFilmY": 1500,                              // optional
  *     "frames": [
  *       {"frame": 1,
- *        "camera": {"position": [x, y, z],              // film mm, pupil
+ *        "camera": {"position": [x, y, z],              // world mm, pupil
  *                   "rotation": [x, y, z, w]            // quaternion, or
  *                   /* "angles": {"tilt": a, "pan": b, "roll": c} deg *\/},
  *        "cameraConfigs": {"aperture": 8},              // optional
- *        "gcode": "gcode/0001.nc", "led": "led/0001.png", "render": "render/0001.jpg",
+ *        "gcode": "gcode/0001.nc", "render": "render/0001.jpg",
  *        "cut": true}                                   // false = no cutting this frame
  *     ]
  *   }
@@ -33,13 +32,13 @@ import {computed, readonly, ref, shallowRef, watch} from 'vue'
 import {useProjectStore} from '@/stores/project'
 
 import {anglesToRotation, type CameraPose, type HeadAngles} from '../kinematics'
-import type {LedSetData} from '../led/layout'
 
 /**
- * previz/set.json — the physical set as built, exported from Houdini:
+ * previz/set.json — display geometry for the 3D view, exported from Houdini
+ * (a `led` block from older exports is ignored: the LED placement is
+ * hard-coded in led/layout.ts):
  *   {
  *     "version": 1,
- *     "led": {LedSetData},                      // per-pixel [x, y, z, u]
  *     "geometry": [                             // display only (glTF, mm)
  *       {"name": "rig", "file": "geo/rig.glb", "wireframe": true, "color": "#888888"}
  *     ]
@@ -56,7 +55,6 @@ export interface SetGeometry {
 
 export interface SetFile {
 	version: number
-	led?: LedSetData
 	geometry?: SetGeometry[]
 }
 
@@ -74,7 +72,6 @@ export interface PrevizFrameRaw {
 	}
 	cameraConfigs?: Partial<ConfigType>
 	gcode?: string
-	led?: string
 	render?: string
 	cut?: boolean
 }
@@ -82,8 +79,7 @@ export interface PrevizFrameRaw {
 export interface PrevizFile {
 	version: number
 	fps?: number
-	paths?: {gcode?: string; led?: string; render?: string}
-	ledTopFilmY?: number
+	paths?: {gcode?: string; render?: string}
 	frames: PrevizFrameRaw[]
 }
 
@@ -93,13 +89,11 @@ export interface PrevizFrame {
 	cameraConfigs?: Partial<ConfigType>
 	/** Paths relative to previz/ (resolved from the defaults when omitted). */
 	gcode: string | null
-	led: string | null
 	render: string | null
 }
 
 const DEFAULT_PATHS = {
 	gcode: 'gcode/%04d.nc',
-	led: 'led/%04d.png',
 	render: 'render/%04d.jpg',
 }
 
@@ -127,7 +121,6 @@ function normalizeFrame(raw: PrevizFrameRaw, file: PrevizFile): PrevizFrame {
 		pose,
 		cameraConfigs: raw.cameraConfigs,
 		gcode: cut ? (raw.gcode ?? expandPath(paths.gcode, raw.frame)) : null,
-		led: raw.led ?? expandPath(paths.led, raw.frame),
 		render: raw.render ?? expandPath(paths.render, raw.frame),
 	}
 }
@@ -339,10 +332,8 @@ export const usePrevizStore = defineStore('addsub:previz', () => {
 		lastModified: readonly(lastModified),
 		error: readonly(error),
 		loading: readonly(loading),
-		ledTopFilmY: computed(() => file.value?.ledTopFilmY ?? null),
-		/** previz/set.json (LED placement + display geometry), or null. */
+		/** previz/set.json (display geometry), or null. */
 		set: readonly(set),
-		setLed: computed(() => set.value?.led ?? null),
 		setGeometry: computed(() => set.value?.geometry ?? []),
 		setModified: readonly(setModified),
 		frameFor,

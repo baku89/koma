@@ -245,6 +245,8 @@ koma 全体のプロジェクト知識（Tethr、アセット保存、Preview、
 
 ## 8. LED ライティングの記録と再現
 
+**（2026-10-02）展開図の画像で照明を指定する機能は koma から削除した**（実装メモ「LED の画像指定を削除」）。照明は faces / Houdini live / 手動 fill で出し、ショットごとに送出した全粒の RGB を記録する。以下は当初の構想の記録。
+
 - 各コマの LED は **4面の展開図の画像** で持つ。これがそのコマのライティングの元データ
 - 画像は film 座標で描く。段ずらし（7章）のぶん、物理的な LED の範囲より下に長くしておく（余白は予定する filmLift の最大値）
 - 実機に送るときは、画像を縦に filmLift ぶんずらして、各粒の位置の色を拾う
@@ -500,7 +502,7 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - 2 台の FluidNC は `$I` の `[MSG: Machine: <name>]` で識別する。**config.yaml の `name:` を `AST200`（フライス盤）/ `BoxRig`（Box Rig）にする**（既定。各パネルの config `machine.<id>.fluidncName` で変更可）。
 - **名前で当たらなければ「Grbl っぽいもの = フライス盤」**（2026-09-28）: `MachineDefinition.fluidncFallback`（mill に設定）。`findOwner` の順位は 名前一致（接続済みでも勝つ→その場合は拒否）→ 名前無指定の機械 → fallback 機。無名ボード・素の Grbl・古い config.yaml でも mill に入る（ログに「Taken as … because "<name>" matches no machine name」）。BoxRig は名前一致のみ。
 - **どの Connect… ボタンから選んでも正しい機器に届く**: `requestSerialPort(preferred?)`（`utils/serialDiscovery`）は選ばれたポートを preferred ファミリ → 他の全ファミリ（FluidNC / LED Wall）の順で probe し、`{status, family}` を返す。他所に繋がったら押したパネルに「That port is the LED Wall — connected it there」等を出す。コマンドパレットに `Connect Serial Device…`（preferred 無し）と `Rescan Serial Ports`（`discoverSerialPorts()`）。手動選択は過去の rejection を無視して再 probe、バックグラウンド discovery は rejection を尊重。`SerialFamily` に `label` 必須。
-- **接続まわりの堅牢化（2026-10-01、実機未確認・vitest `serialDiscovery.test.ts` のみ）**: (1) 所有表 `owners` は `SerialFamily.holder(port)`（そのファミリが今そのポートで開いている機器名、無ければ null）と照合し、裏付けの無い記録は捨てる。(2) probe は 1 回 12 秒で打ち切る（`port.open()` / `close()` には timeout が無く、1 ポートが戻らないと `running` が終わらず以後の Connect が全部「Connecting…」のまま固まっていた）。打ち切りは `{status:'rejected', stuck:true}`。(3) ポートを選んでいる間にバックグラウンド discovery が同じポートを繋いだ場合は `owned` でなく `adopted`。(4) エラー文は `serialRequestError()` に集約し、ポートの素性（`describeSerialPort` = チップ名 + VID:PID、例 `CP210x 10c4:ea60`）と掴んでいる機器名（`Box Rig` / `Mill` / `LED Wall`）を出す。(5) `Rescan Serial Ports` は rejection を消してから再走査（USB を先に挿して後から電源を入れた基板を拾い直せる）。(6) ws-fanout の `WebSerialTransport` は読み取りループが自分で終わったとき（フレーミング／ブレーク／オーバーランなどの非致命エラー、抜線）もポートを閉じる。以前は切断通知だけ出してポートを開いたままにしていたので、リロードまで LED に再接続できなかった（`sender/test/serial.test.ts`）。
+- **接続まわりの堅牢化（2026-10-01、実機未確認・vitest `serialDiscovery.test.ts` のみ）**: (1) 所有表 `owners` は `SerialFamily.holder(port)`（そのファミリが今そのポートで開いている機器名、無ければ null）と照合し、裏付けの無い記録は捨てる。(2) probe は 1 回 12 秒で打ち切る（`port.open()` / `close()` には timeout が無く、1 ポートが戻らないと `running` が終わらず以後の Connect が全部「Connecting…」のまま固まっていた）。打ち切りは `{status:'rejected', stuck:true}`。(3) ポートを選んでいる間にバックグラウンド discovery が同じポートを繋いだ場合は `owned` でなく `adopted`。(4) エラー文は `serialRequestError()` に集約し、ポートの素性（`describeSerialPort` = チップ名 + VID:PID、例 `CP210x 10c4:ea60`）と掴んでいる機器名（`Box Rig` / `Mill` / `LED Wall`）を出す。(5) `Rescan Serial Ports` は rejection を消してから再走査（USB を先に挿して後から電源を入れた基板を拾い直せる）。(6) ws-fanout の `WebSerialTransport` は読み取りループが自分で終わったとき（抜線など、読み取り口が無くなったとき）もポートを閉じる。以前は切断通知だけ出してポートを開いたままにしていたので、リロードまで LED に再接続できなかった（`sender/test/serial.test.ts`）。フレーミング／ブレーク／オーバーランなどの非致命エラーでは閉じずに読み直す（2026-10-02、下の「LED の基板が最後のフレームを覚える」）。
 - **Hold 中の基板への接続（2026-10-01）**: FluidNC は Hold / Door の間、リアルタイム文字（`?` `~` `^X` など）にしか応えず、行コマンドは `$I` も含めて実行も `ok` もしない（v3.9.9 `Protocol.cpp`: 行を実行するメインループが `protocol_exec_rt_suspend()` の中で止まる）。Idle で `!` を送っても Hold になるので、`stop()` / ESTOP のあとリロードすると両機とも Hold で、以前は `$I` が timeout → 「FluidNC ではない」と拒否 → Resume / Reset は接続しないと押せない、で電源を入れ直すしかなかった。
   - `identify()` は `?` が Hold / Door を返したら `$I` を送らない（待たされた行は解除後に走り、その遅れた `ok` が別の行の返事になるため）。
   - **機械のパネル / タイトルバーの Connect… から選んだとき**: その機械に「未識別」で仮接続する（`machine.unidentified`）。パネルに Resume / Reset が出て、行コマンド（`send` / `stream`、ジョグ・ホーミング・unlock）は拒否。Hold を抜けたら 300 ms 待って `$I`（`confirmIdentity`）→ 自分なら確定、別の機械なら切断して discovery がそちらへ渡す（ピッカーでは 2 台を見分けられないので、取り違えても解除後に正しい側へ行く）。
@@ -528,7 +530,7 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 }
 ```
 - `position` は film 座標 mm・投影中心（入射瞳）。`rotation` は quaternion、代わりに `"angles": {"tilt","pan","roll"}`（度）でも可。
-- `paths` は省略時の既定パターン（`%04d` = `frame` の値）。フレーム個別の `gcode`/`led`/`render` が優先。`"cut": false` で切削なし。
+- `paths` は省略時の既定パターン（`%04d` = `frame` の値）。フレーム個別の `gcode`/`render` が優先。`"cut": false` で切削なし。`led` / `ledTopFilmY`（照明の画像）は 2026-10-02 に廃止、書いてあっても無視する。
 - koma 側は timeline frame + `project.addsub.previzFrameOffset` = previz `frame`。`FileSystemObserver` があれば監視、無ければ 3 秒ポーリング。parse 失敗は書きかけとみなし再試行。
 
 ### シーケンス（§2）
@@ -563,6 +565,8 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - 校正ウィザード（§12）は未実装。値は Shot Sequence パネルの Settings で手入力。
 
 ### LED 配置と Box Rig の見た目（§8、Houdini から書き出す）
+**（2026-10-16）LED の配置は `src/addsub/led/layout.ts` にハードコードした。`set.json` の `led` は読まない（下の「LED 配置のハードコードと出力モードのラジオ」）。`geometry` は従来どおり。** 以下は当時の記録。
+
 `previz/set.json`（koma は読むだけ。frames.json と同じ監視）:
 ```json
 {
@@ -582,11 +586,11 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
   ]
 }
 ```
-- `pixels` は粒ごとに **world 座標 [x, y, z]（mm）と展開図上の横位置 u（mm, 左端から）**。縦は koma が粒の world Y から film lift（filmLift + film 原点 Y）を引いて展開図の `topFilmY` 基準に変換するので、`set.json` は filmLift に依存しない。`imageWidth` は展開図の幅（mm）で、画像の px スケールはこれから決まる。
+- `pixels` は粒ごとに **world 座標 [x, y, z]（mm）**。以前あった 4 つ目の値 `u`（展開図上の横位置）と `imageWidth` は 2026-10-02 に廃止。古い set.json に残っていても読める（無視する）。
 - `geometry` は表示専用の glTF（Houdini の ROP glTF、mm 単位）。リグ・壁・フライス盤など任意。無い間はパラメータ生成の立方体外形を出す。
-- `set.json` が無いときだけ `led/layout.ts` の生成器にフォールバック。**実測（2026-09-25）: 壁は X 1831 × Y 1400 × Z 1991 mm、テープ 1400 mm = 高さなので縦置き、粒ピッチ 33.3 mm、テープ間隔 100 mm。** L/R 面（1991）に 19 本（ライン 1 = 10 本、ライン 2 = 9 本）、B/F 面（1831）に 18 本（10 + 8）を中央寄せで並べ、ライン内は上→下→上のジグザグ。開始側（`startSide`）と壁の上端 Y（`topY` = 1400 と仮定）は要確認。
-- **Box Rig の可動域（2026-09-29 更新）**: **X/Z は機械原点（枠の中心）を挟んで −550…+550**、Y は 0…−900（上でホーミング、負方向）。Y 下げ切りで高さ 400（仮）→ 既定の `rigOffset = [0, −1300, 0]`（X/Z は機械原点 = world 原点）、`rigLimits = x [−550,550], y [−900,0], z [−550,550]`（`config.ts` の `RIG_LIMITS`）。旧 placeholder（0…1200 / offset [−600,−1300,−600]）のまま保存されたプロジェクトは `migrateAddsubData` が新既定に置き換える（ユーザーが編集した値は触らない）。Plan パネルとジョグの範囲もこれに従う。
-- 粒ごとにピッチ幅のボックス平均でサンプル。firmware の INFO と粒数が食い違うと LED パネルにエラーを出す。
+- `set.json` が無いときだけ `led/layout.ts` の生成器にフォールバック。**実測（2026-09-25）: 壁は X 1831 × Y 1400 × Z 1991 mm、テープ 1400 mm = 高さなので縦置き、粒ピッチ 33.3 mm、テープ間隔 100 mm。** **本数はラインごとに持つ**: `project.addsub.led.layout.strips`（面 → [ライン 1, ライン 2]。既定 L 10 + 9 / **B 9 + 9** / R 10 + 9 / **F 10 + 10**。B と F はユーザーが実物を数えた値、L と R は数え直していない、2026-10-02）。面の上に中央寄せで並べ、ライン内は上→下→上のジグザグ。LED パネルの Layout… に `Strips L / B / R / F` の入力があり、その場で直せる。以前は幅 ÷ 間隔で B/F を 18 本（10 + 8）と計算していて、B2 の最後の 1 列と F2 の最後の 2 列に koma が何も送っていなかった（基板が絵を覚えるようになって、その列に古い色が残って見えて発覚）。**実物より短く設定したラインは、末尾の列が古い色のまま残る。長く設定しても害は無い。** F1 の 10 本のうち 1 本は実物では L 面側に回り込んでいるが、内蔵配置では 20 本とも F 面に 100 mm 間隔で置くので、3D ビューでは F 面の両端から少しはみ出す（位置だけの違い。正確な位置は set.json で）。旧プロジェクトに残る `stripsPerLine` は使わない。ファームは全ライン 420 粒のままなので、LED パネルの「Line counts differ: firmware 420/… vs layout 420/378/…」は出たままになる（9 本のラインの 379 粒目以降は実物が無い）。開始側（`startSide`）と壁の上端 Y（`topY` = 1400 と仮定）は要確認。
+- **Box Rig の可動域（機械座標、2026-10-02 更新）**: **X/Z は機械原点（枠の中心）を挟んで −550…+550**、**Y は 0…−950**（上でホーミング、負方向。2026-10-02 までは −900）。`rigLimits = x [−550,550], y [−950,0], z [−550,550]`（`config.ts` の `RIG_LIMITS`）。既定の `rigOffset = [0, −1300, 0]` はコントローラが Work オフセットを報告するまでの仮の値（「Box Rig は Work 座標で扱う」）。以前の既定値（0…1200 / offset [−600,−1300,−600]、または Y −900）のまま保存されたプロジェクトは `migrateAddsubData` が新既定に置き換える（ユーザーが編集した値は触らない）。Plan パネルとジョグの範囲もこれに従う。
+- firmware の INFO と粒数が食い違うと LED パネルにエラーを出す。
 
 ### 展示画面（§15）
 - `/exhibit.html`。`?screen=a`（ループ再生、BroadcastChannel で再生位置を配信）/ `?screen=b`（グリッド）/ 無指定で並列表示。フォルダハンドルは IndexedDB、`project.json` を 4 秒ポーリング。全体モノスペース（Fira Code）。
@@ -766,23 +770,6 @@ cncjs の 10〜200% スライダは Grbl 1.1 の**リアルタイム文字を生
 - 副作用: rig つきの shot のツールチップは上へ動くとポインタを掴むので、**上の段のレイヤーのセルへまっすぐ上がると前のツールチップが残る**（横に外せば 150 ms で閉じる）。
 - 確認済（Playwright、仮の shot と偽の `rig.client` / `rig.moveTo`）: 表示、hover 維持、全軸 / Y だけ / B だけのクリックで `moveTo` に渡る target（lift 込み）、可動域外と未接続の alert、アクション外の行は無反応。実機での移動は未。
 
-### MachinePanel の機械別レイアウト（2026-09-28）
-`MachineDefinition.panel`（`layout: 'rows' | 'grid'`, `gridColumns`, `showFeed`, `showGoToZero`）。Box Rig は `grid`（Work 座標のみ、X Y Z / A B C の 3 列 2 行、各セルに値・−/+・zero/set）、Feed 入力と「Go to 0」無し。ミルは従来の行レイアウト（machine / work）。軸ごとの「Go to # = 0」ボタンは両方から削除（Work 行の「Go to 0」はミルのみ）。
-
-### LED Wall の手動出力（2026-09-27）
-- **Faces**: 面ごと（L/B/R/F、各面の 2 ライン = ws-fanout のライン順 L1 L2 B1 B2 R1 R2 F1 F2 を index で 4 等分）に 1 色。色は `project.addsub.led.faceColors`（hex）に保存、スイッチ `led.faceLight` で「コマの照明」の代わりに出す。優先順位は work light > faces > follow。
-- タイトルバー右のデバイス一覧に LED Wall も入れた（`src/addsub/components/TitleBarLedConnection.vue`、リグの隣・relay の前）: 接続状態、Connect/Disconnect、White/Off、Work light / Faces / Follow のトグル、いま出ている照明・latency（電流見積りの表示は 2026-09-29 に削除。ストアの `power` も無し）。
-- **Chase**（配線チェック、`led.startChase({mode, stepMs, line?})` / `stopChase()`）: `pixel` = 白 1 粒をライン順に走らせる、`line` = ライン丸ごとを順に点灯。実行中は他のモードを止め、終了/停止で元の状態に戻す。モードと step は app config。ws-fanout の `scripts/chase.ts` と同じ手順（全消灯 → 走らせ → 消灯）。
-- ブラウザの**バックグラウンドタブはタイマーが ~1 Hz に絞られる**ので、chase を裏タブで走らせると 1 粒/秒になる（バグではない。sequence も同じなので撮影中の koma タブは前面に）。ハード無しの確認は `dev_modules/ws-fanout/sender/test/mock-device.ts` の `MockDevice` を `WsFanout.fromTransport` に渡して `led.device` に差す。
-- **White ボタンは削除（2026-10-01）**: タイトルバーのメニューと LED パネルの両方から外した（全白は Work light で足りる）。メニューは幅固定（17rem）をやめてボタンの行に合わせて広がり、エラー文はその幅で折り返す。
-- **Tweeq 側（汎用）**: `InputButton` / `InputButtonToggle` のラベルは `white-space: nowrap`。高さ固定のボタンなので折り返すと上下にはみ出す（LED メニューの "Work light"、タイトルバー中央の Cut ボタンの `#47 84% · −0:09` が 2 行になっていた。後者は中央カラムが `min-content` 幅なので、折り返せると最長の単語まで縮む）。
-
-### LED の壁バッファ（2026-09-28）
-`led.wall`（ライン毎の RGB `Uint8Array[]`、`layout.lineCounts` 由来）+ `led.wallVersion` が「壁に出ているべき色」の正。全モード（コマの照明 / faces / Houdini live / work light / chase の各ステップ）はまずここに書き、デバイスが繋がっていれば `pushWall()` で LINE→SHOW する。**デバイス無しでも 3D ビュー（`AddsubVisualizer` の LED 点群）に色が出る**（以前は `device.getLine` を読んでいたので未接続だと灰色、`fill()` は show イベントを出さないので work light も反映されなかった）。`showImage`/`showColors`/`showFaces` は未接続時 `null` を返す（throw しない。sequence は事前に `led.connected` を見る）。接続した瞬間に `shownKey` をリセットしてバッファ全体を送る。Houdini の `led:frame` も未接続で preview に乗る。
-
-### ショットの LED 記録（2026-10-01）
-撮影した時点で壁に出ていた**全粒の RGB をそのまま記録**する。LED 画像が無い照明（faces / Houdini live / 手動 fill / work light）で撮ったショットでも「Recall Shot Lighting (LED)」が効く。
-
 ### 左下ペインのタブ化（2026-10-02）
 - 左下のパネル群（縦に全部並べてスクロールしていた）を、Blender の Properties エディタ風の 2 カラムにした。左がアイコン 1 個ぶんの幅の縦タブ、右が選んだタブのパネル。タブは上から **Tool**（ツールの切り替え + Tool Options）/ Shot Sequence / Cut / Plan / Box Rig / Mill / LED Wall / Houdini Live / Camera Control / Retakes。
 - **Tweeq 側（汎用、main に戻せる）**: `Tq.PaneTabs`（`name` = 選択中のタブを app config に保存するキー、`defaultTab`）と `Tq.PaneTab`（`id` / `label` / `icon`）。`dev_modules/tweeq/src/PaneTabs/`。選んでいないタブは unmount せず隠すだけ（パネル内の状態、たとえば MachinePanel の編集中のターゲットが残る）。スクロールはタブごとで、位置も覚える。ラベルはアイコンのツールチップに出る。
@@ -863,25 +850,88 @@ Box Rig もフライス盤も同じセル（行レイアウトは廃止）。`Ma
 
 - **記録**: `led.recordForShot()`（App.vue の `shoot()` が露光前に呼び、ショット確定時に await）。中身はデバイス側のバッファ（`device.getLine(i)` = 実際に LINE で送ったもの、gain 適用後）を露光時点でコピーしたもの。**壁が繋がっているときだけ**記録する（未接続のプレビュー用バッファは「送出した」ものではないので記録しない）。書き込みに失敗しても撮影は止めない（console.error のみ）。
 - **保存先**: プロジェクトフォルダの `led-wall/<SHA-1 先頭 16 桁>.ledwall`（`src/addsub/led/wallRecord.ts`）。内容ハッシュが名前なので、同じ照明のショットは 1 ファイルを共有する。形式は `'KLW1' | u8 ライン数 | u16le 粒数 × ライン | RGB…`（ws-fanout のライン順、3108 粒で 9,345 byte）。project.json には入れない（3000 コマで ~37 MB になり autosave が重くなるため）。
-- **ショット側**: `shot.led = {file?, layoutVersion, wall?, brightnessCap?}`（`ShotLedRecord`）。`file` は画像由来のときだけ（live の `'live'` マーカーはもう記録しない。旧ショットの `'live'` は画像として扱わない）。`brightnessCap` はファームの輝度上限（記録のみ、recall では触らない）。
-- **recall**（`sequence.recallLed`）: 記録した粒を**そのまま**戻す（`led.showWallRecord`: サンプル・gain・lift 無し、ラインは現在の配置にクリップ）。例外は「撮影後に filmLift が変わっていて、かつ画像がある」ときだけで、従来どおり画像を現在の lift で再サンプルする（`recallRig` が Y を持ち上げるのと同じ扱い）。粒の記録が無い旧ショットは 画像 → そのコマの previz 照明 の順。
-- **再演パス**: 画像があれば従来どおり再サンプル、無ければ記録した粒をそのまま出す（lift ぶんの縦ずらしはできない。面ごと一様な faces なら問題なし）。
+- **ショット側**: `shot.led = {layoutVersion, wall?, brightnessCap?}`（`ShotLedRecord`）。`brightnessCap` はファームの輝度上限（記録のみ、recall では触らない）。旧ショットに残る `file`（照明の画像）は 2026-10-02 以降読まない。
+- **recall**（`sequence.recallLed`）: 記録した粒を**そのまま**戻す（`led.showWallRecord`: gain 無し、ラインは現在の配置にクリップ）。粒の記録が無いショットは「no lighting recorded」。
+- **再演パス**: 記録した粒をそのまま出す（lift ぶんの縦ずらしはできない。面ごと一様な faces なら問題なし）。
+
+### LED の画像指定を削除（2026-10-02）
+展開図の画像（`previz/led/NNNN.png`）で照明を指定する経路を全部外した（ユーザー指定）。照明は faces / Houdini live / 手動 fill / 記録の recall だけ。
+
+- 削除: `led/sampler.ts`・`led/decode.ts`、LED ストアの `showImage` / `showImageBlob` / `showFile` / `ensureFrame` / `followCapture` / `shown` / `lift`、LED パネルの Frame ボタン・Follow・Shown・Top Y、タイトルバーの Follow、`project.addsub.led.topFilmY`、previz の `led` パスと `ledTopFilmY`、配置の `u` / `imageWidth`、`shot.led.file`、Houdini の `export_set_json()` の `image_width` / `u`。
+- 残したもの: `project.addsub.led.gain`（live の色に掛かる）、配置の `pitch`、ショットの粒の記録（上）。
+- **work light / chase のあと**: 以前は follow がコマの照明を出し直していた。今は点ける直前の壁バッファを覚えておき、終わったら戻す（`covered`）。live / faces がオンならそちらを出し直す。work light 中に別の照明を出したら（fill、recall など）覚えた絵は捨てる。
+- **シーケンスの `led` ステップ**: 通常の撮影では work light を切って `led.ensureShown()`（溜まっている変更を通したあと、壁バッファをもう一度送って ACK を待つ）。壁が未接続なら何もしない（以前は「no LED image」の warning）。再演は記録した粒を戻す。記録が無ければ warning で飛ばす。
+- 古いデータ: project.json の `led.topFilmY`、frames.json の `led`、set.json の `u` / `imageWidth`、ショットの `led.file` は残っていても無視する（消しには行かない）。
+- 確認: vitest、ヘッドレス Chromium（壁未接続）で fill → work light オン / オフ → 元の色に戻る、素早いオン / オフ、faces との組み合わせ、LED パネルの表示。**壁を繋いだ状態（実機・MockDevice）と、シーケンスの led ステップ、再演は未確認。**
 - ファイルは消さない（ショットを消しても `led-wall/` は残る。1 照明 9 KB）。relay の表示用コピーには送っていない。
 - 確認済（Playwright + `MockDevice`）: faces で記録 → 消灯 → recall で全ライン一致、同じ照明は同じファイル、lift 変更時の分岐、未接続では記録なし。実機は未。
 
 ### Houdini からの直接制御（2026-09-28、§13.2 の実装）
 Houdini の LED 点群（1 点 = 1 粒、ws-fanout のライン順、`Cd` = 0-1 RGB、`face` 属性 = ライン名 L1…F2、P は Box Rig 機械座標 m）を、ファイル経由（配置）とリアルタイム（色・カメラ・フレーム）の両方で koma に流す。
 
-- **配置 = `previz/set.json`**: `led.frame: "rig"`（既定 `world`）と `led.unit: "m"`（既定 mm）を追加。koma が `rigOffset` で world に直すので、LED はリグと一体の物理座標のまま書ける（校正し直しても set.json は不変）。`u`（展開図の横位置）は Houdini 側で付ける（§8 の VEX、`imageWidth` = 2·(1831+1991) = 7644）。書き出しは `scripts/houdini/koma_bridge.py` の `export_set_json()`。
+- **配置 = `previz/set.json`**: `led.frame: "rig"`（既定 `world`）と `led.unit: "m"`（既定 mm）を追加。koma が `rigOffset` で world に直すので、LED はリグと一体の物理座標のまま書ける（校正し直しても set.json は不変）。書き出しは `scripts/houdini/koma_bridge.py` の `export_set_json()`。
 - **リアルタイム = koma-relay の `role=control`**: 第三のクライアント種。`{type:'control', topic, data}` を capture（koma）へそのまま転送、state 配信は exhibit と同じく受け取れる。token は capture と同じものが要る。koma 側は `relay.onControl(topic, handler)`（汎用）→ `src/addsub/stores/houdini.ts` がトピックを配線、`HoudiniPanel.vue`（右ペイン "Houdini Live"）にスイッチ。**Houdini が繋がっただけでは何も動かない**（各トピックにスイッチ）。
-  - `led:frame` `{rgb: base64（全ライン連結・3 byte/粒）, layoutVersion}` → `led.pushLiveFrame()`。LED ストアの **`liveLight`**（優先順位 work light > live > faces > follow）。latch 中に来たフレームは最新だけ残す（スクラブで遅れない）。`led.showColors()` が粒色を直接出す汎用 API（画像サンプル無し、gain は適用）。
+### MachinePanel の機械別レイアウト（2026-09-28）
+（2026-10-02 に上の「軸セル」へ統一。以下は当時の記録。）
+`MachineDefinition.panel`（`layout: 'rows' | 'grid'`, `gridColumns`, `showFeed`, `showGoToZero`）。Box Rig は `grid`（Work 座標のみ、X Y Z / A B C の 3 列 2 行、各セルに値・−/+・zero/set）、Feed 入力と「Go to 0」無し。ミルは従来の行レイアウト（machine / work）。軸ごとの「Go to # = 0」ボタンは両方から削除（Work 行の「Go to 0」はミルのみ）。
+
+### LED Wall の手動出力（2026-09-27）
+- **Faces**: 面ごと（L/B/R/F、各面の 2 ライン = ws-fanout のライン順 L1 L2 B1 B2 R1 R2 F1 F2 を index で 4 等分）に 1 色。色は `project.addsub.led.faceColors`（hex）に保存、`led.mode = 'faces'` で出す（2026-10-16 まで `faceLight` トグル、優先順位 work light > live > faces）。
+- タイトルバー右のデバイス一覧に LED Wall も入れた（`src/addsub/components/TitleBarLedConnection.vue`、リグの隣・relay の前）: 接続状態、Connect/Disconnect、White/Off、Work light / Faces / Follow のトグル、いま出ている照明・latency（電流見積りの表示は 2026-09-29 に削除。ストアの `power` も無し）。
+- **Chase**（配線チェック、`led.startChase({mode, stepMs, line?})` / `stopChase()`）: `pixel` = 白 1 粒をライン順に走らせる、`line` = ライン丸ごとを順に点灯。実行中は他のモードを止め、終了/停止で元の状態に戻す。モードと step は app config。ws-fanout の `scripts/chase.ts` と同じ手順（全消灯 → 走らせ → 消灯）。
+- ブラウザの**バックグラウンドタブはタイマーが ~1 Hz に絞られる**ので、chase を裏タブで走らせると 1 粒/秒になる（バグではない。sequence も同じなので撮影中の koma タブは前面に）。ハード無しの確認は `dev_modules/ws-fanout/sender/test/mock-device.ts` の `MockDevice` を `WsFanout.fromTransport` に渡して `led.device` に差す。
+- **White ボタンは削除（2026-10-01）**: タイトルバーのメニューと LED パネルの両方から外した（全白は Work light で足りる）。メニューは幅固定（17rem）をやめてボタンの行に合わせて広がり、エラー文はその幅で折り返す。
+- **Tweeq 側（汎用）**: `InputButton` / `InputButtonToggle` のラベルは `white-space: nowrap`。高さ固定のボタンなので折り返すと上下にはみ出す（LED メニューの "Work light"、タイトルバー中央の Cut ボタンの `#47 84% · −0:09` が 2 行になっていた。後者は中央カラムが `min-content` 幅なので、折り返せると最長の単語まで縮む）。
+
+### LED の壁バッファ（2026-09-28）
+`led.wall`（ライン毎の RGB `Uint8Array[]`、`layout.lineCounts` 由来）+ `led.wallVersion` が「壁に出ているべき色」の正。全モード（コマの照明 / faces / Houdini live / work light / chase の各ステップ）はまずここに書き、デバイスが繋がっていれば `pushWall()` で LINE→SHOW する。**デバイス無しでも 3D ビュー（`AddsubVisualizer` の LED 点群）に色が出る**（以前は `device.getLine` を読んでいたので未接続だと灰色、`fill()` は show イベントを出さないので work light も反映されなかった）。`showImage`/`showColors`/`showFaces` は未接続時 `null` を返す（throw しない。sequence は事前に `led.connected` を見る）。接続した瞬間に `shownKey` をリセットしてバッファ全体を送る。Houdini の `led:frame` も未接続で preview に乗る。
+
+### LED の基板が最後のフレームを覚える（2026-10-02、ws-fanout ファーム 0.2）
+ESP32 が最後に SHOW したフレーム（全粒の RGB と輝度上限）をフラッシュに保存し、**電源が入ると koma 無しでその絵を出す**。ユーザー指定で「覚えるのは koma ではなく基板」。**壁の基板には 2026-10-02 に 0.2 を書き込み済み**（起動時の INFO で `0.2`・8 ライン × 420 を確認）。
+  - **ビルド環境は最初のビルド（2026-09-18）と同じ組に固定**: `espressif32@3.4.0`（Arduino core 1.0.6）+ `FastLED@3.10.3`（`platformio.ini`）。**espressif32 7.1.3（core 2.0.17）+ FastLED 3.10.5 でビルドしたものは、通信も保存も動くが、何を送っても壁が白くなる**（2026-10-02 に一度これを焼いて発覚。RMT の出力が崩れていると見ている。原因は未調査）。
+  - **書き込み**: koma の LED を Disconnect → `dev_modules/ws-fanout` で `~/.platformio/penv/bin/pio run -d firmware` でビルド → **新しい esptool（`~/.platformio/packages/tool-esptoolpy`、4.11）で書く**。espressif32 3.4.0 付属の古い esptool（`pio run -t upload`）は、この基板をダウンロードモードに入れられず `Failed to connect` になる（`flash.py` が BOOT 長押しを求めるのはこのため）。新しい esptool なら BOOT 無しで入る:
+    ```sh
+    cd dev_modules/ws-fanout/firmware
+    FW=~/.platformio/packages/framework-arduinoespressif32@3.10006.210326
+    ~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32 --port <LED のポート> --baud 921600 \
+      write_flash -z --flash_mode dio --flash_freq 40m --flash_size detect \
+      0x1000 $FW/tools/sdk/bin/bootloader_dio_40m.bin 0x8000 .pio/build/nodemcu-32s/partitions.bin \
+      0xe000 $FW/tools/partitions/boot_app0.bin 0x10000 .pio/build/nodemcu-32s/firmware.bin
+    ```
+  - **LED のポートの見分け方**: koma で LED を Disconnect し、`lsof /dev/cu.usbserial-*` で Chrome が手放したほうが LED（2026-10-02 は `cu.usbserial-0001`。Box Rig は `-7`、フライス盤は CH340 の `-83110`。CP2102 の 2 台はシリアル番号が同じ `0001` なので名前は挿し方で変わり得る）。
+  - 新しい esptool は PlatformIO の Python 環境に `intelhex` が要る（`~/.platformio/penv/bin/pip install intelhex`、導入済み）。
+
+- **ファーム**（`firmware/src/store.h` + `main.cpp`、詳細は ws-fanout の README）: SHOW のあとホストが 2 秒黙ったらフラッシュへ保存（内容が同じなら書かない）。起動時は保存を読んで SHOW → INFO。表示中のフレームを **1 秒おきに LED へ送り直す**ので、LED の 12V が基板より後に入っても、12V だけ入れ直しても 1 秒以内に点く。SHOW 待ちの LINE / FILL があるあいだは送り直さない。置き場所は `spiffs` パーティションを直接使うスロットの輪（書き込み途中で電源が落ちても前のフレームが残る）。
+- **読み戻し（READ コマンド）**: koma は接続時に基板のフレームを読み、壁バッファ（3D ビュー、ショットの LED 記録の元）をそれで始める（`led.restored` → `syncWallFromDevice`）。以前は接続直後のバッファが黒で、基板が何を出していても「黒で撮った」と記録されていた。接続しただけでは基板の絵を上書きしない。今のモード（work light > live > faces）に出すものがあるときだけ置き換わる。
+- **基板の再起動**（ポートは開いたまま）: ドライバが起動時の INFO を見て、手元の最新フレームと輝度上限を送り直す（保存前に落ちて 1 つ前の絵で起動した場合の差を埋める）。リセット時の ROM のブート文字による読み取りエラーではポートを閉じない。
+- **ポートが閉じてしまった場合**（USB は挿さったまま）: 最後に壁がいたポートだけを 3 秒おきに開き直して訊く（`serialDiscovery.reofferSerialPort`。他のポートは開かないので FluidNC の基板には触らない）。Disconnect を押したときは探しに行かない。USB の挿し直しは従来どおりブラウザの `connect` event → discovery。
+- 輝度上限は koma が接続のたびにプロジェクトの値（`led.brightnessCap`）を設定する。同じ値なら基板は何もしない。
+- 0.1 のファームのままでも koma は動く（読み戻し無し、起動時は消灯、従来どおり）。
+- **未確認（実機）**: `store.h` の保存ロジックをメモリ上の偽フラッシュで PC 上で試したところまで（輪の一周、保存の各段階での電源断 → 前のフレームが残る、壊れたスロットの読み飛ばし）。実際の保存・起動時の復帰・1 秒おきの送り直しは実機で未確認。見る点: (1) 1 秒おきの SHOW が長秒露光に写らないか（同じデータの再ラッチ。問題なら `config.h` の `REFRESH_INTERVAL_MS` を 0 か長めに）、(2) 保存（フラッシュ書き込み、数百 ms）と koma の送信が重なったときに 500 ms の再送で通ること、(3) リセット時に Chrome が非致命エラー → 新しい stream を出すか（駄目でも「ポートが閉じた場合」の経路で数秒で戻るはず）。koma 側の確認はヘッドレス Chromium + ページ内の偽ファーム 0.2（保存済みの絵で起動 → 接続で読み戻し / fill → 保存 → リセット / 保存前のリセット → koma が最新を送り直す / ポート断 → 再接続 / koma の再読み込み / Disconnect 後は探さない）と vitest。
+
+### ショットの LED 記録（2026-10-01）
+撮影した時点で壁に出ていた**全粒の RGB をそのまま記録**する。LED 画像が無い照明（faces / Houdini live / 手動 fill / work light）で撮ったショットでも「Recall Shot Lighting (LED)」が効く。
+
+  - `led:frame` `{rgb: base64（全ライン連結・3 byte/粒）, layoutVersion}` → `led.pushLiveFrame()`。LED ストアの **`mode === 'live'`**（2026-10-16 まで `liveLight` トグル）。latch 中に来たフレームは最新だけ残す（スクラブで遅れない）。`led.showColors()` が粒色を直接出す汎用 API（画像サンプル無し、gain は適用）。
   - `rig:pose` `{position, rotation|angles, frame: film|world|rig, unit}` または `{axes:{x,y,z,a,b,c}}` → IK → `rigLimits` 内・シーケンス停止中・Idle/Jog のときだけ、`$J=G90 G53` の絶対ジョグ（直前のジョグは 0x85 でキャンセル、200 ms 間隔、`addsub.houdini.rigFollowFeed` 既定 600 mm/min）。**`rigFollow` は永続化せず起動時 off**、シーケンス開始で自動 off。
   - `timeline:frame` `{frame}`（previz 番号）→ `previzFrameOffset` を引いてプレビューフレームへ（`followTimeline`、既定 on）。
 - **Houdini 側 `scripts/houdini/koma_bridge.py`**: 依存なし（標準ライブラリだけの最小 WebSocket クライアント、relay の ping に pong を返すリーダースレッド付き）。`KomaBridge(url).send_led(geo)` / `send_camera(cam)` / `send_pose()` / `send_axes()` / `send_frame()`、`follow_playbar(led_node=, camera=)` で playbar 連動。動作確認済（relay + 偽 capture + Python、3 トピックの転送と ping 生存）。ブラウザ側（koma 本体でのスイッチ→LED/リグ）は実機・ハード無し mock ともに未確認。
 - **シェルフ「Koma」**（2026-10-01、`scripts/houdini/toolbar/koma.shelf` + `koma_shelf.py`）: `python3 scripts/houdini/install.py [21.0]` が `$HOUDINI_USER_PREF_DIR/packages/koma.json`（`hpath` = `scripts/houdini`、env `KOMA_HOUDINI`）を書く → Houdini を再起動 → シェルフ領域の + > Shelves > Koma。ツール: **LED Live**（playbar 連動のトグル。フレーム番号と LED 色を毎フレーム送る）/ **LED Send**（いまのフレームを 1 回）/ **Koma Stop**（連動停止 + 切断）/ **Export Set**（プロジェクトフォルダを選んで `previz/set.json`）/ **Koma Settings**（relay URL・token・LED ノード・カメラ）。設定は `$HOUDINI_USER_PREF_DIR/koma_bridge.json`。LED ノードは保存済みのもの、無ければ選択中の SOP（初回に保存）。接続と playbar コールバックはモジュールが保持するので Houdini セッション中は続く。確認は hython（シェルフの読み込み、1 回送信、連動のオン/オフ、relay 不通のエラー、set.json）で、playbar は hython に無いので代役で発火させた。**GUI の Houdini でのボタン操作と実 playbar は未確認。**
-- 本番の照明はこれまでどおり展開図 PNG（filmLift 非依存、再演で再サンプル可）。直接色は lookdev / スクラブ確認用で、filmLift のシフトは Houdini が知っている前提。
+- （2026-10-02）展開図 PNG での照明は廃止。Houdini からの直接色が照明の指定手段で、filmLift のシフトは Houdini が知っている前提。
 
 ### テストデータ: 2021 年の VICE 撮影（Dragonframe）の取り込み
+### LED 配置のハードコードと出力モードのラジオ（2026-10-16）
+- **配置は GUI でいじらない**（ユーザー指定）。`src/addsub/led/layout.ts` の定数が唯一の正: `LED_STRIPS`（ライン毎のストリップの [x, z]）、`LED_PITCH` = 1370 / 41 ≈ 33.41 mm、`LED_TOP_Y` 1265 / `LED_BOTTOM_Y` −105（42 粒）、`LED_WALL`（LED 面: x = ±900、z = −900（B）/ +1000（F））。`LED_LAYOUT = buildLedLayout()`。Houdini の `/obj/LED_box`（`10_addsub_boxrig.hiplc`、m 単位、原点 = リグの Work 原点）を MCP で読み、全 3108 粒を 0.001 mm 以内で一致確認した。
+  - L1 z 850→50、L2 z −50→−850（x −900）、B1 x −50→−850、B2 x 850→50（z −900）、R1 z −50→−850、R2 z 50→850（x 900）。**F1 の 1 本目は R 面（x 900, z 950）、F2 の 10 本目は L 面（x −900, z 950）に回り込み**、残り 18 本が z 1000 に x 850→−850。ライン毎に 9 本（F は 10 本）、各ラインの 1 本目は上→下で蛇行。粒数 378 ×6 + 420 ×2 = 3108。
+  - 壁が変わったら定数を直して `LED_LAYOUT_VERSION`（`config.ts`、いま 2）を上げる。ショットの `led.layoutVersion` に入る。Houdini 側 `koma_bridge.py` の `layout_version` 既定も 2（`led:frame` の版チェックに合わせる）。
+  - 削除: `LedLayoutParams` / `DEFAULT_LED_LAYOUT` / `project.addsub.led.layout` / `layoutVersion`（旧ファイルの残骸は `migrateAddsubData` が消す）、LED パネルの Layout…、`set.json` の `led`（`ledLayoutFromSet`、`previz.setLed`。`geometry` は残る）。3D ビューの枠線は `LED_WALL` から。Gain は LED パネルに常時表示。
+  - ファームは全ライン 420 なので「Line counts differ: firmware 420/… vs layout 378/…」は従来どおり出る。
+- **出力モードはラジオ**（`led.mode: 'off' | 'work' | 'live' | 'faces'`、`setMode()`。LED パネル / タイトルバーのメニュー / Houdini Live パネルの 3 か所、同じ `Tq.InputRadio`）。以前の Off ボタン + Work light / Live / Faces の 3 トグルは分かりづらいとのユーザー指摘。
+  - **Off** = koma は何も出さない。選ぶと消灯（`blackout()`）。手動 fill や「Recall Shot Lighting」は壁にそれを出してモードを off に落とす（タイトルバーの表示は `off (manual)`）。接続しただけでは基板の絵を上書きしない（従来どおり）。
+  - **Work light** は入る前のモードを覚え、`leaveWorkLight()`（シーケンスの `led` ステップ、recall の前）でそこへ戻る。戻り先が off なら点ける前の壁（`covered`）を復元。ユーザーがラジオで Off を選んだときは復元せず消灯。
+  - chase の終わりの復元は従来どおり（モードが off なら `covered`、live / faces なら出し直し）。
+  - 確認: vitest（配置の spot 値、粒数、蛇行、回り込み）。ブラウザでの確認はハード無し。
+
 - `scripts/import-dragonframe.mjs <dgn-root> <dest> --name …` で Dragonframe の `.dgn` を koma プロジェクトに変換（テイクごとに名前付きレイヤー、フレーム 0 始まり。EDL から外れたコマは `_trash` に「撮影されたフレーム」つきで入る。EXIF + take.xml のメタデータ、meta.txt の FIRST FRAME でカメラ時計を補正。jpg は 3000px に縮小、lv は 1920px、RAW はコピーせず名前だけ）。
 - 生成済み: `~/Dropbox/Works/2024/10_addsub/capture/vice-tests-2021`（"VICE tests 2021"、14 テイク = 440 コマ + 破棄 145、1.2 GB）。プリセット "All takes" / "Main only"。
 - `scripts/import-sequence.mjs <dir> <project> --name …` で画像連番をレイヤーとして追加（`Previz (shapes)` = `prj/render/2024_10_addsub_shapes.viewport_preview1_cache` の 840 枚を取り込み済み）。

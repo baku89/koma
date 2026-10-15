@@ -9,7 +9,7 @@
  *                Per-pixel colours of the whole wall in ws-fanout line order
  *                (all lines concatenated, 3 bytes per pixel). Shown as-is,
  *                no image sampling — Houdini already knows every pixel's
- *                colour (its LED point cloud's Cd). Gated by `led.liveLight`.
+ *                colour (its LED point cloud's Cd). Shown while `led.mode` is 'live'.
  * - `rig:pose`   {position:[x,y,z], rotation:[x,y,z,w] | angles:{tilt,pan,roll},
  *                 frame?: 'film' | 'world' | 'rig', unit?: 'mm' | 'm'}
  *                or {axes:{x,y,z,a,b,c}} (rig machine coords, degrees).
@@ -30,11 +30,11 @@
  *                frame between koma's in and out points into plans.
  */
 
-import type {quat, vec3} from 'linearly'
 import {defineStore} from 'pinia'
 import {useTweeq} from 'tweeq'
 import {computed, readonly, ref, watch} from 'vue'
 
+import {useInboxStore} from '@/stores/inbox'
 import {useProjectStore} from '@/stores/project'
 import {useRelayStore} from '@/stores/relay'
 import {useViewportStore} from '@/stores/viewport'
@@ -59,6 +59,7 @@ export const useHoudiniStore = defineStore('addsub:houdini', () => {
 	const led = useLedStore()
 	const rig = useRigStore()
 	const sequence = useSequenceStore()
+	const inbox = useInboxStore()
 
 	/** Let `rig:pose` move the Box Rig. Never persisted: off on every launch. */
 	const rigFollow = ref(false)
@@ -229,6 +230,26 @@ export const useHoudiniStore = defineStore('addsub:houdini', () => {
 	)
 
 	//--------------------------------------------------------------------------
+	// Inbox over the relay
+
+	relay.onControl('inbox', async (data, from) => {
+		const id = data?.id === undefined ? null : String(data.id)
+		const patch = data?.patch ?? data
+		const t = Date.now()
+		let outcome
+		try {
+			outcome = await inbox.applyPatch(patch, `relay:${from}${id ? `:${id}` : ''}`)
+		} catch (e) {
+			outcome = {status: 'rejected', error: e instanceof Error ? e.message : String(e)}
+		}
+		if (!outcome) outcome = {status: 'rejected', error: 'no project is open'}
+		lastPatch.value = {t, from, id, status: outcome.status}
+		relay.publish('inbox:result', {id, from, t, ...outcome})
+	})
+
+	const lastPatch = ref<{t: number; from: string; id: string | null; status: string} | null>(null)
+
+	//--------------------------------------------------------------------------
 	// Timeline
 
 	relay.onControl('timeline:frame', data => {
@@ -245,6 +266,7 @@ export const useHoudiniStore = defineStore('addsub:houdini', () => {
 		followTimeline,
 		lastPose: readonly(lastPose),
 		lastFrame: readonly(lastFrame),
+		lastPatch: readonly(lastPatch),
 		lastControlAt,
 		error,
 	}

@@ -1,20 +1,27 @@
 /**
  * LED wall (ws-fanout over Web Serial). ADDSUB.md §3.3, §8.
  *
- * Holds the connection, the placement map derived from the project's layout
- * params, and `showImage()` which samples an unwrapped lighting image into
- * the wall and resolves once the firmware has latched it (SHOW ack) — the
- * sequence waits on that before capturing.
+ * Holds the connection, the placement map (led/layout.ts, hard-coded) and
+ * what is lit. `mode` picks one source — off (nothing of koma's: the wall
+ * keeps what it shows), work light (all white), live (per-pixel colours from
+ * Houdini), faces (one colour per face) — and a recorded shot's pixels or a
+ * manual fill can be put up at any time (they drop the mode to off). Every
+ * show resolves once the firmware has latched it (SHOW ack) — the sequence
+ * waits on that before capturing.
  *
  * The colours the wall *should* show live in `wall` (one RGB buffer per data
- * line) independently of the hardware: every mode (frame lighting, faces,
- * live feed, work light) writes there first and the device, when connected,
- * is brought up to date from it. So the 3D view previews the lighting with
+ * line) independently of the hardware: every mode writes there first and the
+ * device, when connected, is brought up to date from it. So the 3D view previews the lighting with
  * nothing plugged in, and plugging the wall in later just pushes the buffer.
+ *
+ * The driver board itself remembers the last frame (ws-fanout firmware ≥ 0.2
+ * keeps it in flash and lights the wall with it whenever it gets power). So
+ * a board that connects is already showing something: the buffer starts from
+ * what it reports, and only a mode that has something to show replaces it.
  */
 
 import {defineStore} from 'pinia'
-import {computed, readonly, ref, shallowRef, watch} from 'vue'
+import {computed, nextTick, readonly, ref, shallowRef, watch} from 'vue'
 import {
 	CP210X_FILTER,
 	type DeviceInfo,
@@ -29,24 +36,26 @@ import {
 	discoverSerialPorts,
 	registerSerialFamily,
 	releaseSerialPort,
+	reofferSerialPort,
 	requestSerialPort,
 	type SerialFamily,
+	serialPortLabel,
 	serialRequestError,
 } from '@/utils/serialDiscovery'
 
 import {LED_FACES, type LedFace} from '../config'
 import {readProjectBytes} from '../cuts'
-import {decodeImage} from '../led/decode'
-import {buildLedLayout, ledLayoutFromSet} from '../led/layout'
-import {type RgbaImage, sampleLedFrame} from '../led/sampler'
+import {LED_LAYOUT} from '../led/layout'
 import {decodeWall, encodeWall, wallRecordPath} from '../led/wallRecord'
 import type {ShotLedRecord} from '../projectData'
-import {usePrevizStore} from './previz'
 
 const FAMILY_ID = 'ws-fanout'
 
-/** `shown.file` while the live feed is on the wall: not a lighting image. */
-export const LIVE_SOURCE = 'live'
+/** How often (ms) a wall that dropped off its port is looked for again. */
+const RECONNECT_INTERVAL = 3000
+
+/** `shownKey` while the live feed is on the wall. */
+const LIVE_KEY = 'live'
 
 function clamp255(v: number) {
 	return v < 0 ? 0 : v > 255 ? 255 : Math.round(v)
@@ -54,37 +63,35 @@ function clamp255(v: number) {
 
 export type ChaseMode = 'pixel' | 'line'
 
+/** What drives the wall. */
+export type LedMode = 'off' | 'work' | 'live' | 'faces'
+export const LED_MODES: readonly LedMode[] = ['off', 'work', 'live', 'faces']
+export const LED_MODE_LABELS = ['Off', 'Work light', 'Live', 'Faces']
+export const LED_MODE_ICONS = [
+	'mdi:lightbulb-off-outline',
+	'mdi:ceiling-light',
+	'mdi:video-3d',
+	'mdi:cube-outline',
+]
+
 export const useLedStore = defineStore('addsub:led', () => {
 	const project = useProjectStore()
-	const previz = usePrevizStore()
 
 	const device = shallowRef<WsFanout | null>(null)
 	const connecting = ref(false)
 	const info = ref<DeviceInfo | null>(null)
 	const lastShow = ref<ShowResult | null>(null)
 	const lastError = ref<string | null>(null)
-	/** Which lighting image is currently on the wall. */
-	const shown = ref<{file: string; layoutVersion: number} | null>(null)
-
 	const connected = computed(() => device.value !== null)
 
-	/** The real placement from previz/set.json when present, else the fallback. */
-	const layout = computed(() =>
-		previz.setLed
-			? ledLayoutFromSet(previz.setLed, {rigOffset: project.addsub.calibration.rigOffset})
-			: buildLedLayout(project.addsub.led.layout, project.addsub.led.layoutVersion)
-	)
-
-	/** world Y = film Y + lift, for the current film lift. */
-	const lift = computed(
-		() => project.addsub.filmLift + project.addsub.calibration.filmOriginWorld[1]
-	)
+	/** The placement (led/layout.ts). */
+	const layout = LED_LAYOUT
 
 	//--------------------------------------------------------------------------
 	// The wall buffer: what should be lit, per data line (layout line counts)
 
 	function emptyWall() {
-		return layout.value.lineCounts.map(n => new Uint8Array(n * 3))
+		return layout.lineCounts.map(n => new Uint8Array(n * 3))
 	}
 
 	/** RGB per data line, in ws-fanout line order. Read it with `wallVersion`. */
@@ -155,16 +162,6 @@ export const useLedStore = defineStore('addsub:led', () => {
 		}
 	}
 
-	// The placement changed (set.json, layout params): new line counts.
-	watch(
-		() => layout.value.lineCounts.join(','),
-		() => {
-			wall.value = emptyWall()
-			touchWall()
-			shownKey = null
-		}
-	)
-
 	//--------------------------------------------------------------------------
 	// Connection
 
@@ -202,7 +199,17 @@ export const useLedStore = defineStore('addsub:led', () => {
 	registerSerialFamily(family)
 	void discoverSerialPorts()
 
+	/**
+	 * The port the wall is (or was last) on. When the wall drops off it while
+	 * the port is still plugged in, `reconnect` asks there again.
+	 */
+	let lastPort: SerialPort | null = null
+
 	function adopt(led: WsFanout) {
+		lastPort = port(led)
+		// The board lit the wall with the frame it kept: that is what is on the
+		// wall now, whatever the buffer held while nothing was connected.
+		if (led.restored) syncWallFromDevice(led)
 		device.value = led
 		info.value = led.cachedInfo
 		lastError.value = null
@@ -214,7 +221,6 @@ export const useLedStore = defineStore('addsub:led', () => {
 			releaseSerialPort(port(led))
 			device.value = null
 			info.value = null
-			shown.value = null
 		})
 		// Apply the project's brightness cap; keep applying it when edited.
 		void led.setBrightnessCap(project.addsub.led.brightnessCap).catch(() => {})
@@ -222,7 +228,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 	}
 
 	function checkLineCounts(deviceInfo: DeviceInfo) {
-		const expected = layout.value.lineCounts
+		const expected = layout.lineCounts
 		const actual = deviceInfo.lines.map(l => l.count)
 		const mismatch = expected.some((n, i) => actual[i] !== n)
 		if (mismatch) {
@@ -252,8 +258,33 @@ export const useLedStore = defineStore('addsub:led', () => {
 	}
 
 	async function disconnect() {
+		// Asked for: don't go looking for it again.
+		lastPort = null
 		await device.value?.disconnect()
 	}
+
+	// A wall that dropped off its port while the port is still plugged in (the
+	// board reset or lost power and the port closed on it): keep asking on
+	// that port until it answers. A replug needs none of this — the browser's
+	// `connect` event starts a discovery.
+	let reconnecting = false
+
+	async function reconnect() {
+		if (reconnecting || device.value || connecting.value) return
+		if (!lastPort || !('serial' in navigator)) return
+		reconnecting = true
+		try {
+			const granted = await navigator.serial
+				.getPorts()
+				.catch((): SerialPort[] => [])
+			if (!device.value && lastPort && granted.includes(lastPort)) {
+				await reofferSerialPort(family, lastPort)
+			}
+		} finally {
+			reconnecting = false
+		}
+	}
+	setInterval(() => void reconnect(), RECONNECT_INTERVAL)
 
 	watch(
 		() => project.addsub.led.brightnessCap,
@@ -266,40 +297,18 @@ export const useLedStore = defineStore('addsub:led', () => {
 	// Output
 
 	/**
-	 * Sample `image` (film coordinates) into the wall and wait for the latch.
-	 * Null when no device is connected (the preview is still updated).
-	 */
-	async function showImage(
-		image: RgbaImage,
-		ref_: {file: string} | null = null
-	): Promise<ShowResult | null> {
-		const lines = sampleLedFrame(layout.value, image, {
-			topFilmY: project.addsub.led.topFilmY,
-			lift: lift.value,
-			gain: project.addsub.led.gain,
-		})
-		setWall(lines)
-		shown.value = ref_ ? {file: ref_.file, layoutVersion: layout.value.version} : null
-		return pushWall()
-	}
-
-	async function showImageBlob(blob: Blob, ref_: {file: string} | null = null) {
-		const image = await decodeImage(blob)
-		return showImage(image, ref_)
-	}
-
-	/**
-	 * Put per-pixel colours straight on the wall (no image sampling): one RGB
-	 * buffer per data line in line order, or a single buffer of all lines
+	 * Put per-pixel colours on the wall and wait for the latch: one RGB buffer
+	 * per data line in line order, or a single buffer of all lines
 	 * concatenated (split by the layout's line counts). Short buffers leave
-	 * the tail of a line untouched; long ones are truncated. Used by the live
+	 * the tail of a line untouched; long ones are truncated. Null when no
+	 * device is connected (the preview is still updated). Used by the live
 	 * feed from Houdini (§13.2) and by anything that already knows every
 	 * pixel's colour.
 	 */
 	async function showColors(
-		colors: Uint8Array | readonly Uint8Array[],
-		ref_: {file: string} | null = null
+		colors: Uint8Array | readonly Uint8Array[]
 	): Promise<ShowResult | null> {
+		covered = null
 		const lines: Uint8Array[] = []
 		if (colors instanceof Uint8Array) {
 			let offset = 0
@@ -317,7 +326,6 @@ export const useLedStore = defineStore('addsub:led', () => {
 			})
 		}
 		setWall(lines)
-		shown.value = ref_ ? {file: ref_.file, layoutVersion: layout.value.version} : null
 		return pushWall()
 	}
 
@@ -325,9 +333,16 @@ export const useLedStore = defineStore('addsub:led', () => {
 		await fill(0, 0, 0)
 	}
 
+	/** A manual fill: the mode drops to off and the fill stays until something else is shown. */
 	async function fill(r: number, g: number, b: number) {
+		covered = null
+		shownKey = null
+		mode.value = 'off'
+		await fillAll(r, g, b)
+	}
+
+	async function fillAll(r: number, g: number, b: number) {
 		fillWall(r, g, b)
-		shown.value = null
 		const led = device.value
 		if (!led) return
 		try {
@@ -358,22 +373,17 @@ export const useLedStore = defineStore('addsub:led', () => {
 
 	/** Fill each face with its colour from the project settings and latch. */
 	async function showFaces(): Promise<ShowResult | null> {
+		covered = null
 		for (const face of LED_FACES) {
 			const [r, g, b] = hexToRgb(project.addsub.led.faceColors[face] ?? '#ffffff')
 			fillWall(r, g, b, linesOfFace(face))
 		}
-		shown.value = null
 		return pushWall()
 	}
-
-	/** Manual per-face colours instead of the frame's lighting. */
-	const faceLight = ref(false)
 
 	//--------------------------------------------------------------------------
 	// Live feed: per-pixel colours pushed from outside (Houdini over the relay)
 
-	/** Accept live frames; while on they replace faces / follow (work light wins). */
-	const liveLight = ref(false)
 	/** The last live frame received (kept so toggling live back on re-shows it). */
 	const liveFrame = shallowRef<Uint8Array | null>(null)
 	const liveInfo = ref<{t: number; fps: number; dropped: number} | null>(null)
@@ -394,7 +404,7 @@ export const useLedStore = defineStore('addsub:led', () => {
 		const dt = now - liveLastT
 		liveLastT = now
 		liveInfo.value = {t: Date.now(), fps: dt > 0 ? 1000 / dt : 0, dropped: liveDropped}
-		if (!liveLight.value || workLight.value || chasing.value) return
+		if (mode.value !== 'live' || chasing.value) return
 		if (livePending) liveDropped++
 		livePending = rgb
 		if (!liveShowing) void drainLive()
@@ -403,12 +413,12 @@ export const useLedStore = defineStore('addsub:led', () => {
 	async function drainLive() {
 		liveShowing = true
 		try {
-			while (livePending && liveLight.value && !workLight.value) {
+			while (livePending && mode.value === 'live') {
 				const frame = livePending
 				livePending = null
 				await enqueue(async () => {
-					await showColors(frame, {file: LIVE_SOURCE})
-					shownKey = LIVE_SOURCE
+					await showColors(frame)
+					shownKey = LIVE_KEY
 				}).catch(() => {})
 			}
 		} finally {
@@ -431,12 +441,13 @@ export const useLedStore = defineStore('addsub:led', () => {
 	 * Wiring check: light the wall in order. `pixel` walks one white pixel
 	 * through every line (ws-fanout line order, each line from its first
 	 * pixel); `line` lights whole lines one after another. Everything else on
-	 * the wall is off while it runs; the normal state comes back after.
+	 * the wall is off while it runs; what it covered comes back after.
 	 */
 	async function startChase(opts: {mode?: ChaseMode; stepMs?: number; line?: number | null} = {}) {
 		const led = device.value
 		if (!led) throw new Error('LED wall is not connected')
 		stopChase()
+		covered ??= wall.value.map(buf => buf.slice())
 		const abort = new AbortController()
 		chaseAbort = abort
 		const mode = opts.mode ?? 'pixel'
@@ -506,16 +517,24 @@ export const useLedStore = defineStore('addsub:led', () => {
 	}
 
 	//--------------------------------------------------------------------------
-	// Follow the capture frame (ADDSUB.md: 撮影コマに移ったら自動的にその照明) with
-	// a temporary all-white work light on top.
+	// Mode
 
-	/** Show each capture frame's lighting automatically. */
-	const followCapture = ref(true)
-	/** Temporary all-white for working on the set; restores the frame after. */
-	const workLight = ref(false)
+	/**
+	 * What drives the wall. `off` = nothing of koma's: the wall keeps what it
+	 * shows (a fill, a recalled shot, the frame the board remembers). Set it
+	 * with `setMode`; a fill or a recalled shot drops it to off by itself.
+	 */
+	const mode = ref<LedMode>('off')
+	/** The mode the work light interrupted, for `leaveWorkLight`. */
+	let modeBeforeWork: LedMode = 'off'
 
 	/** Key of what's in the wall buffer, to skip redundant re-shows. */
 	let shownKey: string | null = null
+	/**
+	 * The wall as it was before the work light or a chase took it over, put
+	 * back when they end. Dropped by anything else that is shown meanwhile.
+	 */
+	let covered: Uint8Array[] | null = null
 	let chain: Promise<unknown> = Promise.resolve()
 
 	function enqueue<T>(fn: () => Promise<T>): Promise<T> {
@@ -524,40 +543,38 @@ export const useLedStore = defineStore('addsub:led', () => {
 		return p
 	}
 
-	function frameKey(file: string) {
-		return `${file}|${lift.value}|${project.addsub.led.gain}|${project.addsub.led.topFilmY}`
+	/**
+	 * Wait until the wall shows what the current mode says: lets pending
+	 * changes through, then sends the buffer once more for its latch. Null
+	 * with no device. The sequence awaits this before capturing.
+	 */
+	async function ensureShown(): Promise<ShowResult | null> {
+		await nextTick()
+		return enqueue(() => pushWall())
 	}
 
 	/**
-	 * Make sure `frame`'s lighting is on the wall. Resolves once the firmware
-	 * has latched it (or immediately if it already is). Returns false when the
-	 * frame has no LED image. The sequence awaits this before capturing.
+	 * Choose what drives the wall. Choosing `off` blacks the wall out (an
+	 * explicit choice); choosing the work light remembers the mode it covers.
 	 */
-	function ensureFrame(frame: number, opts: {force?: boolean} = {}): Promise<boolean> {
-		const pf = previz.frameFor(frame)
-		if (!pf?.led) return Promise.resolve(false)
-		return showFile(pf.led, opts)
+	function setMode(m: LedMode) {
+		if (m === mode.value) return
+		if (m === 'off') {
+			void blackout().catch(() => {})
+			return
+		}
+		if (m === 'work') modeBeforeWork = mode.value
+		mode.value = m
 	}
 
 	/**
-	 * Put a lighting image (path relative to previz/) on the wall, sampled with
-	 * the current lift, and wait for the latch. Used to recall the lighting a
-	 * shot was taken with (`shot.led.file`), not just the capture frame's.
-	 * Without a device only the preview buffer is updated (still true).
+	 * End the work light (before a capture): the mode it interrupted comes
+	 * back — faces or live re-show themselves, off puts back what the light
+	 * covered. Nothing happens when it isn't on.
 	 */
-	function showFile(file: string, opts: {force?: boolean} = {}): Promise<boolean> {
-		return enqueue(async () => {
-			const key = frameKey(file)
-			if (!opts.force && shownKey === key && !workLight.value) return true
-			const blob = await previz.readBlob(file)
-			await showImageBlob(blob, {file})
-			shownKey = key
-			return true
-		})
-	}
-
-	function setWorkLight(on: boolean) {
-		workLight.value = on
+	function leaveWorkLight() {
+		if (mode.value !== 'work') return
+		mode.value = modeBeforeWork
 	}
 
 	//--------------------------------------------------------------------------
@@ -580,65 +597,71 @@ export const useLedStore = defineStore('addsub:led', () => {
 	}
 
 	/**
-	 * What a shot taken now should remember about its lighting: the image on
-	 * the wall, if the light came from one, and — while the wall is connected —
-	 * every pixel's RGB as sent (the device's own buffer), saved to the project
-	 * folder. The pixels are copied before the first await, so call this at
-	 * the exposure and await it later. Never rejects: a record that can't be
-	 * written is logged and left out.
+	 * What a shot taken now should remember about its lighting: every pixel's
+	 * RGB as sent (the device's own buffer), saved to the project folder.
+	 * Nothing while the wall isn't connected. The pixels are copied before the
+	 * first await, so call this at the exposure and await it later. Never
+	 * rejects: a record that can't be written is logged and left out.
 	 */
 	async function recordForShot(): Promise<ShotLedRecord | undefined> {
-		const image = shown.value && shown.value.file !== LIVE_SOURCE ? shown.value : null
-		const record: ShotLedRecord = {layoutVersion: image?.layoutVersion ?? layout.value.version}
-		if (image) record.file = image.file
 		const led = device.value
-		if (led) {
-			const lines = Array.from({length: led.lineCount}, (_, i) => led.getLine(i).slice())
-			record.brightnessCap = project.addsub.led.brightnessCap
-			try {
-				record.wall = await saveWallRecord(lines)
-			} catch (e) {
-				// eslint-disable-next-line no-console
-				console.error('[led] could not record the wall for this shot', e)
-			}
+		if (!led) return undefined
+		const lines = Array.from({length: led.lineCount}, (_, i) => led.getLine(i).slice())
+		const record: ShotLedRecord = {
+			layoutVersion: layout.version,
+			brightnessCap: project.addsub.led.brightnessCap,
 		}
-		return record.file || record.wall ? record : undefined
+		try {
+			record.wall = await saveWallRecord(lines)
+		} catch (e) {
+			// eslint-disable-next-line no-console
+			console.error('[led] could not record the wall for this shot', e)
+			return undefined
+		}
+		return record
 	}
 
 	/**
-	 * Put a recorded wall (`shot.led.wall`) back, pixel for pixel — no sampling,
-	 * no gain, no lift — and wait for the latch. Lines are clipped to the
-	 * current layout. Without a device only the preview buffer is updated.
+	 * Put a recorded wall (`shot.led.wall`) back, pixel for pixel — no gain —
+	 * and wait for the latch. Lines are clipped to the current layout. Without
+	 * a device only the preview buffer is updated.
 	 */
 	function showWallRecord(file: string): Promise<boolean> {
+		covered = null
+		mode.value = 'off'
 		return enqueue(async () => {
 			const root = project.directoryHandle
 			if (!root) throw new Error('The project has no folder')
 			const lines = decodeWall(await readProjectBytes(root, file))
 			setWall(lines)
-			shown.value = null
 			await pushWall()
 			shownKey = `wall|${file}`
 			return true
 		})
 	}
 
-	/** Put on the wall whatever the current mode says (work > live > faces > frame). */
+	/** Put on the wall whatever the current mode says. */
 	function applyState() {
 		if (chasing.value) return
-		if (workLight.value) {
+		if (mode.value === 'work') {
 			if (shownKey === 'work') return
+			covered ??= wall.value.map(buf => buf.slice())
 			void enqueue(async () => {
-				await fill(255, 255, 255)
+				await fillAll(255, 255, 255)
 				shownKey = 'work'
 			}).catch(() => {})
 			return
 		}
-		if (liveLight.value) {
-			if (liveFrame.value && shownKey !== LIVE_SOURCE) pushLiveFrame(liveFrame.value)
-			return
-		}
-		if (faceLight.value) {
+		// The work light / chase is over: what it covered comes back, unless a
+		// mode has its own to show.
+		const restore = covered
+		covered = null
+		if (mode.value === 'live') {
+			if (liveFrame.value) {
+				if (shownKey !== LIVE_KEY) pushLiveFrame(liveFrame.value)
+				return
+			}
+		} else if (mode.value === 'faces') {
 			const key = `faces|${LED_FACES.map(f => project.addsub.led.faceColors[f]).join(',')}`
 			if (shownKey === key) return
 			void enqueue(async () => {
@@ -647,7 +670,13 @@ export const useLedStore = defineStore('addsub:led', () => {
 			}).catch(() => {})
 			return
 		}
-		if (followCapture.value) void ensureFrame(project.captureShot.frame).catch(() => {})
+		if (restore) {
+			void enqueue(async () => {
+				setWall(restore)
+				shownKey = null
+				await pushWall()
+			}).catch(() => {})
+		}
 	}
 
 	// A device that (re)appears gets the whole buffer, whatever the key says.
@@ -660,53 +689,39 @@ export const useLedStore = defineStore('addsub:led', () => {
 		() =>
 			[
 				connected.value,
-				workLight.value,
-				liveLight.value,
-				faceLight.value,
-				followCapture.value,
-				project.captureShot.frame,
-				lift.value,
-				project.addsub.led.gain,
-				project.addsub.led.topFilmY,
-				previz.lastModified,
-				layout.value,
+				mode.value,
 				...LED_FACES.map(f => project.addsub.led.faceColors[f]),
 			] as const,
 		() => applyState(),
 		{immediate: true}
 	)
 
-	// Manual fills / blackouts invalidate the key so the next ensureFrame
-	// really re-sends.
-	watch(shown, v => {
-		if (v === null) shownKey = null
-	})
+	/** Where the driver is plugged in ("#3 · CP210x 10c4:ea60"). */
+	const portLabel = computed(() =>
+		device.value ? serialPortLabel(port(device.value)) : null
+	)
 
 	return {
 		device,
 		connected,
 		connecting: readonly(connecting),
+		portLabel,
 		info: readonly(info),
 		lastShow: readonly(lastShow),
 		lastError,
-		shown: readonly(shown),
 		wall: readonly(wall),
 		wallVersion: readonly(wallVersion),
 		layout,
-		lift,
 		connect,
 		disconnect,
-		showImage,
-		showImageBlob,
 		showColors,
 		blackout,
 		fill,
-		followCapture,
-		workLight,
-		setWorkLight,
-		faceLight,
+		ensureShown,
+		mode: readonly(mode),
+		setMode,
+		leaveWorkLight,
 		showFaces,
-		liveLight,
 		liveFrame: readonly(liveFrame),
 		liveInfo: readonly(liveInfo),
 		pushLiveFrame,
@@ -714,8 +729,6 @@ export const useLedStore = defineStore('addsub:led', () => {
 		chasing: readonly(chasing),
 		startChase,
 		stopChase,
-		ensureFrame,
-		showFile,
 		recordForShot,
 		showWallRecord,
 	}

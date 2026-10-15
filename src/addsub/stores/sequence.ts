@@ -499,10 +499,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		const wall = project.shot(frame, layer)?.led?.wall
 		if (!wall) throw new SequenceError('led', `Frame ${frame}: no lighting recorded`)
 		if (!led.connected) throw new SequenceError('led', 'LED wall is not connected')
-		led.setWorkLight(false)
+		led.leaveWorkLight()
 		try {
-			if (file) await led.showFile(file, {force: true})
-			else if (wall) await led.showWallRecord(wall)
+			await led.showWallRecord(wall)
 		} catch (e) {
 			throw new SequenceError('led', e instanceof Error ? e.message : String(e))
 		}

@@ -7,7 +7,7 @@
 import * as Tq from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
-import {useLedStore} from '../stores/led'
+import {LED_MODE_ICONS, LED_MODE_LABELS, LED_MODES, useLedStore} from '../stores/led'
 
 const led = useLedStore()
 
@@ -33,17 +33,23 @@ const stateText = computed(() => {
 	if (!led.connected) return led.connecting ? 'Connecting…' : 'Not connected'
 	const i = led.info
 	const px = i?.lines.reduce((a, l) => a + l.count, 0)
-	return i ? `v${i.version} · ${i.lines.length} lines · ${px} px` : 'Connected'
+	const port = led.portLabel ? ` (${led.portLabel})` : ''
+	return (i ? `v${i.version} · ${i.lines.length} lines · ${px} px` : 'Connected') + port
 })
 
 const modeText = computed(() => {
 	if (!led.connected) return ''
 	if (led.chasing) return 'chase'
-	if (led.workLight) return 'work light'
-	if (led.liveLight) return led.liveInfo ? `live (Houdini) ${led.liveInfo.fps.toFixed(0)} fps` : 'live (waiting)'
-	if (led.faceLight) return 'faces'
-	if (led.shown) return led.shown.file
-	return led.followCapture ? 'follow (no lighting for this frame)' : 'manual'
+	switch (led.mode) {
+		case 'work':
+			return 'work light'
+		case 'live':
+			return led.liveInfo ? `live (Houdini) ${led.liveInfo.fps.toFixed(0)} fps` : 'live (waiting)'
+		case 'faces':
+			return 'faces'
+		default:
+			return 'off (manual)'
+	}
 })
 
 const tooltip = computed(() => `LED Wall: ${stateText.value}${modeText.value ? ` — ${modeText.value}` : ''}`)
@@ -51,7 +57,7 @@ const tooltip = computed(() => `LED Wall: ${stateText.value}${modeText.value ? `
 const stateClass = computed(() => {
 	if (!led.connected) return ''
 	if (led.lastError) return 'alarm'
-	if (led.chasing || led.workLight) return 'busy'
+	if (led.chasing || led.mode === 'work') return 'busy'
 	return ''
 })
 </script>
@@ -80,45 +86,20 @@ const stateClass = computed(() => {
 				<span class="state" :class="stateClass">{{ stateText }}</span>
 			</div>
 			<div v-if="led.lastError" class="alarm-row">{{ led.lastError }}</div>
-			<Tq.InputGroup>
-				<Tq.InputButton
-					:label="led.connected ? 'Disconnect' : 'Connect…'"
-					:icon="led.connected ? 'mdi:link-off' : 'mdi:link'"
-					:disabled="led.connecting"
-					@click="led.connected ? led.disconnect() : led.connect()"
-				/>
-				<Tq.InputButton
-					label="Off"
-					icon="mdi:lightbulb-off-outline"
-					:disabled="!led.connected"
-					@click="led.blackout()"
-				/>
-			</Tq.InputGroup>
-			<Tq.InputGroup>
-				<Tq.InputButtonToggle
-					v-model="led.workLight"
-					label="Work light"
-					icon="mdi:ceiling-light"
-					:disabled="!led.connected"
-				/>
-				<Tq.InputButtonToggle
-					v-model="led.liveLight"
-					label="Live"
-					icon="mdi:video-3d"
-					:disabled="!led.connected"
-				/>
-				<Tq.InputButtonToggle
-					v-model="led.faceLight"
-					label="Faces"
-					icon="mdi:cube-outline"
-					:disabled="!led.connected"
-				/>
-				<Tq.InputButtonToggle
-					v-model="led.followCapture"
-					label="Follow"
-					icon="mdi:auto-fix"
-				/>
-			</Tq.InputGroup>
+			<Tq.InputButton
+				:label="led.connected ? 'Disconnect' : 'Connect…'"
+				:icon="led.connected ? 'mdi:link-off' : 'mdi:link'"
+				:disabled="led.connecting"
+				@click="led.connected ? led.disconnect() : led.connect()"
+			/>
+			<Tq.InputRadio
+				:modelValue="led.mode"
+				:options="[...LED_MODES]"
+				:labels="LED_MODE_LABELS"
+				:tooltips="LED_MODE_LABELS"
+				:icons="LED_MODE_ICONS"
+				@update:modelValue="led.setMode($event)"
+			/>
 			<div class="mode">
 				{{ modeText || '—' }}
 				<template v-if="led.lastShow"> · {{ led.lastShow.latencyMs.toFixed(0) }} ms</template>

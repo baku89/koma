@@ -9,10 +9,7 @@ import type {AxesPosition} from '@/utils/fluidnc'
 import {
 	type AddsubCalibration,
 	DEFAULT_CALIBRATION,
-	DEFAULT_LED_LAYOUT,
-	LED_LAYOUT_VERSION,
 	type LedFace,
-	type LedLayoutParams,
 	RIG_LIMITS,
 } from './config'
 import type {PlanTable} from './plan'
@@ -147,11 +144,7 @@ export interface AddsubProjectData {
 	rigLimits: Partial<Record<keyof AxesPosition, [number, number]>>
 	calibration: AddsubCalibration
 	led: {
-		layout: LedLayoutParams
-		layoutVersion: number
-		/** Film Y (mm) at the top edge of the unwrapped LED images. */
-		topFilmY: number
-		/** 0–1 multiplier applied when sampling. */
+		/** Multiplier on per-pixel colours pushed in (the live feed). */
 		gain: number
 		/** 0–1 brightness cap sent to the firmware on connect. */
 		brightnessCap: number
@@ -209,9 +202,6 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	rigLimits: {x: [...RIG_LIMITS.x], y: [...RIG_LIMITS.y], z: [...RIG_LIMITS.z]},
 	calibration: DEFAULT_CALIBRATION,
 	led: {
-		layout: DEFAULT_LED_LAYOUT,
-		layoutVersion: LED_LAYOUT_VERSION,
-		topFilmY: DEFAULT_LED_LAYOUT.topY,
 		gain: 1,
 		brightnessCap: 0.8,
 		faceColors: {L: '#ffffff', B: '#ffffff', R: '#ffffff', F: '#ffffff'},

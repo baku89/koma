@@ -10,7 +10,7 @@ import {computed} from 'vue'
 import {useRelayStore} from '@/stores/relay'
 
 import {useHoudiniStore} from '../stores/houdini'
-import {useLedStore} from '../stores/led'
+import {LED_MODE_ICONS, LED_MODE_LABELS, LED_MODES, useLedStore} from '../stores/led'
 import {useRigStore} from '../stores/machines'
 
 const relay = useRelayStore()
@@ -55,9 +55,16 @@ const poseText = computed(() => {
 			</div>
 		</Tq.Parameter>
 
-		<Tq.Parameter label="LED" icon="mdi:led-strip-variant" hint="Show the per-pixel colours Houdini sends (led:frame) instead of the frame's lighting">
+		<Tq.Parameter label="LED" icon="mdi:led-strip-variant" hint="What drives the wall (same as the LED Wall panel). Live shows the per-pixel colours Houdini sends (led:frame)">
 			<div class="buttons">
-				<Tq.InputSwitch v-model="led.liveLight" />
+				<Tq.InputRadio
+					:modelValue="led.mode"
+					:options="[...LED_MODES]"
+					:labels="LED_MODE_LABELS"
+					:tooltips="LED_MODE_LABELS"
+					:icons="LED_MODE_ICONS"
+					@update:modelValue="led.setMode($event)"
+				/>
 				<span class="mute">{{ ledText }}</span>
 			</div>
 		</Tq.Parameter>

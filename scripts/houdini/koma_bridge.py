@@ -28,6 +28,17 @@ exhibit machine's) and point koma's title-bar relay popup at it; then
     bridge.follow_playbar(led_node='/obj/LED_box1/OUT', camera='/obj/cam1')
     bridge.stop_following()
 
+    # Live while editing: whenever the LED node cooks (a parameter tweak, a
+    # new frame), the camera moves or the frame changes — polled from the
+    # event loop, so it needs the Houdini UI (not hython):
+    bridge.follow_live(led_node='/obj/LED_box1/OUT', camera='/obj/cam1')
+
+    # Plans: the camera and the wall of koma frames 10…40 into koma's layer
+    # (one inbox patch per frame; koma solves the rig axes and records the wall)
+    bridge.send_plans(range(10, 41), layer_id='main',
+                      led_node='/obj/LED_box1/OUT', camera='/obj/cam1')
+    bridge.state['project']   # what koma says: previewRange, currentLayer, …
+
 koma accepts each topic only while its switch in the "Houdini Live" panel is
 on (rig follow is off on every launch and refused outside the rig limits or
 while the sequence runs).
@@ -36,16 +47,21 @@ Export the placement once (koma picks it up from previz/set.json):
 
     kb.export_set_json(hou.node('/obj/LED_box1/OUT').geometry(),
                        '/path/to/project/previz/set.json',
-                       image_width=7644, frame='rig', unit='m')
+                       frame='rig', unit='m')
 
 Message formats (JSON, {"type": "control", "topic": …, "data": …}):
   led:frame       {"rgb": <base64 of 3 bytes/pixel, all lines concatenated>,
-                   "layoutVersion": 1}
+                   "layoutVersion": 2}
   rig:pose        {"position": [x, y, z], "rotation": [x, y, z, w] |
                    "angles": {"tilt", "pan", "roll"}, "frame": "film"|"world"|"rig",
                    "unit": "mm"|"m"}   or   {"axes": {"x","y","z","a","b","c"}}
   timeline:frame  {"frame": n}     (previz frame numbering)
+  inbox           {"id": …, "patch": {"version": 1, "onConflict": …, "ops": […]}}
+                  an inbox patch (koma's _inbox/ format); the outcome comes
+                  back as the `inbox:result` state with the same id.
 """
+
+import uuid
 
 import base64
 import json
@@ -207,30 +223,25 @@ def led_lines(geo, line_attr='face'):
     return [(name, lines[name]) for name in order]
 
 
-def export_set_json(geo, path, image_width, frame='rig', unit='m', u_attr='u',
-                    line_attr='face', pitch=None, layout_version=1, geometry=None):
+def export_set_json(geo, path, frame='rig', unit='m', line_attr='face',
+                    pitch=None, layout_version=2, geometry=None):
     """
-    Write previz/set.json from the LED point cloud: per pixel [x, y, z, u] in
-    data-line order. `frame`/`unit` say what P is in (koma converts);
-    `image_width` and `pitch` are in the same unit. `u` (horizontal position
-    on the unwrapped image) must exist on the points — see the VEX in
-    ADDSUB.md §8. Written atomically (tmp + rename).
+    Write previz/set.json from the LED point cloud: per pixel [x, y, z] in
+    data-line order. `frame`/`unit` say what P is in (koma converts); `pitch`
+    is in the same unit. Written atomically (tmp + rename).
     """
     pts = geo.points()
-    has_u = geo.findPointAttrib(u_attr) is not None
     lines = []
     for name, idxs in led_lines(geo, line_attr):
         pixels = []
         for i in idxs:
             p = pts[i].position()
-            u = pts[i].attribValue(u_attr) if has_u else 0.0
-            pixels.append([round(p[0], 5), round(p[1], 5), round(p[2], 5), round(u, 5)])
+            pixels.append([round(p[0], 5), round(p[1], 5), round(p[2], 5)])
         lines.append({'name': name, 'pixels': pixels})
     led = {
         'layoutVersion': layout_version,
         'frame': frame,
         'unit': unit,
-        'imageWidth': image_width,
         'lines': lines,
     }
     if pitch is not None:
@@ -265,7 +276,7 @@ def camera_pose(cam, unit='m'):
 
 
 class KomaBridge:
-    def __init__(self, url='ws://localhost:7777', token=None, layout_version=1):
+    def __init__(self, url='ws://localhost:7777', token=None, layout_version=2):
         base = url.rstrip('/').replace('http://', 'ws://')
         if not base.endswith('/ws'):
             base += '/ws'
@@ -274,7 +285,14 @@ class KomaBridge:
         self.layout_version = layout_version
         self.ws = None
         self.capture_online = None
+        self.id = None
+        #: Latest state per topic as the relay sends it (`project`, `sequence`, …).
+        self.state = {}
+        self.on_state = None
+        self._results = {}
+        self._results_cv = threading.Condition()
         self._callback = None
+        self._loop_callback = None
         self.connect()
 
     def connect(self):
@@ -297,10 +315,23 @@ class KomaBridge:
             msg = json.loads(text)
         except ValueError:
             return
-        if msg.get('type') == 'hello':
+        t = msg.get('type')
+        if t == 'hello':
             self.capture_online = bool(msg.get('capture'))
-        elif msg.get('type') == 'capture':
+            self.id = msg.get('id')
+            if isinstance(msg.get('state'), dict):
+                self.state.update(msg['state'])
+        elif t == 'capture':
             self.capture_online = bool(msg.get('online'))
+        elif t == 'state' and isinstance(msg.get('topic'), str):
+            self.state[msg['topic']] = msg.get('data')
+            if msg['topic'] == 'inbox:result':
+                data = msg.get('data') or {}
+                with self._results_cv:
+                    self._results[str(data.get('id'))] = data
+                    self._results_cv.notify_all()
+            if self.on_state:
+                self.on_state(msg['topic'], msg.get('data'))
 
     def send(self, topic, data):
         if not self.connected:
@@ -341,6 +372,137 @@ class KomaBridge:
 
     def send_frame(self, frame):
         self.send('timeline:frame', {'frame': int(round(frame))})
+
+    # -- inbox patches (koma's _inbox/ format, applied at once over the relay)
+
+    def send_patch(self, ops, on_conflict='overwrite', note='', wait=10.0):
+        """
+        Apply an inbox patch to the open koma project and return its outcome
+        ({'status': 'applied', 'applied': n, …} or {'status': 'rejected',
+        'error': …}); None when koma didn't answer within `wait` seconds.
+        """
+        pid = uuid.uuid4().hex
+        patch = {'version': 1, 'note': note, 'onConflict': on_conflict, 'ops': list(ops)}
+        with self._results_cv:
+            self._results.pop(pid, None)
+        self.send('inbox', {'id': pid, 'patch': patch})
+        deadline = time.time() + wait
+        with self._results_cv:
+            while pid not in self._results:
+                left = deadline - time.time()
+                if left <= 0:
+                    return None
+                self._results_cv.wait(left)
+            return self._results.pop(pid)
+
+    def plan_op(self, layer_id, frame, led_geo=None, camera=None, camera_frame='world',
+                unit='m', cd_attr='Cd', gamma=1.0, solve_rig=True):
+        """A `setPlan` op for one koma frame from the LED point cloud / camera as they are now."""
+        plan = {}
+        if camera is not None:
+            if isinstance(camera, str):
+                camera = hou.node(camera)
+            pose = camera_pose(camera, unit)
+            pose['frame'] = camera_frame
+            plan['camera'] = pose
+            if not solve_rig:
+                plan['solveRig'] = False
+        if led_geo is not None:
+            plan['led'] = {'rgb': base64.b64encode(led_rgb_bytes(led_geo, cd_attr, gamma)).decode('ascii')}
+        return {'op': 'setPlan', 'layer': layer_id, 'frame': int(frame), 'plan': plan}
+
+    def send_plans(self, koma_frames, layer_id, led_node=None, camera=None,
+                   frame_offset=None, camera_frame='world', unit='m',
+                   on_conflict='overwrite', progress=None, cd_attr='Cd', gamma=1.0):
+        """
+        Write the camera pose and/or the wall of every koma frame in
+        `koma_frames` into koma's plans on layer `layer_id`, evaluating Houdini
+        at frame koma + `frame_offset` (default: koma's previzFrameOffset).
+        One patch per frame, so a frame koma refuses (outside the rig limits…)
+        doesn't take the others down. `progress(i, n, frame, outcome)` is
+        called after each; returns {'applied': [...], 'failed': {frame: error}}.
+        Puts the playbar back where it was.
+        """
+        if led_node is None and camera is None:
+            raise ValueError('send_plans needs led_node and/or camera')
+        if frame_offset is None:
+            frame_offset = int((self.state.get('project') or {}).get('previzFrameOffset') or 0)
+        node = hou.node(led_node) if isinstance(led_node, str) else led_node
+        frames = list(koma_frames)
+        original = hou.frame()
+        out = {'applied': [], 'failed': {}}
+        try:
+            for i, f in enumerate(frames):
+                hou.setFrame(f + frame_offset)
+                geo = node.geometry() if node is not None else None
+                op = self.plan_op(layer_id, f, led_geo=geo, camera=camera,
+                                  camera_frame=camera_frame, unit=unit, cd_attr=cd_attr, gamma=gamma)
+                outcome = self.send_patch([op], on_conflict=on_conflict,
+                                          note='Houdini send_plans frame %d' % f)
+                if outcome is None:
+                    out['failed'][f] = 'no answer from koma'
+                elif outcome.get('status') == 'applied' and outcome.get('applied', 0) > 0:
+                    out['applied'].append(f)
+                elif outcome.get('status') == 'applied':
+                    out['failed'][f] = 'skipped (frame already has a plan)'
+                else:
+                    out['failed'][f] = outcome.get('error', 'rejected')
+                if progress is not None and progress(i, len(frames), f, outcome) is False:
+                    break
+        finally:
+            hou.setFrame(original)
+        return out
+
+    # -- live following from the event loop (UI only): cooks, camera moves, frame
+
+    def follow_live(self, led_node=None, camera=None, frame=True, camera_frame='world',
+                    unit='m', interval=0.1, force_cook=True):
+        """
+        Send the LED colours whenever the LED node has (re)cooked — a parameter
+        change as much as a new frame — the camera pose whenever it moved, and
+        the frame number whenever it changed. Polled from Houdini's event
+        loop every `interval` seconds. With `force_cook`, a node that isn't
+        displayed is cooked here when it needs to be, so the wall follows
+        edits upstream of it even while something else is on screen.
+        """
+        self.stop_following()
+        state = {'t': 0.0, 'cook': None, 'xform': None, 'frame': None}
+
+        def tick():
+            now = time.time()
+            if now - state['t'] < interval:
+                return
+            state['t'] = now
+            try:
+                if frame:
+                    f = hou.frame()
+                    if f != state['frame']:
+                        state['frame'] = f
+                        self.send_frame(f)
+                if led_node:
+                    node = hou.node(led_node) if isinstance(led_node, str) else led_node
+                    if node is None:
+                        return
+                    if force_cook and node.needsToCook():
+                        node.cook()
+                    count = node.cookCount()
+                    if count != state['cook']:
+                        state['cook'] = count
+                        self.send_led(node.geometry())
+                if camera:
+                    cam = hou.node(camera) if isinstance(camera, str) else camera
+                    if cam is None:
+                        return
+                    xform = tuple(cam.worldTransform().asTuple())
+                    if xform != state['xform']:
+                        state['xform'] = xform
+                        self.send_camera(cam, camera_frame, unit)
+            except Exception as e:  # keep the event loop alive
+                print('koma_bridge:', e)
+
+        hou.ui.addEventLoopCallback(tick)
+        self._loop_callback = tick
+        return tick
 
     # -- playbar following
 
@@ -383,3 +545,9 @@ class KomaBridge:
             except Exception:
                 pass
             self._callback = None
+        if self._loop_callback:
+            try:
+                hou.ui.removeEventLoopCallback(self._loop_callback)
+            except Exception:
+                pass
+            self._loop_callback = None

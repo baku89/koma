@@ -16,8 +16,8 @@ import {
 	rotationToAngles,
 } from './kinematics'
 	workAxesToCameraPose,
-import {buildLedLayout, faceToWorld, ledLayoutFromSet} from './led/layout'
-import {sampleLedFrame} from './led/sampler'
+} from './kinematics'
+import {LED_LAYOUT, LED_PITCH, LED_TOP_Y} from './led/layout'
 import {decodeWall, encodeWall, wallRecordPath} from './led/wallRecord'
 import {frameDifference, median} from './motion'
 import {effectivePlanFor, interpolatedFrames, interpolatePlan, type PlanTable} from './plan'
@@ -249,75 +249,83 @@ describe('orbit', () => {
 })
 
 describe('led layout', () => {
-	const layout = buildLedLayout(DEFAULT_LED_LAYOUT)
+	// Spot values read from the Houdini set model (/obj/LED_box, metres → mm),
+	// which the hard-coded layout was checked against pixel for pixel.
+	const layout = LED_LAYOUT
+	const line = (i: number) => layout.pixels.filter(p => p.line === i)
 
-	it('stands vertical strips 100 mm apart: 20 on L/R (1991), 18 on B/F (1831)', () => {
-		// L/R: 19 strips fit in 1991 at 100 mm → floor(19.91) = 19? No: strips at
-		// 0…1900 → 20 positions need 1900 mm; floor(1991/100) = 19 → 19 strips.
-		expect(layout.lineCounts).toEqual([420, 378, 420, 336, 420, 378, 420, 336])
-		expect(near(layout.pitch, 1400 / 42)).toBe(true)
-		expect(layout.imageWidth).toBe(2 * 1831 + 2 * 1991)
+	it('has nine strips on L/B/R lines and ten on F1/F2, 42 pixels each', () => {
+		expect(layout.lineCounts).toEqual([378, 378, 378, 378, 378, 378, 420, 420])
+		expect(layout.pixels.length).toBe(3108)
+		expect(layout.pitch).toBeCloseTo(33.4146, 3)
+		expect(layout.version).toBe(2)
 	})
 
-	it('snakes vertically: strip 0 runs top→bottom, strip 1 bottom→top', () => {
-		const line0 = layout.pixels.filter(p => p.line === 0)
-		expect(line0[0].y).toBeGreaterThan(line0[41].y)
-		expect(line0[42].y).toBeLessThan(line0[83].y)
-		expect(near(line0[0].y, 1400 - layout.pitch / 2)).toBe(true)
-		expect(near(line0[42].u - line0[0].u, 100)).toBe(true)
+	it('snakes vertically from the top: strip 0 top→bottom, strip 1 bottom→top', () => {
+		const l1 = line(0)
+		expect(l1[0].world).toEqual([-900, LED_TOP_Y, 850])
+		expect(l1[41].world[1]).toBeCloseTo(-105, 6)
+		expect(l1[42].world).toEqual([-900, l1[41].world[1], 750])
+		expect(l1[83].world[1]).toBe(LED_TOP_Y)
+		expect(l1[0].world[1] - l1[1].world[1]).toBeCloseTo(LED_PITCH, 9)
 	})
 
-	it('second line continues along the same face', () => {
-		const line1 = layout.pixels.filter(p => p.line === 1)
-		expect(line1[0].face).toBe('L')
-		expect(line1[0].u).toBeGreaterThan(layout.pixels.filter(p => p.line === 0).at(-1)!.u)
+	it('walks round the inside: L (x −900) → B (z −900) → R (x +900) → F (z +1000)', () => {
+		expect(line(1)[0].world).toEqual([-900, LED_TOP_Y, -50])
+		expect(line(1).at(-1)!.world[2]).toBe(-850)
+		expect(line(2)[0].world).toEqual([-50, LED_TOP_Y, -900])
+		expect(line(3)[0].world).toEqual([850, LED_TOP_Y, -900])
+		expect(line(4)[0].world).toEqual([900, LED_TOP_Y, -50])
+		expect(line(5)[0].world).toEqual([900, LED_TOP_Y, 50])
+		expect(line(5).at(-1)!.world[2]).toBe(850)
+		expect(line(2)[0].face).toBe('B')
+		expect(line(7)[0].face).toBe('F')
 	})
 
-	it('walks around the inside: L→B→R→F share edges', () => {
-		const p = {sizeX: 1831, sizeZ: 1991}
-		expect(faceToWorld('L', 1991, 0, p)).toEqual([-915.5, 0, -995.5])
-		expect(faceToWorld('B', 0, 0, p)).toEqual([-915.5, 0, -995.5])
-		expect(faceToWorld('B', 1831, 0, p)).toEqual([915.5, 0, -995.5])
-		expect(faceToWorld('R', 0, 0, p)).toEqual([915.5, 0, -995.5])
-		expect(faceToWorld('R', 1991, 0, p)).toEqual([915.5, 0, 995.5])
-		expect(faceToWorld('F', 0, 0, p)).toEqual([915.5, 0, 995.5])
-		expect(faceToWorld('F', 1831, 0, p)).toEqual([-915.5, 0, 995.5])
-		expect(faceToWorld('L', 0, 0, p)).toEqual([-915.5, 0, 995.5])
+	it("F's first and last strips stand round the corner on the R and L walls", () => {
+		const f1 = line(6)
+		const f2 = line(7)
+		expect(f1[0].world).toEqual([900, LED_TOP_Y, 950])
+		expect(f1[42].world[1]).toBeCloseTo(-105, 6)
+		expect(f1[42].world[0]).toBe(850)
+		expect(f1[42].world[2]).toBe(1000)
+		expect(f2[0].world).toEqual([-50, LED_TOP_Y, 1000])
+		// Tenth strip of F2: index 9 (odd) runs bottom→top.
+		expect(f2[9 * 42].world[0]).toBe(-900)
+		expect(f2[9 * 42].world[2]).toBe(950)
+		expect(f2[9 * 42].world[1]).toBeCloseTo(-105, 6)
+		expect(f2.at(-1)!.world[1]).toBe(LED_TOP_Y)
 	})
 })
 
-describe('led sampler', () => {
-	const layout = buildLedLayout(DEFAULT_LED_LAYOUT)
-
-	function solidImage(width: number, height: number, faceColors: [number, number, number][]) {
-		const data = new Uint8ClampedArray(width * height * 4)
-		const scale = width / layout.imageWidth
-		const edges = [1991, 1991 + 1831, 1991 + 1831 + 1991].map(e => e * scale)
-		for (let y = 0; y < height; y++) {
-			for (let x = 0; x < width; x++) {
-				const face = edges.findIndex(e => x < e)
-				const [r, g, b] = faceColors[face === -1 ? 3 : face]
-				const i = (y * width + x) * 4
-				data[i] = r
-				data[i + 1] = g
-				data[i + 2] = b
-				data[i + 3] = 255
-			}
-		}
-		return {width, height, data}
+describe('plan interpolation', () => {
+	// A Project stub with just what plan.ts reads.
+	function stubProject(plan: PlanTable) {
+		return {layers: [{id: 'main', name: 'Main'}], addsub: {plan}} as unknown as Project
 	}
 
-	it('maps each face to its two lines', () => {
-		// 0.2 px/mm: (1831 + 1991) × 2 = 7644 mm → 1529 px wide.
-		const img = solidImage(1529, 600, [
-			[255, 0, 0],
-			[0, 255, 0],
-			[0, 0, 255],
-			[255, 255, 255],
-		])
-		const lines = sampleLedFrame(layout, img, {topFilmY: 1500, lift: 0})
-		expect(lines.length).toBe(8)
-		expect([...lines[0].slice(0, 3)]).toEqual([255, 0, 0])
+	it('interpolates rig axes linearly between planned frames and holds lone axes', () => {
+		const project = stubProject({
+			main: {
+				2: {rig: {x: 0, y: -100, z: 50}, cameraConfigs: {aperture: 8}},
+				6: {rig: {x: 40, y: -100}, cameraConfigs: {aperture: 11}},
+			},
+		})
+		expect(effectivePlanFor(project, 2, 0)).toMatchObject({kind: 'explicit'})
+		const mid = effectivePlanFor(project, 4, 0)
+		expect(mid).toMatchObject({kind: 'interpolated', from: 2, to: 6})
+		expect(mid!.plan.rig).toEqual({x: 20, y: -100, z: 50})
+		// Exposure steps: the earlier key's configs are held.
+		expect(mid!.plan.cameraConfigs).toEqual({aperture: 8})
+		expect(effectivePlanFor(project, 5, 0)!.plan.rig!.x).toBeCloseTo(30)
+		// Outside the planned range there is no plan.
+		expect(effectivePlanFor(project, 1, 0)).toBeNull()
+		expect(effectivePlanFor(project, 7, 0)).toBeNull()
+		expect(interpolatedFrames(project, 0)).toEqual([3, 4, 5])
+		// Another layer has nothing.
+		expect(effectivePlanFor(project, 4, 1)).toBeNull()
+	})
+
 	it('glides the pupil in a straight line between six-axis keys', () => {
 		const cal = {pupilOffset: [0, 0, -80] as vec3, rotarySigns: {a: 1 as const, b: 1 as const, c: 1 as const}}
 		const a = {rig: {x: 0, y: 0, z: 0, a: 0, b: 0, c: 0}}
@@ -344,41 +352,37 @@ describe('led sampler', () => {
 		expect([...lines[7].slice(-3)]).toEqual([255, 255, 255])
 	})
 
-	it('shifts the sampled band by the lift', () => {
-		// Image: top part black, rest white, boundary at film Y = 1000.
-		const width = 1529
-		const height = 400 // 2000 mm tall at 0.2 px/mm → film Y 1400 … −600
-		const data = new Uint8ClampedArray(width * height * 4)
-		for (let y = 0; y < height; y++) {
-			const v = y < 80 ? 0 : 255 // 80 px = 400 mm → boundary at film Y 1000
-			for (let x = 0; x < width; x++) {
-				const i = (y * width + x) * 4
-				data[i] = data[i + 1] = data[i + 2] = v
-				data[i + 3] = 255
-			}
-		}
-		const img = {width, height, data}
-		// A pixel at world Y ≈ 1050 reads film 1050 (lift 0): black.
-		const px = layout.pixels.find(p => p.line === 0 && Math.abs(p.y - 1050) < layout.pitch / 2)!
-		const a = sampleLedFrame(layout, img, {topFilmY: 1400, lift: 0, boxSize: 0})
-		expect(a[0][px.index * 3]).toBe(0)
-		// With a lift of 120 (two 60 mm blocks added) the same LED reads film Y ≈ 930: white.
-		const b = sampleLedFrame(layout, img, {topFilmY: 1400, lift: 120, boxSize: 0})
-		expect(b[0][px.index * 3]).toBe(255)
+describe('led wall record', () => {
+	const lines = [new Uint8Array([1, 2, 3, 4, 5, 6]), new Uint8Array(0), new Uint8Array([255, 0, 128])]
+
+	it('round-trips every line', () => {
+		expect(decodeWall(encodeWall(lines))).toEqual(lines)
+	})
+
+	it('names a record by its content', async () => {
+		const a = await wallRecordPath(encodeWall(lines))
+		expect(a).toMatch(/^led-wall\/[0-9a-f]{16}\.ledwall$/)
+		expect(await wallRecordPath(encodeWall(lines.map(l => l.slice())))).toBe(a)
+		expect(await wallRecordPath(encodeWall([lines[0]]))).not.toBe(a)
+	})
+
+	it('rejects files that are not records', () => {
+		expect(() => decodeWall(new Uint8Array([1, 2, 3, 4, 5]))).toThrow()
+		expect(() => decodeWall(encodeWall(lines).subarray(0, 12))).toThrow('truncated')
 	})
 })
 
-describe('led layout from set.json', () => {
-	const set = {
-		layoutVersion: 3,
-		frame: 'rig' as const,
-		unit: 'm' as const,
-		imageWidth: 7.644,
-		pitch: 0.0333,
-		lines: [
-			{name: 'L1', pixels: [[-0.95, 0.3936, 0.9, 0.0955] as [number, number, number, number]]},
-			{name: 'L2', pixels: []},
-		],
+describe('live view motion', () => {
+	it('is the mean absolute difference of two frames', () => {
+		expect(frameDifference(new Uint8Array([10, 20, 30, 40]), new Uint8Array([10, 22, 26, 40]))).toBe(1.5)
+		expect(frameDifference(new Uint8Array(4), new Uint8Array(4))).toBe(0)
+	})
+
+	it('takes the median as the level at rest', () => {
+		expect(median([3, 1, 2])).toBe(2)
+		expect(median([4, 1, 9, 2])).toBe(3)
+	})
+})
 
 describe('stored rig axes', () => {
 	const legacy = () => ({
@@ -463,102 +467,3 @@ describe('stored rig axes', () => {
 	})
 })
 
-	}
-	const rigOffset: vec3 = [-600, -1300, -600]
-
-	it('converts rig metres to world millimetres with the rig offset', () => {
-		const layout = ledLayoutFromSet(set, {rigOffset})
-		expect(layout.source).toBe('set')
-		expect(layout.version).toBe(3)
-		expect(layout.lineCounts).toEqual([1, 0])
-		expect(layout.imageWidth).toBeCloseTo(7644)
-		expect(layout.pitch).toBeCloseTo(33.3)
-		const px = layout.pixels[0]
-		// world = rig − rigOffset
-		expect(px.world[0]).toBeCloseTo(-950 + 600)
-		expect(px.world[1]).toBeCloseTo(393.6 + 1300)
-		expect(px.world[2]).toBeCloseTo(900 + 600)
-		expect(px.y).toBeCloseTo(px.world[1])
-		expect(px.u).toBeCloseTo(95.5)
-	})
-
-	it('leaves world millimetres alone by default', () => {
-		const layout = ledLayoutFromSet({
-			imageWidth: 7644,
-			lines: [{pixels: [[10, 20, 30, 40]]}],
-		})
-		expect(layout.pixels[0].world).toEqual([10, 20, 30])
-		expect(layout.pixels[0].u).toBe(40)
-		expect(layout.version).toBe(1)
-	})
-})
-
-describe('plan interpolation', () => {
-	// A Project stub with just what plan.ts reads.
-	function stubProject(plan: PlanTable) {
-		return {layers: [{id: 'main', name: 'Main'}], addsub: {plan}} as unknown as Project
-	}
-
-	it('interpolates rig axes linearly between planned frames and holds lone axes', () => {
-		const project = stubProject({
-			main: {
-				2: {rig: {x: 0, y: -100, z: 50}, cameraConfigs: {aperture: 8}},
-				6: {rig: {x: 40, y: -100}, cameraConfigs: {aperture: 11}},
-			},
-		})
-		expect(effectivePlanFor(project, 2, 0)).toMatchObject({kind: 'explicit'})
-		const mid = effectivePlanFor(project, 4, 0)
-		expect(mid).toMatchObject({kind: 'interpolated', from: 2, to: 6})
-		expect(mid!.plan.rig).toEqual({x: 20, y: -100, z: 50})
-		// Exposure steps: the earlier key's configs are held.
-		expect(mid!.plan.cameraConfigs).toEqual({aperture: 8})
-		expect(effectivePlanFor(project, 5, 0)!.plan.rig!.x).toBeCloseTo(30)
-		// Outside the planned range there is no plan.
-		expect(effectivePlanFor(project, 1, 0)).toBeNull()
-		expect(effectivePlanFor(project, 7, 0)).toBeNull()
-		expect(interpolatedFrames(project, 0)).toEqual([3, 4, 5])
-		// Another layer has nothing.
-		expect(effectivePlanFor(project, 4, 1)).toBeNull()
-	})
-
-	it('interpolates camera poses (lerp + slerp) when both keys are poses', () => {
-		const a = {position: [0, 0, 0] as vec3, rotation: quat.identity}
-		const b = {position: [100, 0, 0] as vec3, rotation: quat.fromAxisAngle([0, 1, 0], Math.PI / 2)}
-		const project = stubProject({main: {0: {camera: a}, 10: {camera: b}}})
-		const half = effectivePlanFor(project, 5, 0)!.plan.camera!
-		expect(half.position[0]).toBeCloseTo(50)
-		expect(quat.angle(half.rotation, quat.fromAxisAngle([0, 1, 0], Math.PI / 4))).toBeCloseTo(0, 5)
-	})
-})
-
-describe('led wall record', () => {
-	const lines = [new Uint8Array([1, 2, 3, 4, 5, 6]), new Uint8Array(0), new Uint8Array([255, 0, 128])]
-
-	it('round-trips every line', () => {
-		expect(decodeWall(encodeWall(lines))).toEqual(lines)
-	})
-
-	it('names a record by its content', async () => {
-		const a = await wallRecordPath(encodeWall(lines))
-		expect(a).toMatch(/^led-wall\/[0-9a-f]{16}\.ledwall$/)
-		expect(await wallRecordPath(encodeWall(lines.map(l => l.slice())))).toBe(a)
-		expect(await wallRecordPath(encodeWall([lines[0]]))).not.toBe(a)
-	})
-
-	it('rejects files that are not records', () => {
-		expect(() => decodeWall(new Uint8Array([1, 2, 3, 4, 5]))).toThrow()
-		expect(() => decodeWall(encodeWall(lines).subarray(0, 12))).toThrow('truncated')
-	})
-})
-
-describe('live view motion', () => {
-	it('is the mean absolute difference of two frames', () => {
-		expect(frameDifference(new Uint8Array([10, 20, 30, 40]), new Uint8Array([10, 22, 26, 40]))).toBe(1.5)
-		expect(frameDifference(new Uint8Array(4), new Uint8Array(4))).toBe(0)
-	})
-
-	it('takes the median as the level at rest', () => {
-		expect(median([3, 1, 2])).toBe(2)
-		expect(median([4, 1, 9, 2])).toBe(3)
-	})
-})
