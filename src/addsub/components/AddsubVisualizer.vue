@@ -64,8 +64,20 @@ const cal = computed(() => project.addsub.calibration)
 //------------------------------------------------------------------------------
 // Poses
 
-/** Current camera pose (world) from the rig's reported axes. */
-const cameraPoseWorld = computed(() => rigAxesToCameraPose(rig.mpos, cal.value))
+/**
+ * Where the camera is drawn while the rig reports no position (not
+ * connected, or connected and not yet reporting): parked straight above the
+ * work, 950 mm up, looking straight (work coordinates).
+ */
+const STANDBY_RIG_WORK: AxesPosition = {x: 0, y: 950, z: 0, a: 0, b: 0, c: 0}
+
+/** The rig axes the view shows: the reported ones, else the standby pose. */
+const shownRigAxes = computed<AxesPosition>(() =>
+	rig.mpos.x !== undefined ? rig.mpos : rigWork.toMachine(STANDBY_RIG_WORK)
+)
+
+/** Current camera pose (world) from the rig's axes (standby pose when it reports none). */
+const cameraPoseWorld = computed(() => rigAxesToCameraPose(shownRigAxes.value, cal.value))
 
 /** The head's rotation centre (world): the pupil pulled back by the offset. */
 const headCentreWorld = computed(() =>
