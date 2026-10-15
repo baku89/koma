@@ -8,12 +8,12 @@
  */
 import dateformat from 'dateformat'
 import * as Tq from 'tweeq'
-import {computed} from 'vue'
+import {computed, ref} from 'vue'
 
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 
-import {formatDuration, GCODE_EXTENSIONS, isGcodeFilename, totalMillTime} from '../cuts'
+import {type CutPreset, formatDuration, GCODE_EXTENSIONS, isGcodeFilename, totalMillTime} from '../cuts'
 import {useMillStore} from '../stores/machines'
 import {useSequenceStore} from '../stores/sequence'
 
@@ -108,6 +108,43 @@ async function attach() {
 	}
 }
 
+// Presets: G-code kept in the project, attached to the selected cell on click.
+const presets = computed(() => project.addsub.cutPresets ?? [])
+const presetDragOver = ref(false)
+
+async function savePresets(files: File[]) {
+	const gcodes = files.filter(f => isGcodeFilename(f.name))
+	if (gcodes.length === 0) {
+		if (files.length > 0) alert(`Not a G-code file (${GCODE_EXTENSIONS.join(' ')})`)
+		return
+	}
+	try {
+		for (const file of gcodes) await sequence.addCutPreset(file)
+	} catch (e) {
+		alert(e instanceof Error ? e.message : String(e))
+	}
+}
+
+function onPresetDrop(e: DragEvent) {
+	presetDragOver.value = false
+	savePresets(Array.from(e.dataTransfer?.files ?? []))
+}
+
+async function applyPreset(preset: CutPreset) {
+	try {
+		await sequence.applyCutPreset(preset, frame.value, layer.value)
+	} catch (e) {
+		alert(e instanceof Error ? e.message : String(e))
+	}
+}
+
+function presetHint(preset: CutPreset): string {
+	const parts = [`Attach to frame ${frame.value}`]
+	if (preset.lines) parts.push(`${preset.lines} lines`)
+	if (preset.estimatedSec) parts.push(`~${formatDuration(preset.estimatedSec * 1000)}`)
+	return parts.join(' · ')
+}
+
 function pickWithInput(): Promise<File[]> {
 	return new Promise(resolve => {
 		const input = document.createElement('input')
@@ -169,6 +206,44 @@ function pickWithInput(): Promise<File[]> {
 				<span>{{ gcode.source === 'file' ? 'dropped' : 'previz' }}</span>
 				<span v-if="gcode.cut?.lines" class="tq-font-numeric">{{ gcode.cut.lines }} lines</span>
 				<span v-if="estimateText" class="tq-font-numeric">{{ estimateText }}</span>
+			</div>
+		</Tq.Parameter>
+
+		<Tq.Parameter
+			label="Presets"
+			icon="mdi:bookmark-multiple-outline"
+			:hint="{
+				title: 'G-code presets',
+				description: 'Drop .nc / .gcode files here to keep them in the project. Click a preset to attach it to the selected cell (a copy, like a dropped file).',
+			}"
+		>
+			<div
+				class="presets"
+				:class="{over: presetDragOver}"
+				@dragenter.prevent="presetDragOver = true"
+				@dragover.prevent="presetDragOver = true"
+				@dragleave="presetDragOver = false"
+				@drop.prevent.stop="onPresetDrop"
+			>
+				<div v-for="preset in presets" :key="preset.file" class="preset">
+					<Tq.InputButton
+						class="preset-name"
+						subtle
+						:label="preset.name"
+						icon="mdi:file-code-outline"
+						:tooltip="presetHint(preset)"
+						:disabled="cuttingThis"
+						@click="applyPreset(preset)"
+					/>
+					<Tq.InputButton
+						icon="mdi:trash-can-outline"
+						subtle
+						narrow
+						tooltip="Delete this preset (frames it was attached to keep their copy)"
+						@click="sequence.removeCutPreset(preset)"
+					/>
+				</div>
+				<div class="drop-hint mute small">Drop G-code here to save a preset</div>
 			</div>
 		</Tq.Parameter>
 
@@ -253,6 +328,45 @@ function pickWithInput(): Promise<File[]> {
 	text-overflow ellipsis
 	white-space nowrap
 	max-width 12em
+
+.presets
+	display flex
+	flex-direction column
+	gap var(--tq-gap-related)
+	min-width 0
+	width 100%
+	border-radius var(--tq-input-border-radius)
+	outline 1px dashed transparent
+	outline-offset 2px
+
+	&.over
+		outline-color var(--tq-color-accent)
+
+.preset
+	display grid
+	grid-template-columns minmax(0, 1fr) auto
+	align-items center
+	gap var(--tq-gap-related)
+
+.preset-name
+	min-width 0
+	max-width 100%
+	justify-content flex-start
+	overflow hidden
+
+	:deep(*)
+		min-width 0
+		overflow hidden
+		text-overflow ellipsis
+
+	:deep(svg), :deep(.TqIcon), :deep(.iconify)
+		flex 0 0 auto
+		overflow visible
+
+.drop-hint
+	min-height var(--tq-input-height)
+	display flex
+	align-items center
 
 .ok
 	color var(--tq-color-accent)

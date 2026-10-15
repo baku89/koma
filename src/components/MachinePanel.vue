@@ -2,20 +2,30 @@
 import {useTweeq} from 'tweeq'
 import {computed, reactive, ref, watch} from 'vue'
 
-import type {MachineStore} from '@/stores/machine'
+import {
+	homingLines,
+	type HomingSteps,
+	type MachineStore,
+} from '@/stores/machine'
 import {type AxesPosition, type Axis, PIN_LABELS} from '@/utils/fluidnc'
 
-const props = defineProps<{
-	machine: MachineStore
-	/**
-	 * Travel of each axis in machine coordinates: the range of the target
-	 * sliders (shifted into work coordinates). Axes without one get a plain
-	 * draggable number (±180° unclamped on rotary axes).
-	 */
-	limits?: Partial<Record<Axis, readonly [number, number]>>
-	/** Show the raw serial console (last lines + a G-code input). */
-	console?: boolean
-}>()
+const props = withDefaults(
+	defineProps<{
+		machine: MachineStore
+		/**
+		 * Travel of each axis in machine coordinates: the range of the target
+		 * sliders (shifted into work coordinates). Axes without one get a plain
+		 * draggable number (±180° unclamped on rotary axes).
+		 */
+		limits?: Partial<Record<Axis, readonly [number, number]>>
+		/**
+		 * Show the typed G-code line (+ the tail of the serial log) under Step.
+		 * Vue casts an absent boolean prop to `false`, hence the explicit default.
+		 */
+		console?: boolean
+	}>(),
+	{console: true}
+)
 
 const Tq = useTweeq()
 
@@ -94,7 +104,8 @@ function targetRange(axis: Axis) {
 	const lim = props.limits?.[axis]
 	if (lim) {
 		// Machine → work: subtract the work coordinate offset.
-		const wco = (props.machine.mpos[axis] ?? 0) - (props.machine.wpos[axis] ?? 0)
+		const wco =
+			(props.machine.mpos[axis] ?? 0) - (props.machine.wpos[axis] ?? 0)
 		return {min: lim[0] - wco, max: lim[1] - wco, clamp: true}
 	}
 	if (axisInfo(axis).unit === 'deg') return {min: -180, max: 180, clamp: false}
@@ -162,7 +173,8 @@ function goTooltip(axis: Axis) {
 			}
 		: {
 				title: `Move ${name}`,
-				description: 'Edit the position on the left, then press this to move there.',
+				description:
+					'Edit the work position on the left, then press this to move there.',
 			}
 }
 
@@ -198,7 +210,9 @@ async function setWorkValue(axis: Axis) {
 	const result = await Tq.modal.prompt(
 		{value: current},
 		{value: {type: 'number', precision: 3}},
-		{title: `Set work ${axis.toUpperCase()} (current position becomes this value)`}
+		{
+			title: `Set work ${axis.toUpperCase()} (current position becomes this value)`,
+		}
 	)
 	if (!result) return
 	await props.machine.setWorkPosition({[axis]: result.value}).catch(() => {})
@@ -212,20 +226,48 @@ const canJog = computed(
 		(props.machine.state === 'Idle' || props.machine.state === 'Jog')
 )
 
-// Layout choices from the machine definition (e.g. the Box Rig: compact
-// work-only cells, 3 per row, no feed input, no "go to 0").
+function home(steps?: HomingSteps) {
+	props.machine.home(steps).catch(() => {})
+}
+
+const canHome = computed(
+	() =>
+		props.machine.connected &&
+		!props.machine.unidentified &&
+		!props.machine.busy
+)
+
+// The machine's own homing groups, else the linear / rotary axes as a group
+// each, one axis at a time — only when it has both (otherwise a group is the
+// same as "All").
+const homeGroups = computed<{label: string; steps: HomingSteps}[]>(() => {
+	const own = props.machine.def.panel?.homeGroups
+	if (own) return [...own]
+	const groups = [
+		['x', 'y', 'z'],
+		['a', 'b', 'c'],
+	].map(g => props.machine.def.axes.filter(a => g.includes(a)))
+	const present = groups.filter(g => g.length > 0)
+	if (present.length < 2) return []
+	return present.map(steps => ({label: steps.join('').toUpperCase(), steps}))
+})
+
+function homeTooltip(label: string, steps: HomingSteps) {
+	return {title: `Home ${label}`, description: homingLines(steps).join(' → ')}
+}
+
+// Layout choices from the machine definition (e.g. the Box Rig: X Y Z over
+// A B C, no feed input).
 const panel = computed(() => props.machine.def.panel ?? {})
-const gridLayout = computed(() => panel.value.layout === 'grid')
 const gridColumns = computed(() => panel.value.gridColumns ?? 3)
 const showFeed = computed(() => panel.value.showFeed !== false)
-const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 </script>
 
 <template>
 	<Tq.ParameterGroup
 		:name="`machine.${machine.def.id}`"
 		:label="machine.def.label"
-		icon="game-icons:mechanical-arm"
+		:icon="machine.def.icon"
 	>
 		<template #headingRight>
 			<span class="state" :style="{color: stateColor}">{{ stateLabel }}</span>
@@ -326,7 +368,7 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 		<!-- Streaming progress -->
 		<Tq.Parameter
 			v-if="machine.streamProgress"
-			label="G-code"
+			label="Streaming"
 			icon="mdi:file-code"
 		>
 			<span class="tq-font-numeric">
@@ -338,7 +380,10 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 		<Tq.Parameter
 			label="Step"
 			icon="mdi:ruler"
-			:hint="{title: 'Jog step', description: 'mm per click (degrees on rotary axes)'}"
+			:hint="{
+				title: 'Jog step',
+				description: 'mm per click (degrees on rotary axes)',
+			}"
 		>
 			<Tq.InputRadio
 				v-model="jogStep"
@@ -346,11 +391,53 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 				:labels="stepPresets.map(String)"
 			/>
 		</Tq.Parameter>
+		<!-- Typed G-code (one line → ok) and the tail of the serial log -->
+		<template v-if="props.console">
+			<Tq.Parameter
+				label="G-code"
+				icon="mdi:console-line"
+				:hint="{
+					title: 'Send a line',
+					description:
+						'G-code or $-command, sent as typed (Enter). The chevron shows the last lines of the serial log.',
+				}"
+			>
+				<div class="row">
+					<Tq.InputString
+						v-model="consoleInput"
+						font="monospace"
+						:disabled="!machine.connected"
+						@confirm="sendConsole"
+					/>
+					<Tq.InputButton
+						:icon="showLog ? 'mdi:chevron-up' : 'mdi:chevron-down'"
+						subtle
+						narrow
+						tooltip="Toggle log"
+						@click="showLog = !showLog"
+					/>
+				</div>
+			</Tq.Parameter>
+			<li v-if="showLog" class="log">
+				<div
+					v-for="(entry, i) in recentLog"
+					:key="i"
+					class="log-line"
+					:class="entry.dir"
+				>
+					{{ entry.dir === 'tx' ? '› ' : entry.dir === 'sys' ? '• ' : ''
+					}}{{ entry.text }}
+				</div>
+			</li>
+		</template>
 		<Tq.Parameter
 			v-if="showFeed"
 			label="Feed"
 			icon="mdi:speedometer"
-			:hint="{title: 'Jog feed rate', description: 'mm/min (degrees/min on rotary axes)'}"
+			:hint="{
+				title: 'Jog feed rate',
+				description: 'mm/min (degrees/min on rotary axes)',
+			}"
 		>
 			<Tq.InputNumber
 				v-model="jogFeed"
@@ -369,21 +456,42 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 			icon="mdi:tune-variant"
 			:hint="{
 				title: 'Feed / rapid override',
-				description: 'Real-time multiplier on the running program (10–200 % feed; 25/50/100 % rapids). Applies immediately, also while streaming G-code.',
+				description:
+					'Real-time multiplier on the running program (10–200 % feed; 25/50/100 % rapids). Applies immediately, also while streaming G-code.',
 			}"
 		>
 			<div class="override">
 				<Tq.InputGroup>
-					<Tq.InputButton label="−10" narrow :disabled="!machine.connected" @click="machine.feedOverride(-10)" />
-					<Tq.InputButton label="−1" narrow :disabled="!machine.connected" @click="machine.feedOverride(-1)" />
+					<Tq.InputButton
+						label="−10"
+						narrow
+						:disabled="!machine.connected"
+						@click="machine.feedOverride(-10)"
+					/>
+					<Tq.InputButton
+						label="−1"
+						narrow
+						:disabled="!machine.connected"
+						@click="machine.feedOverride(-1)"
+					/>
 					<Tq.InputButton
 						:label="machine.override ? `${machine.override.feed}%` : '—'"
 						tooltip="Back to 100 %"
 						:disabled="!machine.connected"
 						@click="machine.feedOverride(0)"
 					/>
-					<Tq.InputButton label="+1" narrow :disabled="!machine.connected" @click="machine.feedOverride(1)" />
-					<Tq.InputButton label="+10" narrow :disabled="!machine.connected" @click="machine.feedOverride(10)" />
+					<Tq.InputButton
+						label="+1"
+						narrow
+						:disabled="!machine.connected"
+						@click="machine.feedOverride(1)"
+					/>
+					<Tq.InputButton
+						label="+10"
+						narrow
+						:disabled="!machine.connected"
+						@click="machine.feedOverride(10)"
+					/>
 				</Tq.InputGroup>
 				<Tq.InputRadio
 					:modelValue="machine.override?.rapid ?? 100"
@@ -395,47 +503,34 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 			</div>
 		</Tq.Parameter>
 
-		<!-- Input pins (Pn:): which limit switches read active right now -->
-		<Tq.Parameter
-			label="Limits"
-			icon="mdi:electric-switch"
-			:hint="{
-				title: 'Limit switches',
-				description: 'Inputs reading active in the last status report (Pn:). Both switches of an axis share its letter; an unwired input can read active.',
-			}"
-		>
-			<div class="pins" :class="{offline: !machine.connected}">
-				<span
-					v-for="axis in machine.def.axes"
-					:key="axis"
-					v-tooltip="`${axis.toUpperCase()} limit switch: ${isLimitActive(axis) ? 'pressed' : 'clear'}`"
-					class="pin"
-					:class="{active: isLimitActive(axis)}"
-				>
-					{{ axis.toUpperCase() }}
-				</span>
-				<span
-					v-for="pin in otherPins"
-					:key="pin.letter"
-					v-tooltip="`${pin.label}: active`"
-					class="pin other active"
-				>
-					{{ pin.label }}
-				</span>
-			</div>
-		</Tq.Parameter>
-
-		<!-- Axes, compact: one cell per axis (work position, jog ±, zero / set),
-		     `gridColumns` per row — e.g. X Y Z over A B C for the rig. -->
+		<!-- Axes: one cell per axis, `gridColumns` per row (e.g. X Y Z over
+		     A B C for the rig). Head: name + limit switch lamp, the machine
+		     position (dimmed, read-only), zero / set (G10 L20). Then the work
+		     position (editable: a target for "go"), and jog ± with home set
+		     apart. -->
 		<li
-			v-if="gridLayout"
 			class="axes-cells"
 			:style="{gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`}"
 		>
 			<div v-for="axis in machine.def.axes" :key="axis" class="cell">
 				<div class="cell-head">
-					<span class="cell-label" :class="{limit: isLimitActive(axis)}">
+					<span
+						v-tooltip="
+							`${axis.toUpperCase()} limit switch: ${isLimitActive(axis) ? 'pressed' : 'clear'}`
+						"
+						class="cell-label"
+						:class="{limit: isLimitActive(axis), offline: !machine.connected}"
+					>
 						{{ axisInfo(axis).label ?? axis.toUpperCase() }}
+					</span>
+					<span
+						v-tooltip="{
+							title: 'Machine position',
+							description: 'MPos, from the homing origin.',
+						}"
+						class="cell-machine tq-font-numeric"
+					>
+						{{ fmt(machine.connected ? machine.mpos[axis] : undefined, axis) }}
 					</span>
 					<span class="work-tools">
 						<Tq.InputButton
@@ -467,7 +562,8 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 						v-if="machine.wpos[axis] !== undefined"
 						v-tooltip="{
 							title: 'Work position',
-							description: `WPos, relative to the G54 origin (machine ${fmt(machine.mpos[axis], axis)}). Edit it, then press the button on the right to move there.`,
+							description:
+								'WPos, relative to the G54 origin. Edit it, then press the button on the right to move there; the buttons above zero / set it here.',
 						}"
 						class="position-input cell-pos"
 						:class="{dirty: isTargetDirty(axis)}"
@@ -492,144 +588,64 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 					/>
 				</div>
 				<div class="cell-jog">
+					<Tq.InputGroup>
+						<Tq.InputButton
+							icon="mdi:minus"
+							:disabled="!canJog"
+							@click="jog(axis, -1)"
+						/>
+						<Tq.InputButton
+							icon="mdi:plus"
+							:disabled="!canJog"
+							@click="jog(axis, 1)"
+						/>
+					</Tq.InputGroup>
 					<Tq.InputButton
-						icon="mdi:minus"
-						:disabled="!canJog"
-						@click="jog(axis, -1)"
-					/>
-					<Tq.InputButton
-						icon="mdi:plus"
-						:disabled="!canJog"
-						@click="jog(axis, 1)"
+						icon="mdi:home-outline"
+						narrow
+						subtle
+						:tooltip="homeTooltip(axis.toUpperCase(), [axis])"
+						:disabled="!canHome"
+						@click="home([axis])"
 					/>
 				</div>
 			</div>
 		</li>
 
-		<!-- Axes, rows: jog ± around the machine position, then the work
-		     position (editable: a target for "go") with "zero here" /
-		     "set value" (G10 L20) -->
-		<li v-if="!gridLayout" class="axes-head axis-grid">
-			<span></span>
-			<span class="col-label">machine</span>
-			<span></span>
-			<span class="col-label">work</span>
-			<span></span>
-		</li>
+		<!-- Other inputs (Pn:), only while one reads active -->
 		<Tq.Parameter
-			v-for="axis in gridLayout ? [] : machine.def.axes"
-			:key="axis"
-			:label="axisInfo(axis).label ?? axis.toUpperCase()"
+			v-if="otherPins.length"
+			label="Inputs"
+			icon="mdi:electric-switch"
 		>
-			<div class="axis axis-grid">
-				<Tq.InputButton
-					icon="mdi:minus"
-					narrow
-					:disabled="!canJog"
-					@click="jog(axis, -1)"
-				/>
-				<span
-					v-tooltip="{
-						title: 'Machine position',
-						description: 'MPos, from the homing origin',
-					}"
-					class="pos tq-font-numeric"
-				>
-					{{ fmt(machine.mpos[axis], axis) }}
+			<div class="pins">
+				<span v-for="pin in otherPins" :key="pin.letter" class="pin">
+					{{ pin.label }}
 				</span>
-				<Tq.InputButton
-					icon="mdi:plus"
-					narrow
-					:disabled="!canJog"
-					@click="jog(axis, 1)"
-				/>
-				<Tq.InputNumber
-					v-if="machine.wpos[axis] !== undefined"
-					v-tooltip="{
-						title: 'Work position',
-						description: `WPos, relative to the G54 origin (machine ${fmt(machine.mpos[axis], axis)}). Edit it, then press the button on the right to move there.`,
-					}"
-					class="position-input work"
-					:class="{dirty: isTargetDirty(axis)}"
-					:modelValue="target[axis] ?? machine.wpos[axis]!"
-					:min="targetRange(axis).min"
-					:max="targetRange(axis).max"
-					:clampMin="targetRange(axis).clamp"
-					:clampMax="targetRange(axis).clamp"
-					:step="0.001"
-					:default="machine.wpos[axis]"
-					@update:modelValue="setTarget(axis, $event)"
-					@confirm="releaseFocus"
-				/>
-				<span v-else class="pos work tq-font-numeric">—</span>
-				<span class="work-tools">
-					<Tq.InputButton
-						icon="mdi:crosshairs-gps"
-						narrow
-						:subtle="!isTargetDirty(axis)"
-						:tooltip="goTooltip(axis)"
-						:disabled="!canJog || !isTargetDirty(axis)"
-						@click="goToTarget(axis)"
-					/>
-					<Tq.InputButton
-						icon="mdi:numeric-0-circle-outline"
-						narrow
-						subtle
-						:tooltip="{
-							title: `Zero ${axis.toUpperCase()} here`,
-							description: `The current position becomes work ${axis.toUpperCase()} = 0 (G10 L20). Nothing moves.`,
-						}"
-						:disabled="!machine.connected"
-						@click="machine.zeroWork([axis])"
-					/>
-					<Tq.InputButton
-						icon="mdi:pencil-outline"
-						narrow
-						subtle
-						:tooltip="{
-							title: `Set ${axis.toUpperCase()}…`,
-							description: `Enter the work ${axis.toUpperCase()} value of the current position (G10 L20). Nothing moves.`,
-						}"
-						:disabled="!machine.connected"
-						@click="setWorkValue(axis)"
-					/>
-				</span>
-			</div>
-		</Tq.Parameter>
-		<Tq.Parameter label="Work" icon="mdi:axis-arrow" hint="Work coordinate system (G54): zero all axes here">
-			<div class="controls">
-				<Tq.InputButton
-					label="Zero all here"
-					icon="mdi:numeric-0-circle-outline"
-					:disabled="!machine.connected"
-					@click="machine.zeroWork()"
-				/>
-				<Tq.InputButton
-					v-if="showGoToZero"
-					label="Go to 0"
-					icon="mdi:target"
-					:disabled="!canJog"
-					@click="machine.goToWork()"
-				/>
 			</div>
 		</Tq.Parameter>
 
-		<!-- Homing: one button per axis -->
+		<!-- Homing: linear / rotary group, or everything (the controller's cycles) -->
 		<Tq.Parameter label="Home" icon="mdi:home">
 			<div class="controls">
 				<Tq.InputButton
-					v-for="axis in machine.def.axes"
-					:key="axis"
-					:label="axis.toUpperCase()"
-					:disabled="!machine.connected || machine.busy"
-					@click="machine.home([axis])"
+					v-for="group in homeGroups"
+					:key="group.label"
+					:label="group.label"
+					:tooltip="homeTooltip(group.label, group.steps)"
+					:disabled="!canHome"
+					@click="home(group.steps)"
 				/>
 				<Tq.InputButton
 					label="All"
 					icon="mdi:home"
-					subtle
-					:disabled="!machine.connected || machine.busy"
-					@click="machine.home()"
+					:tooltip="{
+						title: 'Home all axes',
+						description:
+							'$H: the homing cycles of the controller\'s config, in their order.',
+					}"
+					:disabled="!canHome"
+					@click="home()"
 				/>
 			</div>
 		</Tq.Parameter>
@@ -663,37 +679,6 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 				/>
 			</div>
 		</Tq.Parameter>
-
-		<!-- Console -->
-		<template v-if="$props.console !== false">
-			<Tq.Parameter label="Console" icon="mdi:console">
-				<div class="row">
-					<Tq.InputString
-						v-model="consoleInput"
-						font="monospace"
-						:disabled="!machine.connected"
-						@confirm="sendConsole"
-					/>
-					<Tq.InputButton
-						:icon="showLog ? 'mdi:chevron-up' : 'mdi:chevron-down'"
-						subtle
-						narrow
-						tooltip="Toggle log"
-						@click="showLog = !showLog"
-					/>
-				</div>
-			</Tq.Parameter>
-			<li v-if="showLog" class="log">
-				<div
-					v-for="(entry, i) in recentLog"
-					:key="i"
-					class="log-line"
-					:class="entry.dir"
-				>
-					{{ entry.dir === 'tx' ? '› ' : entry.dir === 'sys' ? '• ' : '' }}{{ entry.text }}
-				</div>
-			</li>
-		</template>
 	</Tq.ParameterGroup>
 </template>
 
@@ -746,45 +731,62 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 	text-overflow ellipsis
 	white-space nowrap
 
-// One column template shared by the header and every axis row, so the
-// "machine" / "work" captions sit exactly over their numbers. The fixed columns
-// are the width of a narrow icon-only InputButton (icon + 1px padding each side);
-// the last one holds the three work tools.
-.axis-grid
-	--jog-button calc(var(--tq-icon-size) + 2px)
-	display grid
-	grid-template-columns var(--jog-button) 1fr var(--jog-button) 1fr calc(3 * var(--jog-button))
-	align-items center
-	gap var(--tq-gap-group)
-
-// Compact layout: full-width row of cells, `gridColumns` per line.
+// One cell per axis, `gridColumns` per line.
 .axes-cells
 	grid-column 1 / 3
 	list-style none
 	display grid
-	gap var(--tq-gap-group) var(--tq-gap-control)
+	gap var(--tq-gap-section) var(--tq-gap-control)
 	padding var(--tq-gap-group) 0
 
 .cell
 	--jog-button calc(var(--tq-icon-size) + 2px)
-	--limit-color orange
+	--limit-color #f2c200
 	display flex
 	flex-direction column
 	gap var(--tq-gap-group)
 	min-width 0
 
+// Name + limit lamp, machine position, zero / set.
 .cell-head
 	display flex
 	align-items center
-	justify-content space-between
 	gap var(--tq-gap-group)
 
+// The axis name with its limit switch lamp: grey, yellow (both) while the
+// switch reads active.
 .cell-label
+	display flex
+	align-items center
+	gap 0.35em
 	font-weight 600
 
-	// Its limit switch reads active.
+	&:after
+		content ''
+		width 0.55em
+		height 0.55em
+		border-radius 50%
+		background var(--tq-color-border)
+
+	&.offline:after
+		opacity 0.4
+
 	&.limit
 		color var(--limit-color)
+
+		&:after
+			background var(--limit-color)
+			box-shadow 0 0 0.5em var(--limit-color)
+
+.cell-machine
+	flex 1 1 0
+	min-width 0
+	overflow hidden
+	text-align right
+	white-space nowrap
+	font-size 0.85em
+	font-variant-numeric tabular-nums
+	color var(--tq-color-text-mute)
 
 // Position input + "go".
 .cell-target
@@ -797,54 +799,39 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 .dirty
 	color var(--tq-color-accent)
 
-// − and + fill the cell width (bigger targets than the narrow icon buttons).
+// − and + as one group filling the cell (bigger targets than the narrow icon
+// buttons); home sits apart from them, under "go".
 .cell-jog
 	display grid
-	grid-template-columns 1fr 1fr
-	gap var(--tq-gap-group)
+	grid-template-columns minmax(0, 1fr) var(--jog-button)
+	align-items center
+	gap var(--tq-gap-related)
 
-	:deep(.TqInputButton)
-		width 100%
+	:deep(.TqInputGroup .TqInputButton)
+		flex 1 1 0
+		min-width 0
 		justify-content center
-
-.axes-head
-	grid-column 2 / 3
-	list-style none
-	font-size 0.7em
-	letter-spacing 0.05em
-	text-transform uppercase
-	color var(--tq-color-text-mute)
-
-.col-label
-	text-align right
-	padding-right 0.5em
 
 .pos
 	text-align right
 	padding-right 0.5em
 	font-variant-numeric tabular-nums
 
-	&.work
-		color var(--tq-color-text-mute)
-
 .work-tools
 	display flex
 
 .pins
-	--limit-color orange
+	--limit-color #f2c200
 	display flex
 	flex-wrap wrap
 	gap 0 var(--tq-gap-section)
 
-	&.offline
-		opacity 0.4
-
-// A lamp per input (not a button): a dot that lights up, then its name.
+// A lamp per active input (not a button): a lit dot, then its name.
 .pin
 	display flex
 	align-items center
 	gap 0.3em
-	color var(--tq-color-text-mute)
+	color var(--limit-color)
 	font-size 0.85em
 	font-weight 600
 	line-height var(--tq-icon-size)
@@ -854,14 +841,8 @@ const showGoToZero = computed(() => panel.value.showGoToZero !== false)
 		width 0.6em
 		height 0.6em
 		border-radius 50%
-		background var(--tq-color-border)
-
-	&.active
-		color var(--limit-color)
-
-		&:before
-			background var(--limit-color)
-			box-shadow 0 0 0.5em var(--limit-color)
+		background var(--limit-color)
+		box-shadow 0 0 0.5em var(--limit-color)
 
 .controls
 	display flex

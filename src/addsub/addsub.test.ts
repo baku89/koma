@@ -6,15 +6,15 @@ import type {Project} from '@/stores/project'
 import {DEFAULT_CALIBRATION} from './config'
 import {millToWorld, rigToWorld, worldToMill, worldToRig} from './coords'
 import {
+	aimRigAxes,
 	anglesToRotation,
 	cameraPoseToRigAxes,
-	orbitRigAxes,
 	orbitAboutPupil,
+	orbitRigAxes,
 	rigAxesToCameraPose,
-	rotationCentre,
 	rotateAboutPupil,
+	rotationCentre,
 	rotationToAngles,
-} from './kinematics'
 	workAxesToCameraPose,
 } from './kinematics'
 import {LED_LAYOUT, LED_PITCH, LED_TOP_Y} from './led/layout'
@@ -26,15 +26,7 @@ import {DEFAULT_ADDSUB_DATA, migrateAddsubData, shiftStoredRigAxes} from './proj
 const near = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps
 
 describe('coords', () => {
-	it('film ↔ world lifts by filmLift (mm)', () => {
-		const origin: vec3 = [10, 5, -20]
-		const w = filmToWorld([1, 2, 3], 120, origin)
-		expect(w).toEqual([11, 127, -17])
-		expect(worldToFilm(w, 120, origin)).toEqual([1, 2, 3])
-	})
-
-	it('mill ↔ world is a cyclic permutation plus offset', () => {
-		const t: vec3 = [100, 200, 300]
+	it('mill ↔ world is a cyclic permutation about a shared origin', () => {
 		// mill +X → world +Z, +Y → +X, +Z → +Y
 		expect(millToWorld([1, 0, 0])).toEqual([0, 0, 1])
 		expect(millToWorld([0, 1, 0])).toEqual([1, 0, 0])
@@ -80,9 +72,9 @@ describe('kinematics', () => {
 	it('rotation centre sits behind the pupil along the optical axis', () => {
 		const pose = {position: [0, 0, 0] as vec3, rotation: quat.identity}
 		// Camera looks down −Z; pupil is d in front → centre at +Z·d.
-		expect(rotationCentre(pose, 50)).toEqual([0, 0, 50])
+		expect(rotationCentre(pose, [0, 0, -50])).toEqual([0, 0, 50])
 		const panned = {position: [0, 0, 0] as vec3, rotation: anglesToRotation({tilt: 0, pan: 90, roll: 0})}
-		const c = rotationCentre(panned, 50)
+		const c = rotationCentre(panned, [0, 0, -50])
 		expect(near(c[0], 50)).toBe(true)
 		expect(near(c[2], 0)).toBe(true)
 	})
@@ -100,6 +92,14 @@ describe('kinematics', () => {
 		const axes = cameraPoseToRigAxes(pose, cal)
 		expect(near(axes.a, -25, 1e-4)).toBe(true)
 		expect(near(axes.b, 60, 1e-4)).toBe(true)
+		expect(near(axes.c, 3, 1e-4)).toBe(true)
+		const back = rigAxesToCameraPose(axes, cal)
+		for (let i = 0; i < 3; i++) {
+			expect(near(back.position[i], pose.position[i], 1e-6)).toBe(true)
+		}
+		expect(quat.angle(back.rotation, pose.rotation) < 1e-4).toBe(true)
+	})
+
 	it('rotary zeros shift the commanded angles (the work zero of A/B/C)', () => {
 		const cal = {
 			...DEFAULT_CALIBRATION,
@@ -115,18 +115,18 @@ describe('kinematics', () => {
 		expect(quat.angle(back.rotation, pose.rotation) < 1e-4).toBe(true)
 	})
 
-		expect(near(axes.c, 3, 1e-4)).toBe(true)
-		const back = rigAxesToCameraPose(axes, cal)
-		for (let i = 0; i < 3; i++) {
-			expect(near(back.position[i], pose.position[i], 1e-6)).toBe(true)
-		}
-		expect(quat.angle(back.rotation, pose.rotation) < 1e-4).toBe(true)
-	})
-
 	it('rotary signs flip the commanded angles', () => {
 		const cal = {...DEFAULT_CALIBRATION, rotarySigns: {a: -1 as const, b: 1 as const, c: -1 as const}}
 		const pose = {position: [0, 0, 0] as vec3, rotation: anglesToRotation({tilt: 10, pan: 20, roll: 30})}
 		const axes = cameraPoseToRigAxes(pose, cal)
+		expect(near(axes.a, -10, 1e-4)).toBe(true)
+		expect(near(axes.b, 20, 1e-4)).toBe(true)
+		expect(near(axes.c, -30, 1e-4)).toBe(true)
+		const back = rigAxesToCameraPose(axes, cal)
+		expect(quat.angle(back.rotation, pose.rotation) < 1e-4).toBe(true)
+	})
+})
+
 describe('aim', () => {
 	const cal = {
 		...DEFAULT_CALIBRATION,
@@ -215,14 +215,6 @@ describe('rotate about the pupil', () => {
 	it('takes the rotaries the short way round', () => {
 		const target = rotateAboutPupil({...axes, b: 350}, {pan: 20}, cal)
 		expect(near(target.b, 370, 1e-6)).toBe(true)
-	})
-})
-
-		expect(near(axes.a, -10, 1e-4)).toBe(true)
-		expect(near(axes.b, 20, 1e-4)).toBe(true)
-		expect(near(axes.c, -30, 1e-4)).toBe(true)
-		const back = rigAxesToCameraPose(axes, cal)
-		expect(quat.angle(back.rotation, pose.rotation) < 1e-4).toBe(true)
 	})
 })
 
@@ -346,11 +338,15 @@ describe('plan interpolation', () => {
 		expect(interpolatePlan({rig: {x: 0, b: 0}}, {rig: {x: 10, b: 90}}, 0.5, cal).rig).toEqual({x: 5, b: 45})
 	})
 
-		expect([...lines[1].slice(0, 3)]).toEqual([255, 0, 0])
-		expect([...lines[2].slice(0, 3)]).toEqual([0, 255, 0])
-		expect([...lines[5].slice(0, 3)]).toEqual([0, 0, 255])
-		expect([...lines[7].slice(-3)]).toEqual([255, 255, 255])
+	it('interpolates camera poses (lerp + slerp) when both keys are poses', () => {
+		const a = {position: [0, 0, 0] as vec3, rotation: quat.identity}
+		const b = {position: [100, 0, 0] as vec3, rotation: quat.fromAxisAngle([0, 1, 0], Math.PI / 2)}
+		const project = stubProject({main: {0: {camera: a}, 10: {camera: b}}})
+		const half = effectivePlanFor(project, 5, 0)!.plan.camera!
+		expect(half.position[0]).toBeCloseTo(50)
+		expect(quat.angle(half.rotation, quat.fromAxisAngle([0, 1, 0], Math.PI / 4))).toBeCloseTo(0, 5)
 	})
+})
 
 describe('led wall record', () => {
 	const lines = [new Uint8Array([1, 2, 3, 4, 5, 6]), new Uint8Array(0), new Uint8Array([255, 0, 128])]

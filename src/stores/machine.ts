@@ -42,6 +42,7 @@ import {
 	requestSerialPort,
 	resetRejections,
 	type SerialFamily,
+	serialPortLabel,
 	type SerialProbeResult,
 	serialRequestError,
 } from '@/utils/serialDiscovery'
@@ -55,6 +56,8 @@ export interface MachineDefinition {
 	/** Short stable id, used for config keys and the store id. */
 	id: string
 	label: string
+	/** Iconify name shown wherever this machine appears (title bar, tab, panel). */
+	icon: string
 	/**
 	 * FluidNC `name:` to match when identifying a port. Undefined = accept any
 	 * controller (only sensible with a single machine).
@@ -76,18 +79,34 @@ export interface MachineDefinition {
 	panel?: MachinePanelOptions
 }
 
+/**
+ * A homing cycle: steps run one after another, each an axis or several axes
+ * homed together — e.g. `['y', ['x', 'z']]` = Y, then X and Z at once.
+ */
+export type HomingSteps = readonly (Axis | readonly Axis[])[]
+
 export interface MachinePanelOptions {
-	/**
-	 * `rows` (default): one row per axis with machine and work positions.
-	 * `grid`: compact cells (work position only), `gridColumns` per row —
-	 * e.g. 3 for X Y Z / A B C.
-	 */
-	layout?: 'rows' | 'grid'
+	/** Axis cells per row (default 3: X Y Z / A B C). */
 	gridColumns?: number
+	/**
+	 * "Home" buttons next to "All", each with its own cycle. Default: the
+	 * linear and the rotary axes as a group each, one axis at a time (only
+	 * when the machine has both).
+	 */
+	homeGroups?: readonly {label: string; steps: HomingSteps}[]
 	/** Hide the jog feed input (the stored default is still used). */
 	showFeed?: boolean
-	/** Hide "Go to 0" (work origin) buttons. */
-	showGoToZero?: boolean
+}
+
+/**
+ * The lines of a homing cycle: `$HX` for an axis alone, `$H=XZ` for axes
+ * homed together (FluidNC has no `$HXZ`).
+ */
+export function homingLines(steps: HomingSteps): string[] {
+	return steps.map(step => {
+		const axes = (typeof step === 'string' ? [step] : step).map(a => a.toUpperCase())
+		return axes.length === 1 ? `$H${axes[0]}` : `$H=${axes.join('')}`
+	})
 }
 
 const LOG_LIMIT = 500
@@ -294,6 +313,12 @@ export function defineMachineStore(def: MachineDefinition) {
 		const state = computed(() => status.value?.state ?? null)
 		const mpos = computed<AxesPosition>(() => status.value?.mpos ?? {})
 		const wpos = computed<AxesPosition>(() => status.value?.wpos ?? mpos.value)
+		/**
+		 * Work coordinate offset (machine position of the work origin), null
+		 * until the controller has reported it — until then `wpos` reads as
+		 * `mpos`.
+		 */
+		const wco = computed<AxesPosition | null>(() => status.value?.wco ?? null)
 		const isIdle = computed(() => state.value === 'Idle')
 		/**
 		 * Inputs reading active in the last report (`Pn:`): limit switches by
@@ -309,7 +334,7 @@ export function defineMachineStore(def: MachineDefinition) {
 		function logIdentity(info: BuildInfo, fallback: boolean) {
 			pushLog(
 				'sys',
-				`Connected: ${info.machineName ?? '(unnamed)'} ${info.version ?? ''}`
+				`Connected: ${info.machineName ?? '(unnamed)'} ${info.version ?? ''}${info.board ? ` (${info.board})` : ''}`
 			)
 			if (fallback) {
 				pushLog(
@@ -558,10 +583,16 @@ export function defineMachineStore(def: MachineDefinition) {
 			return requireClient().jogCancel()
 		}
 
-		async function home(axes?: readonly Axis[]) {
+		/**
+		 * Home everything (`$H`: the controller's homing cycles, in their
+		 * order) or the given steps, one after another (each answers `ok` when
+		 * it is done): an axis alone, or several axes at once.
+		 */
+		async function home(steps?: HomingSteps) {
 			busy.value = true
 			try {
-				await send(axes?.length ? `$H${axes.map(a => a.toUpperCase()).join('')}` : '$H')
+				if (!steps?.length) await send('$H')
+				else for (const line of homingLines(steps)) await send(line)
 			} finally {
 				busy.value = false
 			}
@@ -658,6 +689,11 @@ export function defineMachineStore(def: MachineDefinition) {
 			await waitIdle({signal: opts.signal, timeout: opts.timeout})
 		}
 
+		/** Where the controller is plugged in ("#2 · CP210x 10c4:ea60"). */
+		const portLabel = computed(() =>
+			client.value ? serialPortLabel(client.value.port) : null
+		)
+
 		return {
 			def,
 			fluidncName,
@@ -665,12 +701,14 @@ export function defineMachineStore(def: MachineDefinition) {
 			jogStep,
 			client,
 			connected,
+			portLabel,
 			unidentified: readonly(unidentified),
 			connecting: readonly(connecting),
 			status: readonly(status),
 			state,
 			mpos,
 			wpos,
+			wco,
 			isIdle,
 			pins,
 			buildInfo: readonly(buildInfo),

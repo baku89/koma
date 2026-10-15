@@ -1,7 +1,48 @@
 import {Howl} from 'howler'
 
+import {detectLanguage} from './language'
+
+/**
+ * Voices that macOS ships for fun (robots, singing, cartoon relatives). They
+ * match a language's `lang` like any other voice but are not what an
+ * operator wants to hear a warning in.
+ */
+const NOVELTY_VOICE =
+	/^(Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley|Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred|Junior|Kathy|Ralph)\b/
+
+async function getVoices(): Promise<SpeechSynthesisVoice[]> {
+	const synth = window.speechSynthesis
+	const voices = synth.getVoices()
+	if (voices.length > 0) return voices
+
+	// Chrome fills the list asynchronously on first use.
+	return new Promise(resolve => {
+		const done = () => {
+			synth.removeEventListener('voiceschanged', done)
+			resolve(synth.getVoices())
+		}
+		synth.addEventListener('voiceschanged', done)
+		setTimeout(done, 1000)
+	})
+}
+
+function pickVoice(voices: SpeechSynthesisVoice[], lang: string) {
+	const candidates = voices.filter(
+		v => v.lang.toLowerCase().replace('_', '-').split('-')[0] === lang
+	)
+	const rank = (v: SpeechSynthesisVoice) =>
+		(NOVELTY_VOICE.test(v.name) ? 4 : 0) +
+		(v.localService ? 0 : 2) +
+		(v.default ? 0 : 1)
+	return candidates.sort((a, b) => rank(a) - rank(b))[0] ?? null
+}
+
+/**
+ * Reads `text` aloud in the language it appears to be written in (by the
+ * script of its letters, see `detectLanguage`), with a voice chosen by
+ * language rather than by name so any installed language works.
+ */
 export async function speak(text: string) {
-	// https://mdn.github.io/dom-examples/web-speech-api/speak-easy-synthesis/script.js
 	const synth = window.speechSynthesis
 
 	if (!synth) {
@@ -10,20 +51,15 @@ export async function speak(text: string) {
 		return
 	}
 
-	const isAlphabeticalOnly = /^[a-zA-Z0-9\s]+$/.test(text)
-
-	const voiceName = isAlphabeticalOnly ? 'Samantha' : '日本語'
-
-	const voice = synth.getVoices().find(v => v.name.includes(voiceName))
-
-	if (!voice) {
-		// eslint-disable-next-line no-console
-		console.error(`Voice "${voiceName}" not found`)
-		return
-	}
+	// Kanji-only text is read as Japanese on a Japanese machine.
+	const han = navigator.language.toLowerCase().startsWith('ja') ? 'ja' : 'zh'
+	const lang = detectLanguage(text, {han})
+	const voice = pickVoice(await getVoices(), lang)
 
 	const utterThis = new SpeechSynthesisUtterance(text)
-	utterThis.voice = voice
+	// With no matching voice the browser picks one for `lang` itself.
+	utterThis.lang = voice?.lang ?? lang
+	if (voice) utterThis.voice = voice
 	utterThis.rate = 1.5
 
 	return new Promise((resolve, reject) => {

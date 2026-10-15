@@ -1,7 +1,8 @@
 <script lang="ts" setup>
 /**
  * Title-bar indicator + popover for one FluidNC machine store: connection
- * state at a glance, connect/disconnect, a one-line console and the log.
+ * state at a glance, connect/disconnect and the log. Typed G-code goes
+ * through the machine's panel (MachinePanel, under "Step").
  * Mirrors the camera connection popup (click toggle, light-dismiss guard,
  * focus trick so the drag region doesn't swallow the click).
  */
@@ -12,8 +13,9 @@ import type {MachineStore} from '@/stores/machine'
 
 const props = defineProps<{
 	machine: MachineStore
-	icon: string
 }>()
+
+const icon = computed(() => props.machine.def.icon)
 
 const open = ref(false)
 const trigger = ref<HTMLElement>()
@@ -33,7 +35,6 @@ watch(open, isOpen => {
 	if (isOpen) trigger.value?.focus()
 })
 
-const line = ref('')
 const logEl = ref<HTMLPreElement | null>(null)
 
 const logText = computed(() =>
@@ -48,18 +49,16 @@ watch(logText, async () => {
 	if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight
 })
 
-async function send() {
-	const l = line.value.trim()
-	if (!l) return
-	line.value = ''
-	await props.machine.send(l).catch(() => {})
-}
-
 const tooltip = computed(() => {
 	const m = props.machine
 	if (!m.connected) return `${m.def.label}: not connected`
-	return `${m.def.label}: ${machineName.value} — ${m.state ?? '…'}`
+	return `${m.def.label}: ${machineName.value} — ${m.state ?? '…'}${portText.value}`
 })
+
+/** " (#2 · CP210x 10c4:ea60)" while connected, else "". */
+const portText = computed(() =>
+	props.machine.portLabel ? ` (${props.machine.portLabel})` : ''
+)
 
 const machineName = computed(() =>
 	props.machine.unidentified
@@ -101,7 +100,7 @@ const stateClass = computed(() => {
 				<span class="state" :class="stateClass">
 					{{
 						machine.connected
-							? `${machineName} · ${machine.state ?? '…'}`
+							? `${machineName} · ${machine.state ?? '…'}${portText}`
 							: machine.connecting
 								? 'Connecting…'
 								: 'Not connected'
@@ -155,15 +154,6 @@ const stateClass = computed(() => {
 					@click="machine.home()"
 				/>
 			</Tq.InputGroup>
-			<Tq.InputGroup>
-				<Tq.InputString
-					v-model="line"
-					font="monospace"
-					:disabled="!machine.connected"
-					@confirm="send"
-				/>
-				<Tq.InputButton label="Send" :disabled="!machine.connected" @click="send" />
-			</Tq.InputGroup>
 			<pre ref="logEl">{{ logText }}</pre>
 		</div>
 	</Tq.Popover>
@@ -197,9 +187,10 @@ const stateClass = computed(() => {
 
 .head
 	display flex
+	flex-wrap wrap
 	justify-content space-between
 	align-items baseline
-	gap 0.5em
+	gap 0.25em 0.5em
 
 .name
 	font-weight bold

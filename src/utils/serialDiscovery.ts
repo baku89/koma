@@ -16,7 +16,13 @@
  * and then offers the chosen port to every family (a preferred one first),
  * so whichever "Connect…" button was pressed, the device ends up where it
  * belongs — the OS port names change too often to make the user pick.
+ *
+ * The browser never tells a page the OS name of a port (`cu.usbserial-…`),
+ * only the USB vendor/product id, so `serialPortLabel()` adds the port's
+ * position in the granted list ("port #2") to tell two boards with the same
+ * chip apart in the UI.
  */
+import {shallowRef} from 'vue'
 
 export interface SerialFamily {
 	id: string
@@ -193,14 +199,39 @@ export function discoverSerialPorts(): Promise<void> {
 	return running
 }
 
-async function discoverOnce() {
-	if (typeof navigator === 'undefined' || !('serial' in navigator)) return
-	let ports: SerialPort[]
+/**
+ * The granted ports as last listed by `navigator.serial.getPorts()`, in the
+ * browser's order. Reactive so a label computed from it follows a replug.
+ */
+export const grantedSerialPorts = shallowRef<SerialPort[]>([])
+
+async function refreshGrantedPorts(): Promise<SerialPort[] | null> {
+	if (typeof navigator === 'undefined' || !('serial' in navigator)) return null
 	try {
-		ports = await navigator.serial.getPorts()
+		const ports = await navigator.serial.getPorts()
+		grantedSerialPorts.value = ports
+		return ports
 	} catch {
-		return
+		return null
 	}
+}
+
+/**
+ * How a connected port is shown next to the device: its number in the
+ * granted list and what the OS knows about it ("#2 · CP210x 10c4:ea60").
+ * The number is the browser's order, stable across reloads but not meaningful
+ * beyond telling same-chip boards apart; it is omitted until the list has
+ * been read.
+ */
+export function serialPortLabel(port: SerialPort): string {
+	const index = grantedSerialPorts.value.indexOf(port)
+	const where = describeSerialPort(port)
+	return index >= 0 ? `#${index + 1} · ${where}` : where
+}
+
+async function discoverOnce() {
+	const ports = await refreshGrantedPorts()
+	if (!ports) return
 	for (const port of ports) {
 		if (liveOwner(port)) continue
 		await offerPort(port, [...families.values()], true)
@@ -277,6 +308,34 @@ async function offerPort(
 }
 
 /**
+ * Offer one port to one family again, outside a discovery run — for a family
+ * whose device dropped off a port that is still plugged in (a board that
+ * reset or lost power) and that wants it back without a replug or a click.
+ * Unlike discovery this is safe to repeat: it opens only the port the caller
+ * names, one its own device was on, so it can't disturb another family's
+ * board. Serialised with discovery like every other probe.
+ */
+export async function reofferSerialPort(
+	family: SerialFamily,
+	port: SerialPort
+): Promise<boolean> {
+	while (running) await running.catch(() => {})
+	if (liveOwner(port)) return family.holder(port) !== null
+	if (!family.wants()) return false
+	let adopted = false
+	running = (async () => {
+		adopted = (await runProbe(family, port)) === 'adopted'
+		if (adopted) rejectedBy(port).delete(family.id)
+	})().finally(() => {
+		running = null
+		// A discovery asked for meanwhile waited on this probe: run it now.
+		if (rerun) void discoverSerialPorts()
+	})
+	await running
+	return adopted
+}
+
+/**
  * Prompt the user for a port (user gesture required) and identify what is on
  * it: `preferred` (the family whose button was pressed) probes first, then
  * every other family that still wants a device. A port a family has open is
@@ -294,6 +353,8 @@ export async function requestSerialPort(
 	}
 	const owner = liveOwner(port)
 	if (owner) return {status: 'owned', ...owner, port}
+	// A newly granted port joins the list (its label needs the position).
+	if (!grantedSerialPorts.value.includes(port)) void refreshGrantedPorts()
 
 	// Wait for any background discovery so we don't race it on this port. If
 	// that run identified the port meanwhile, the device is where it belongs.

@@ -19,6 +19,7 @@ export const FILM_FPS = 18
 export const MILL_DEFINITION: MachineDefinition = {
 	id: 'mill',
 	label: 'Mill (AST200)',
+	icon: 'mdi:screw-machine-flat-top',
 	fluidncName: 'AST200',
 	// Any Grbl/FluidNC board that isn't the Box Rig is the mill.
 	fluidncFallback: true,
@@ -34,6 +35,7 @@ export const MILL_DEFINITION: MachineDefinition = {
 export const RIG_DEFINITION: MachineDefinition = {
 	id: 'rig',
 	label: 'Box Rig',
+	icon: 'game-icons:mechanical-arm',
 	fluidncName: 'BoxRig',
 	axes: ['x', 'y', 'z', 'a', 'b', 'c'],
 	axisInfo: {
@@ -45,10 +47,16 @@ export const RIG_DEFINITION: MachineDefinition = {
 		c: {unit: 'deg'},
 	},
 	jogFeed: 1500,
-	// Work positions only, X Y Z / A B C in two rows; no feed input, no
-	// "go to work 0" (the rig is driven in machine coordinates by the
-	// sequence; work coordinates are just a jog reference).
-	panel: {layout: 'grid', gridColumns: 3, showFeed: false, showGoToZero: false},
+	// X Y Z / A B C in two rows; no feed input. Homing the linear axes lifts
+	// Y (the hanging column) first, then X and Z together.
+	panel: {
+		gridColumns: 3,
+		showFeed: false,
+		homeGroups: [
+			{label: 'XYZ', steps: ['y', ['x', 'z']]},
+			{label: 'ABC', steps: ['a', 'b', 'c']},
+		],
+	},
 }
 
 //------------------------------------------------------------------------------
@@ -58,15 +66,14 @@ export const LED_FACES = ['L', 'B', 'R', 'F'] as const
 export type LedFace = (typeof LED_FACES)[number]
 
 //------------------------------------------------------------------------------
-// Box Rig travel (2026-09-29): X and Z run −550…+550 mm about the machine
-// origin (centre of the frame), Y 0…−900 homed at the top and travelling
-// negative; with Y fully down the head sits ~400 mm high (tentative).
+// Box Rig travel, machine coordinates: X and Z run −550…+550 mm about the
+// machine origin (centre of the frame), Y 0…−950 homed at the top and
+// travelling negative (−900 until 2026-10-02).
 export const RIG_LIMITS = {
 	x: [-550, 550],
-	y: [-900, 0],
+	y: [-950, 0],
 	z: [-550, 550],
 } as const satisfies Record<'x' | 'y' | 'z', readonly [number, number]>
-export const RIG_Y_DOWN_HEIGHT = 400
 
 /**
  * Bump when the physical placement (led/layout.ts) changes; shots record the
@@ -88,9 +95,10 @@ export interface AddsubCalibration {
 	 */
 	pupilOffset: vec3
 	/**
-	 * World position of the film origin (block A's bottom corner) with no
-	 * blocks added underneath (filmLift = 0). Its Y is the mill table / vise
-	 * floor height in world.
+	 * Rig machine coords = world + rigOffset: the machine position of the
+	 * world origin. That origin is the rig's work origin (G54: the centre of
+	 * the work's bottom face), so this follows the controller's work offset
+	 * while the rig is connected (stores/rigWork.ts).
 	 */
 	rigOffset: vec3
 	/**

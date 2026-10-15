@@ -23,6 +23,7 @@ import {useHoudiniStore} from '@/addsub/stores/houdini'
 import {useLedStore} from '@/addsub/stores/led'
 import {useMillStore, useRigStore} from '@/addsub/stores/machines'
 import {usePrevizStore} from '@/addsub/stores/previz'
+import {useRigWorkStore} from '@/addsub/stores/rigWork'
 import {type CaptureRequest, useSequenceStore} from '@/addsub/stores/sequence'
 import {useCameraStore} from '@/stores/camera'
 import {useCncStore} from '@/stores/cnc'
@@ -30,6 +31,7 @@ import {useDmxStore} from '@/stores/dmx'
 import {useInboxStore} from '@/stores/inbox'
 import {useOscStore} from '@/stores/osc'
 import {Shot, useProjectStore} from '@/stores/project'
+import {setupProjectInbox} from '@/stores/projectInboxOps'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
 import {useTimelineStore} from '@/stores/timeline'
 import {useTimerStore} from '@/stores/timer'
@@ -78,6 +80,7 @@ const tracker = useTrackerStore()
 const shootAlerts = useShootAlertsStore()
 const mill = useMillStore()
 const rig = useRigStore()
+const rigWork = useRigWorkStore()
 const led = useLedStore()
 const previz = usePrevizStore()
 const sequence = useSequenceStore()
@@ -88,6 +91,7 @@ setupAddsubShootAlerts()
 // Patches dropped into the project's `_inbox/` by anything outside koma
 // (stores/inbox.ts) — the way to change an open project without fighting
 // its autosave.
+setupProjectInbox()
 setupAddsubInbox()
 useInboxStore()
 
@@ -332,7 +336,6 @@ const {fn: shoot} = preventConcurrentExecution(
 			// ids on the shot. The initial filename is derived from the capture
 			// slot; bytes are persisted on the next autosave.
 			const {frame, layer} = project.captureShot
-			const name = project.name
 
 			return {
 				lv: registerCapturedAsset(lv, frameAssetPath(project, layer, frame, 'lv')),
@@ -348,7 +351,7 @@ const {fn: shoot} = preventConcurrentExecution(
 				tracker: trackerData,
 				dmx: dmxData,
 				// addsub: what the machines and the wall were doing (§13).
-				rig: rig.connected ? {...rig.mpos} : undefined,
+				rig: rig.connected ? rigWork.toWork(rig.mpos) : undefined,
 				mill: mill.connected ? {...mill.mpos} : undefined,
 				led: await ledRecord,
 				previzFrame: frame + project.addsub.previzFrameOffset,
@@ -536,8 +539,6 @@ async function applyExposureFromShot(shot: Shot | null) {
 // Recall commands for the selected shot (timeline context menu / palette).
 // A disconnected LED wall / Box Rig, a shot with nothing recorded, or a busy
 // sequence is a plain warning, not an uncaught rejection.
-async function recallForSelectedShot(run: () => Promise<void>) {
-	try {
 /**
  * "Move Images into Layer Folders…": switch a flat project to a folder per
  * layer (utils/projectLayout.ts). The browser copies every file of a folder
@@ -562,6 +563,8 @@ async function migrateLayerFolders() {
 	project.save()
 }
 
+async function recallForSelectedShot(run: () => Promise<void>) {
+	try {
 		await run()
 	} catch (e) {
 		alert(e instanceof Error ? e.message : String(e))
@@ -1029,13 +1032,13 @@ Tq.actions.register([
 				perform: () => sequence.setPlan(viewport.currentFrame, null, viewport.currentLayer),
 			},
 			{
-				id: 'recall_shot_led',
-			{
 				id: 'migrate_layer_folders',
 				label: 'Move Images into Layer Folders…',
 				icon: 'mdi:folder-move-outline',
 				perform: migrateLayerFolders,
 			},
+			{
+				id: 'recall_shot_led',
 				label: 'Recall Shot Lighting (LED)',
 				icon: 'mdi:lightbulb-on-outline',
 				perform: () =>
@@ -1051,6 +1054,28 @@ Tq.actions.register([
 					recallForSelectedShot(() =>
 						sequence.recallRig(viewport.currentFrame, viewport.currentLayer)
 					),
+			},
+			{
+				id: 'aim_rig_at',
+				label: 'Aim Camera at Work Point…',
+				icon: 'mdi:crosshairs-gps',
+				async perform() {
+					// Tilt and pan turn to look at a point of the work (the rig's
+					// work coordinates); X/Y/Z and roll stay as they are.
+					const [x, y, z] = project.addsub.aimTarget
+					const result = await Tq.modal.prompt(
+						{x, y, z},
+						{
+							x: {type: 'number', step: 0.1, label: 'X (mm)'},
+							y: {type: 'number', step: 0.1, label: 'Y (mm)'},
+							z: {type: 'number', step: 0.1, label: 'Z (mm)'},
+						},
+						{title: 'Aim Camera at Work Point (A / B turn, roll stays)'}
+					)
+					if (!result) return
+					project.addsub.aimTarget = [result.x, result.y, result.z]
+					await recallForSelectedShot(() => sequence.aimRigAt(project.addsub.aimTarget))
+				},
 			},
 			{
 				id: 'new_rig_move_test',
@@ -1350,36 +1375,74 @@ watchEffect(() => {
 						name="bottom"
 						direction="horizontal"
 						fixed="first"
-						:size="280"
+						:size="310"
+						:scroll="[false, true]"
 					>
 						<template #first>
-							<div class="control">
-								<Tq.ParameterGrid>
-									<Tq.Parameter label="Tool">
-										<Tq.InputRadio
-											v-model="timeline.currentTool"
-											:options="['select', 'marker', 'pencil', 'eraser']"
-											:icons="[
-												'ph:cursor-fill',
-												'subway:mark',
-												'mdi:pencil',
-												'mdi:eraser',
-											]"
+							<Tq.PaneTabs name="control">
+								<Tq.PaneTab id="tool" label="Tool" icon="mdi:tools">
+									<Tq.ParameterGrid>
+										<Tq.Parameter label="Tool">
+											<Tq.InputRadio
+												v-model="timeline.currentTool"
+												:options="['select', 'marker', 'pencil', 'eraser']"
+												:icons="[
+													'ph:cursor-fill',
+													'subway:mark',
+													'mdi:pencil',
+													'mdi:eraser',
+												]"
+											/>
+										</Tq.Parameter>
+										<MarkerSettings />
+									</Tq.ParameterGrid>
+								</Tq.PaneTab>
+								<Tq.PaneTab
+									id="sequence"
+									label="Shot Sequence"
+									icon="mdi:play-box-multiple"
+								>
+									<Tq.ParameterGrid><SequencePanel /></Tq.ParameterGrid>
+								</Tq.PaneTab>
+								<Tq.PaneTab id="cut" label="Cut" icon="mdi:saw-blade">
+									<Tq.ParameterGrid><CutPanel /></Tq.ParameterGrid>
+								</Tq.PaneTab>
+								<Tq.PaneTab id="plan" label="Plan" icon="mdi:map-marker-path">
+									<Tq.ParameterGrid><PlanPanel /></Tq.ParameterGrid>
+								</Tq.PaneTab>
+								<Tq.PaneTab
+									id="rig"
+									:label="rig.def.label"
+									:icon="rig.def.icon"
+								>
+									<Tq.ParameterGrid>
+										<MachinePanel
+											:machine="rig"
+											:limits="project.addsub.rigLimits"
 										/>
-									</Tq.Parameter>
-									<SequencePanel />
-									<CutPanel />
-									<PlanPanel />
-									<MachinePanel :machine="rig" :limits="project.addsub.rigLimits" />
-									<MachinePanel :machine="mill" />
-									<LedPanel />
-									<HoudiniPanel />
-									<CameraControl />
-									<!-- DMX control hidden on the addsub branch (no DMX rig on this set). -->
-									<TrashPanel />
-									<MarkerSettings />
-								</Tq.ParameterGrid>
-							</div>
+									</Tq.ParameterGrid>
+								</Tq.PaneTab>
+								<Tq.PaneTab
+									id="mill"
+									:label="mill.def.label"
+									:icon="mill.def.icon"
+								>
+									<Tq.ParameterGrid><MachinePanel :machine="mill" /></Tq.ParameterGrid>
+								</Tq.PaneTab>
+								<Tq.PaneTab id="led" label="LED Wall" icon="mdi:led-strip-variant">
+									<Tq.ParameterGrid><LedPanel /></Tq.ParameterGrid>
+								</Tq.PaneTab>
+								<Tq.PaneTab id="houdini" label="Houdini Live" icon="mdi:video-3d">
+									<Tq.ParameterGrid><HoudiniPanel /></Tq.ParameterGrid>
+								</Tq.PaneTab>
+								<Tq.PaneTab id="camera" label="Camera Control" icon="mdi:camera">
+									<Tq.ParameterGrid><CameraControl /></Tq.ParameterGrid>
+								</Tq.PaneTab>
+								<!-- DMX control hidden on the addsub branch (no DMX rig on this set). -->
+								<Tq.PaneTab id="retakes" label="Retakes" icon="mdi:history">
+									<Tq.ParameterGrid><TrashPanel /></Tq.ParameterGrid>
+								</Tq.PaneTab>
+							</Tq.PaneTabs>
 						</template>
 						<template #second>
 							<Timeline class="timeline" />
@@ -1395,9 +1458,6 @@ watchEffect(() => {
 .preview
 	width 100%
 	height 100%
-
-.control
-	padding var(--tq-pane-padding) calc(var(--tq-pane-padding) - var(--tq-scrollbar-width)) var(--tq-pane-padding) var(--tq-pane-padding)
 
 .timeline
 	padding-top var(--tq-pane-padding)

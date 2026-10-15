@@ -223,8 +223,8 @@ const saveStatus = computed(() => {
 				icon="solar:gamepad-bold"
 				glow
 			/>
-			<TitleBarMachineConnection :machine="mill" icon="mdi:saw-blade" />
-			<TitleBarMachineConnection :machine="rig" icon="game-icons:mechanical-arm" />
+			<TitleBarMachineConnection :machine="mill" />
+			<TitleBarMachineConnection :machine="rig" />
 			<TitleBarLedConnection />
 			<TitleBarRelayConnection />
 			<TitleBarInbox />

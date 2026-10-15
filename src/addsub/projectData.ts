@@ -21,10 +21,10 @@ import type {PlanTable} from './plan'
  * operator can touch up the angle / focus while cleaning up after the cut.
  */
 export const SEQUENCE_STEPS = [
-	'cut',
-	'extend',
 	'rig',
 	'led',
+	'cut',
+	'extend',
 	'settle',
 	'capture',
 	'park',
@@ -58,7 +58,7 @@ export interface SequenceProgress {
 	done: SequenceStep[]
 	status: 'running' | 'paused' | 'stopped' | 'error' | 'done'
 	error?: string
-	/** Mill table position before it was extended, to return to. */
+	/** Mill table work X before it was extended to the origin, to return to. */
 	returnPosition?: {x: number; y?: number}
 	updatedAt: number
 }
@@ -101,6 +101,20 @@ export interface FrameCut {
 	run?: CutRun | null
 }
 
+/**
+ * A G-code file kept in the project to be attached to any frame later (the
+ * Cut tab's Presets): a copy under `gcode/_presets/`.
+ */
+export interface CutPreset {
+	/** Path relative to the project folder. */
+	file: string
+	/** The dropped file's name; unique among the presets. */
+	name: string
+	addedAt: number
+	lines?: number
+	estimatedSec?: number
+}
+
 /** layer id → timeline frame → cut. Sparse. */
 export type CutTable = Record<string, Record<number, FrameCut>>
 
@@ -113,8 +127,10 @@ export interface AddsubProjectData {
 	 */
 	rigStorage: 'work'
 	/**
-	 * Table position to return to after the shot. Undefined = the position it
-	 * was at before extending.
+	 * Left by that conversion: the work offset it used has not been confirmed
+	 * by the controller. On the controller's first report the stored axes are
+	 * re-based to its real offset, so they stay where they physically were
+	 * (stores/rigWork.ts).
 	 */
 	rigRebase?: boolean
 	/** previz frame number = timeline frame + this offset. */
@@ -123,6 +139,8 @@ export interface AddsubProjectData {
 	parkPose: AxesPosition | null
 	/** Layer (id) park reference shots go to. null = create "Park" on first use. */
 	parkLayerId: string | null
+	/** The point (work coords, mm) the "aim camera" command last aimed at. */
+	aimTarget: [number, number, number]
 	/** Whether to take a park reference shot every frame. */
 	takeParkShot: boolean
 	/**
@@ -180,6 +198,8 @@ export interface AddsubProjectData {
 	 * record of every cut run, by layer id then timeline frame (cuts.ts).
 	 */
 	cuts: CutTable
+	/** G-code presets (Cut tab), in the order they were added. */
+	cutPresets?: CutPreset[]
 	/**
 	 * Refuse the shutter while the capture frame has G-code that hasn't been
 	 * run to the end (shoot condition). Off for dry runs without the mill.
@@ -194,6 +214,7 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	previzFrameOffset: 0,
 	parkPose: null,
 	parkLayerId: null,
+	aimTarget: [0, 0, 0],
 	takeParkShot: false,
 	settleMs: 2000,
 	settleStill: true,
@@ -217,16 +238,12 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 
 /** What a shot records about the LED wall it was lit with. */
 export interface ShotLedRecord {
-	/**
-	 * The lighting image (relative to previz/) that was on the wall. Missing
-	 * when the light didn't come from one (faces, live feed, manual fill).
-	 */
-	file?: string
 	/** Placement map the wall was laid out with. */
 	layoutVersion: number
 	/**
 	 * Every pixel's RGB as sent to the wall (led/wallRecord.ts), relative to
-	 * the project folder. Only recorded while the wall was connected.
+	 * the project folder. Missing on shots from when lighting images existed
+	 * that were taken without the wall connected.
 	 */
 	wall?: string
 	/** Firmware brightness cap (0–1) in force. */
@@ -235,7 +252,7 @@ export interface ShotLedRecord {
 
 /** What a shot records about the rig / mill / lighting it was taken with. */
 export interface ShotMachineData {
-	/** Rig axes (machine coords) at capture. */
+	/** Rig axes (work coords) at capture. */
 	rig?: AxesPosition
 	/** Mill axes (machine coords) at capture. */
 	mill?: AxesPosition
@@ -270,7 +287,11 @@ export function migrateAddsubData(
 	// not 0…1200). Projects still carrying the old placeholder defaults get
 	// the new ones; anything the user edited is left alone.
 	const same = (x: unknown, y: unknown) => JSON.stringify(x) === JSON.stringify(y)
-	if (same(a.rigLimits, {x: [0, 1200], y: [-900, 0], z: [0, 1200]})) {
+	// 2026-10-02: Y reaches −950, not −900. Same rule.
+	if (
+		same(a.rigLimits, {x: [0, 1200], y: [-900, 0], z: [0, 1200]}) ||
+		same(a.rigLimits, {x: [-550, 550], y: [-900, 0], z: [-550, 550]})
+	) {
 		a.rigLimits = {x: [...RIG_LIMITS.x], y: [...RIG_LIMITS.y], z: [...RIG_LIMITS.z]}
 	}
 	if (a.calibration && same(a.calibration.rigOffset, [-600, -1300, -600])) {
@@ -305,7 +326,12 @@ export function migrateAddsubData(
 	]) {
 		delete legacy[key]
 	}
-	const shots: LegacyShot[] = []
+	if (a.calibration) {
+		const cal = a.calibration as unknown as Record<string, unknown>
+		delete cal.filmOriginWorld
+		delete cal.millOffset
+	}
+	const shots: ShotMachineData[] = []
 	for (const koma of project.komas) {
 		for (const shot of koma?.shots ?? []) if (shot) shots.push(shot)
 	}
@@ -373,4 +399,7 @@ export function shiftStoredRigAxes(project: RigAxesHolder, delta: AxesPosition):
 		for (const shot of koma?.shots ?? []) shift(shot?.rig)
 		for (const shot of koma?.backupShots ?? []) shift(shot?.rig)
 	}
+	for (const t of project.trash ?? []) shift(t.shot.rig)
+	shift(project.addsub.parkPose)
+	return count
 }

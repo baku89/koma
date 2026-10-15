@@ -240,8 +240,13 @@ export interface BuildInfo {
 	/** `[VER:3.9 FluidNC v3.9.9:]` → "3.9 FluidNC v3.9.9" */
 	version?: string
 	options?: string
-	/** FluidNC `name:` from config.yaml, reported as `[MSG: Machine: <name>]`. */
+	/**
+	 * FluidNC `name:` from config.yaml, reported as `[MSG: Machine: <name>]`
+	 * (`[MSG:INFO: Machine: <name>]` on builds that tag their messages).
+	 */
 	machineName?: string
+	/** FluidNC `board:` from config.yaml, if the build reports it. */
+	board?: string
 	/** Every raw line, for the log. */
 	lines: string[]
 }
@@ -254,8 +259,12 @@ export function parseBuildInfo(lines: string[]): BuildInfo {
 		if (ver) info.version = ver[1].trim()
 		const opt = line.match(/^\[OPT:(.*)\]$/)
 		if (opt) info.options = opt[1]
-		const machine = line.match(/^\[MSG:\s*Machine:\s*(.*?)\s*\]$/)
+		// `[MSG: Machine: X]`, or `[MSG:INFO: Machine: X]` on builds that
+		// prefix their messages with a level.
+		const machine = line.match(/^\[MSG:(?:[A-Z]+:)?\s*Machine:\s*(.*?)\s*\]$/)
 		if (machine) info.machineName = machine[1]
+		const board = line.match(/^\[MSG:(?:[A-Z]+:)?\s*Board:\s*(.*?)\s*\]$/)
+		if (board) info.board = board[1]
 	}
 	return info
 }

@@ -93,6 +93,18 @@ describe('parseBuildInfo', () => {
 		expect(info.version).toBe('3.9 FluidNC v3.9.9')
 		expect(info.options).toBe('PHS')
 		expect(info.machineName).toBe('BoxRig')
+		expect(info.board).toBeUndefined()
+	})
+
+	it('accepts level-tagged messages and a board line', () => {
+		const info = parseBuildInfo([
+			'[VER:3.9 FluidNC v3.9.9:]',
+			'[OPT:PHS]',
+			'[MSG:INFO: Board: PiBot V588]',
+			'[MSG:INFO: Machine: AST200]',
+		])
+		expect(info.machineName).toBe('AST200')
+		expect(info.board).toBe('PiBot V588')
 	})
 })
 

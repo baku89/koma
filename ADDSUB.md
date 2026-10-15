@@ -518,13 +518,12 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 {
   "version": 1,
   "fps": 18,
-  "paths": {"gcode": "gcode/%04d.nc", "led": "led/%04d.png", "render": "render/%04d.jpg"},
-  "ledTopFilmY": 1500,
+  "paths": {"gcode": "gcode/%04d.nc", "render": "render/%04d.jpg"},
   "frames": [
     {"frame": 1,
      "camera": {"position": [x, y, z], "rotation": [x, y, z, w]},
      "cameraConfigs": {"aperture": 8},
-     "gcode": "gcode/0001.nc", "led": "led/0001.png", "render": "render/0001.jpg",
+     "gcode": "gcode/0001.nc", "render": "render/0001.jpg",
      "cut": true}
   ]
 }
@@ -542,6 +541,7 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - **レイヤー（§14.1 の実装）**: レイヤーは「名前付きの独立したタイムライン（本編とフレーム番号を共有）」で、いくつでも作れる（`project.layers[i] = {id, name}`、index = `koma.shots[]` のスロット。追加のみで並べ替え・削除はしない）。機能の割り当ては無く、テストも再演も park もただの名前付きレイヤー。**表示情報はプリセット** `project.layerPresets[]`（`{id, name, layers: [{layerId, opacity, mixBlendMode}]}`、配列順 = 表示順（下→上）、載っていないレイヤーは非表示）で、`activeLayerPreset` で切替。Layers ダイアログ（`command+shift+L` / Timeline 左端のレイヤー名クリック）でプリセットの作成・改名・削除、レイヤーの表示/順序/ブレンド/不透明度、追加、撮影先の指定。タイムライン・プレビューはアクティブなプリセットの順で合成（`compositeLayers`）。**「画像の下をクリックするとレイヤーが増える」挙動は廃止**（↑↓は表示順で移動）。旧ファイルはレイヤーの opacity/blend を "Default" プリセットへ移行。
 - **レイヤーの削除と一覧の並び（2026-10-01）**: レイヤーは保存スロット（index = `koma.shots[]` の位置、ファイル名にも入る）なので、**削除はスロットに印を付けるだけ**（`layer.deleted`）。ショット・ファイル・plan はそのまま、番号の振り直しもファイル移動も無い。削除したレイヤーは全プリセット・タイムライン・Park layer の選択肢・relay の push・exhibit（本編の穴埋め previz、他テイク、そのレイヤーの `_trash`）から消える。Layers ダイアログの各行のゴミ箱で削除、下の「Deleted」欄の Restore で戻せる（全プリセットの一番上に非表示で戻る）。本編（layer 0）は削除不可、撮影スロットが載っていたら同じコマの本編へ移す。undo には乗らない。**ディスクは空かない**（完全消去は未実装）。
   - プリセットは `stack`（非表示も含む全レイヤーの並び、`hidden` 付き）を正とし、`layers`（表示中だけ）はそこから毎回作り直す派生。古いビルド（配信中の exhibit など）は `layers` だけを読むので従来どおり動く。Show のオン/オフは `hidden` を切り替えるだけなので**行が動かない**（以前は非表示にするとプリセットから外れ、戻すと一番上に入り直し、blend / opacity も消えていた）。Order の上下は非表示の行にも効く。旧ファイルはプリセットに無いレイヤーを一番上に非表示で足す。
+  - **exhibit に出るのは「Exhibit」プリセットで Show になっているレイヤーだけ**（2026-10-15 に再確認）。`addLayer` は新しいレイヤーを「作ったときのアクティブなプリセット」以外では非表示で足していたので、別のプリセットで作った `261001_carve-test` や、Exhibit 作成時に外れていた `VICE_pole main` は展示画面に出なかった（relay には lv が届いていて、exhibit 側 `exhibitLayers()` で落ちていた）。既存のレイヤーは Layers ダイアログで Exhibit プリセットに切り替えて Show を入れる。**新しいレイヤーは名前が "Exhibit" のプリセットにも Show で入る**ようにした（`project.ts addLayer` の `isExhibitPreset`。exhibit 側が名前で特別扱いしているのと同じ約束）。
   - exhibit が previz を映すのは「Exhibit」プリセットとは別の仕組み（名前に previz を含むレイヤー、または「Previz」プリセットのレイヤーで、本編の未撮影コマを埋める）。映したくなければそのレイヤーを削除する。
   - 確認済（スクラッチの Chromium）: Show 切替で行順不変、UI からの削除 → プリセット・表示から消える / ショットは残る / 撮影スロットが本編へ、リロード後も維持、Restore、exhibit のテイク数 7 → 4（previz の穴埋め 3 が消える）。
 - **テストショット**: 「New Test Shot…」で名前付きレイヤーを作り、撮影スロットをそのレイヤーの現在コマに移す。手動撮影もシーケンスもそのレイヤーに沿って進む。park ショットの行き先は Shot Sequence 設定の「Park layer」（未指定なら "Park" を自動作成）、再演パスは `Replay +<lift>mm` を作って進行に id を保存。§14.2 のフォルダ分けは 2026-10-16 に実装（CLAUDE.md「アセット保存」）。
@@ -551,7 +551,7 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
   - 確認はハード無し（偽のリグ + 減衰振動するライブビュー）: 固定 2 秒では残り振幅 3.6 px で撮っていたのが、静止待ちで ~7 秒・0.4–0.5 px。**実機のライブビュー（ノイズ、LED のちらつき、PTP の fps）でしきい値が妥当かは未確認**。効きすぎる（毎コマ打ち切りまで待つ）ならオフにして `settleMs` を伸ばす。定数は `sequence.ts` の `STILL_FACTOR` / `STILL_HOLD_MS`。
 
 ### 作業座標（cncjs 風）
-- MachinePanel は軸ごとに **Machine（MPos）と Work（WPos）** を並べ、Work 側に「ここをゼロ」「値を指定」（どちらも `G10 L20 P1`、動かずにオフセットだけ変わる）と「Work 0 へ移動」。「Zero all here」「Go to 0」も。リグは撮影で機械座標しか使わないので作業座標はジョグの目安用。フライス盤の G54 は「Set G54」オン時にシーケンスが毎コマ `G10 L2 P1` で film 原点に合わせ直すので、手でゼロを切ってもコマ撮り時には上書きされる。
+- MachinePanel は軸ごとに **Machine（MPos）と Work（WPos）** を出し、Work 側に「ここをゼロ」「値を指定」（どちらも `G10 L20 P1`、動かずにオフセットだけ変わる）。「Zero all here」「Go to 0」の行は 2026-10-02 に削除（下の「MachinePanel の軸セル」）。リグは人が読む・打つ数字はすべて作業座標（2026-10-02、下の「Box Rig は Work 座標で扱う」）。フライス盤の G54 は「Set G54」オン時にシーケンスが毎コマ `G10 L2 P1` で film 原点に合わせ直すので、手でゼロを切ってもコマ撮り時には上書きされる。
 - 校正の近道: Shot Sequence 設定「Mill offset」の照準ボタン = 工具先端が film 原点（ブロック A の底面角、テーブルは撮影位置）にある状態で押すと `millOffset = filmOriginWorld + [0, filmLift, 0] − cycle(mpos)` を確定。「Film lift」の照準ボタンはその逆で、millOffset 確定後に接合面へ当てて `filmLift = mpos.z + millOffset.y − filmOriginWorld.y` を実測。
 
 ### 切削パス（G-code）の表示
@@ -573,10 +573,9 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
   "version": 1,
   "led": {
     "layoutVersion": 1,
-    "imageWidth": 6000,
     "pitch": 33.333,
     "lines": [
-      {"name": "L1", "pixels": [[x, y, z, u], ...]},
+      {"name": "L1", "pixels": [[x, y, z], ...]},
       {"name": "L2", "pixels": [...]}, ... 8 本（ws-fanout のライン順 L1 L2 B1 B2 R1 R2 F1 F2）
     ]
   },
@@ -610,9 +609,9 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 
 ### 画面 A の環境音（2026-09-28）
 - Max Cooper のトラックから **クリック/パーカッション成分だけ**を抜いたステム `public/sound/exhibit-clicks.mp3`（4:59、320 kbps、ピーク −3.9 dB / 平均 −37 dB。疎な音なので静か）を、画面 A が載っている窓（`?screen=a` と両方表示）で `<audio loop>` ループ再生する。`src/exhibit/sound.ts`（`useExhibitSound`）、Exhibit.vue の Setup に On/Off と音量（localStorage `exhibit.sound.*`、展示機ごと）、`?mute` で強制無音。映像との同期はしない（独立ループ）。
+- autoplay: キオスク Chrome は `--autoplay-policy=no-user-gesture-required` で起動するので即再生。ブロックされる環境では Setup に "autoplay blocked" と出て、ページ上の最初の click / key で始まる（headless Chromium で両経路確認済み）。
 - **ディスプレイが外れている間は無音（2026-10-02）**: URL の `?displays=<n>`（展示が使うディスプレイの数。`kiosk.mjs` が `KOMA_EXHIBIT_SCREENS` の枚数（`-` も数える）を付ける）より、つながっているディスプレイが少ない間は音を止め、戻ったら続きから鳴らす。プロジェクターを落とした夜に音だけ鳴り続けないため。判定はページ内の Window Management API（`getScreenDetails()` の `screens.length` と `screenschange`）。権限が `granted` のときだけ読む（kiosk が付与。プロンプトは出さない）。権限が無い・`?displays` が無いときは従来どおり鳴る。読み込み時は先にディスプレイを確かめてから再生する。Setup の音の欄に「silent while a display is disconnected」。
   - 確認はモック（`getScreenDetails` を差し替えて 2 → 1 → 0 → 2 枚、1 枚の状態で読み込み、`?displays` 無し）。**実機では未確認**: プロジェクターの電源を切ったとき macOS がディスプレイを「外れた」と見るか（HDMI の分配器などが EDID を保持すると外れない）、ディスプレイが 0 枚のとき Chrome が何枚と報告するか（仮のディスプレイを 1 枚返すなら、`ab` 1 枚構成では消音されない。`a,b` の 2 枚構成なら 1 < 2 で消音される）。手で開いた展示画面（kiosk を使わない）は URL に `&displays=2` を足せば同じ。
-- autoplay: キオスク Chrome は `--autoplay-policy=no-user-gesture-required` で起動するので即再生。ブロックされる環境では Setup に "autoplay blocked" と出て、ページ上の最初の click / key で始まる（headless Chromium で両経路確認済み）。
 - 抜き出し方（再現用）: `demucs -n htdemucs -d mps --mp3` で 4 ステム → `other` を librosa の HPSS（`margin=(1.0, 3.0)`）で percussive 側だけ取ったもの。drums ステムではなく other の percussive がクリックだった。demucs は `pipx install --python python3.11 demucs` + `pipx inject demucs numpy librosa soundfile`（Python 3.14 は torch 不可）。
 
 ### 展示画面の堅牢化メモ（2026-09-28）
@@ -711,6 +710,13 @@ WebSerial のポートは koma のタブが握っているので、スマホは 
 - 未確認: 実機での cut 実行 → run 記録 → ETA。ブラウザ（Playwright、ミル無し）で drop → バッジ / パネル / タイトルバー / shoot alert までは確認済み。
 - TS の注意: `tsc --noEmit` で `sequence.ts` の `camera.tethr.exportConfigs` が「Ref のまま」に見えるエラーが出るが、これは前セッションの plan コード由来で pinia の型アンラップの問題（vite/eslint/vitest は通る）。
 
+### G-code プリセット（2026-10-04）
+Cut タブの「Presets」に `.nc` / `.gcode` をドロップすると、プロジェクトに取っておける（面出しなど、何度も使う切削）。
+- **保存**: ファイルは `gcode/_presets/<元の名前>` にコピー、記録は `project.addsub.cutPresets[] = {file, name, addedAt, lines, estimatedSec}`（プロジェクトごと。旧ファイルには無いので optional）。同じ名前を落とすと置き換え。
+- **呼び出し**: プリセットをクリックすると、**選択セル**にそのファイルを付ける（`sequence.applyCutPreset` → `attachCutFile`。セルにドロップしたのと同じで、`gcode/<layerId>/` にコピーが入る）。流すのは従来どおり Cut now / タイトルバーの Cut。コピーなので、プリセットを消しても付けたコマには残る。切削中のコマには付けられない。
+- **削除**: 行のゴミ箱（`sequence.removeCutPreset`、ファイルも消す。確認ダイアログ無し、ファイルは戻らない）。
+- 確認済（Playwright、OPFS プロジェクト、ミル無し）: ドロップで保存、呼び出しでセルの G-code になる、削除、同名の置き換え、リロード後も残る。実フォルダのプロジェクトと実機の切削は未確認。
+
 ### Feed / rapid オーバーライド（2026-09-29、cncjs の feed override 相当）
 cncjs の 10〜200% スライダは Grbl 1.1 の**リアルタイム文字を生バイトで送るだけ**（`0x90` = 100% に戻す、`0x91`/`0x92` = ±10%、`0x93`/`0x94` = ±1%。rapid は `0x95`/`0x96`/`0x97` = 100/50/25%、spindle は `0x99`〜`0x9D`）。行キューを通らず即時に効き、送出中のプログラム（`cut` ステップの G-code）にもかかる。現在値は `?` の応答の `Ov:feed,rapid,spindle` で返るが、**変化時か N 回に 1 回しか載らない**ので `machine.override` に最後の値を保持（reset / 切断で null）。FluidNC も同じ実装。
 - `FluidNCClient.feedOverride(0 | ±10 | ±1)` / `rapidOverride(100 | 50 | 25)`（`Realtime` 定数）、machine store は送信後に `?` を打って値を取り直す。
@@ -718,6 +724,7 @@ cncjs の 10〜200% スライダは Grbl 1.1 の**リアルタイム文字を生
 - 注意: Grbl のオーバーライドは**リセットしないと残る**（ソフトリセット `^X` で 100% に戻る）。cut ステップ前に 100% に戻す処理は入れていない（意図的に遅くしたまま次コマへ行きたい場面があるため）。
 
 ### MachinePanel: 位置の直接指定とリミットスイッチ表示（2026-09-29）
+（2026-10-02 に変更: Limits 行は廃止して軸ラベルのランプに。下の「MachinePanel の軸セル」。Work 座標が入力であること、InputNumber の罠、`Pn:` の読み方は今も同じ。）
 - **Work 座標の表示が入力になった**（両レイアウト）。普段は軸の現在値に追従し、編集（数値入力 / スライダーのドラッグ）すると「ターゲット」として保持、右の照準ボタンが有効になる。押すまで何も動かない。押すと `$J=G90 G21 <軸><値> F<jogFeed>`（作業座標の絶対ジョグ、1 軸だけ。0x85 でキャンセル可）。到着（±0.0005）でターゲット解除 → 追従に戻る。その軸を ± でジョグしてもターゲットは捨てる。右クリック →「Reset to Default」で現在値に戻す。Enter では動かない（ボタンのみ）。
 - スライダーの範囲は `MachinePanel` の `limits` prop（**機械座標**、WCO を引いて作業座標にずらす）。リグは `project.addsub.rigLimits` を渡す（範囲外の入力はクランプ）。limits の無い軸は範囲なしのドラッグ数値、回転軸は ±180° のバー（クランプ無し）。ミルは未指定。
 - InputNumber の罠: (1) `step` を付けないと表示桁がスライダーの px 幅で決まり整数に丸まる → `:step="0.001"`。(2) フォーカス中は外からの model 変化を表示に反映しない（Enter 後もフォーカスが残る）→ `@confirm` で blur。(3) 現在値が範囲外だとクランプした値を勝手に emit する → ターゲット未設定時は「クランプした現在値」と同じ emit を編集と見なさない。
@@ -744,8 +751,10 @@ cncjs の 10〜200% スライダは Grbl 1.1 の**リアルタイム文字を生
 ### inbox の op と Z ステップ（2026-10-01）
 - 外からプロジェクトを変える経路は `_inbox/` のパッチ（CLAUDE.md「プロジェクトの inbox」）。addsub の op（`src/addsub/inboxOps.ts`、`layer` は layer id、`frame` はタイムラインのコマ）:
   - `{"op": "setCut", "layer": "main", "frame": 41, "file": "gcode/main/0041_….nc", "name": "….nc"}` — ファイルは先にプロジェクトフォルダへ置く。行数と見積りは koma が計算。conflict = そのコマに既に付けたファイルがある。切削中のコマは拒否。
-  - `{"op": "setPlan", "layer": "main", "frame": 41, "plan": {"rig": {…}, "cameraConfigs": {…}}}` — rig は `rigLimits` 外なら拒否。conflict = そのコマ自身の plan がある。
+  - `{"op": "setPlan", "layer": "main", "frame": 41, "plan": {"rig": {…}, "cameraConfigs": {…}}}` — rig は Work 座標（2026-10-02 から）。`rigLimits` 外なら拒否。conflict = そのコマ自身の plan がある。
   - `clearCut` / `clearPlan`（ファイルは消さない）。
+  - `{"op": "moveLayerData", "layer": "main", "to": "<id>"}`（2026-10-04）— レイヤーの plan と cut の記録を、別レイヤーの同じコマへ丸ごと移す（G-code のファイルは動かさない）。conflict = 移動先の同じコマに plan / cut がある。
+- **レイヤーとショットの op（2026-10-04、汎用、`src/stores/projectInboxOps.ts`）**: `deleteLayer {layer}`（Layers ダイアログのゴミ箱と同じ。印を付けるだけ）、`deleteShots {layer, from, to?}`（その範囲のショットをタイムラインから外す。`_trash` に入る。コマは詰めない）、`moveShots {layer, to, from?, until?}`（同じコマ番号で別レイヤーへ。conflict = 移動先にショットがある。ファイルは次の保存で新しいレイヤー番号の名前にコピーし直される = RAW 込みで重い）、`setCapture {layer, frame}`。komas を変える op は適用後に undo 履歴を消す。**実際の koma での適用は未確認**（lint / tsc のみ）。
 - **`scripts/addsub-zstep.mjs`**: あるコマに付いた G-code の絶対 Z を 1 コマごとに累積でずらして後続のコマに付け、同時に plan のリグ Y も刻む。`node scripts/addsub-zstep.mjs <project> --from 37 --start 41 --count 20 --dz -0.5 --rig-dy -0.5 [--plan-from N] [--layer main] [--write] [--force]`。無印は dry-run、`--write` で `gcode/<layer>/NNNN_<名前> Z-0.5.nc` と inbox パッチを書く（`--force` = overwrite、`--direct` = inbox 無しの koma 向けに project.json を直接編集）。Z をずらすのは G90 の行だけで、`G28` / `G30` / `G53` / `G10` / `G92` の行と G91 の行はそのまま。plan の基準は `--plan-from`（既定 start−1）のコマの plan。
 - 初回: F37 の `Flat mill 60x80 2mm down.nc` から **F42–61**（Z −0.5…−10、リグ Y −550.5…−560、基準は F41 の plan）を仕込んだ。F41 起点の最初のパッチは、リロード時点で F41 に手動の plan があったので丸ごと拒否された（想定どおりの挙動）。
 - **Plan パネルが小数の plan を丸めていた**（同日修正）: リグ軸の `Tq.InputNumber` が `:step="1"`（回転軸 0.1）で、InputNumber は表示した値を step に量子化して即 emit し返すので、**コマを選択しただけで −550.5 が −550 に書き戻された**（F40 の a −86.019 → F41 で −86 になっていたのも同じ）。`step` は「ドラッグの刻み」ではなく「保存される分解能」として 0.001 に。数値入力に粗い `step` を付けるときはこの書き戻しに注意。
@@ -852,29 +861,6 @@ Box Rig もフライス盤も同じセル（行レイアウトは廃止）。`Ma
 - 送るのは `sequence.aimRigAt(target)` → `rig.moveTo({a, b})`（`G53 G1 A.. B.. F<rigFeed>`、Idle まで待つ）。シーケンス実行中・未接続は拒否。最後に入れた点は `project.addsub.aimTarget` に残る。
 - 確認: vitest（roll 3 通り × 3 点で光軸と点の向きが一致、pan の近回り、真下・中心）、偽の FluidNC で Work (−23.456, −50.5, 320) から原点 → `G53 G1 A8.9444 B-4.1923`。**実機では未確認**（`rotarySigns` と A/B/C の Work 0 の向きが合っていないと、別の方向を向く）。
 
-- **記録**: `led.recordForShot()`（App.vue の `shoot()` が露光前に呼び、ショット確定時に await）。中身はデバイス側のバッファ（`device.getLine(i)` = 実際に LINE で送ったもの、gain 適用後）を露光時点でコピーしたもの。**壁が繋がっているときだけ**記録する（未接続のプレビュー用バッファは「送出した」ものではないので記録しない）。書き込みに失敗しても撮影は止めない（console.error のみ）。
-- **保存先**: プロジェクトフォルダの `led-wall/<SHA-1 先頭 16 桁>.ledwall`（`src/addsub/led/wallRecord.ts`）。内容ハッシュが名前なので、同じ照明のショットは 1 ファイルを共有する。形式は `'KLW1' | u8 ライン数 | u16le 粒数 × ライン | RGB…`（ws-fanout のライン順、3108 粒で 9,345 byte）。project.json には入れない（3000 コマで ~37 MB になり autosave が重くなるため）。
-- **ショット側**: `shot.led = {layoutVersion, wall?, brightnessCap?}`（`ShotLedRecord`）。`brightnessCap` はファームの輝度上限（記録のみ、recall では触らない）。旧ショットに残る `file`（照明の画像）は 2026-10-02 以降読まない。
-- **recall**（`sequence.recallLed`）: 記録した粒を**そのまま**戻す（`led.showWallRecord`: gain 無し、ラインは現在の配置にクリップ）。粒の記録が無いショットは「no lighting recorded」。
-- **再演パス**: 記録した粒をそのまま出す（lift ぶんの縦ずらしはできない。面ごと一様な faces なら問題なし）。
-
-### LED の画像指定を削除（2026-10-02）
-展開図の画像（`previz/led/NNNN.png`）で照明を指定する経路を全部外した（ユーザー指定）。照明は faces / Houdini live / 手動 fill / 記録の recall だけ。
-
-- 削除: `led/sampler.ts`・`led/decode.ts`、LED ストアの `showImage` / `showImageBlob` / `showFile` / `ensureFrame` / `followCapture` / `shown` / `lift`、LED パネルの Frame ボタン・Follow・Shown・Top Y、タイトルバーの Follow、`project.addsub.led.topFilmY`、previz の `led` パスと `ledTopFilmY`、配置の `u` / `imageWidth`、`shot.led.file`、Houdini の `export_set_json()` の `image_width` / `u`。
-- 残したもの: `project.addsub.led.gain`（live の色に掛かる）、配置の `pitch`、ショットの粒の記録（上）。
-- **work light / chase のあと**: 以前は follow がコマの照明を出し直していた。今は点ける直前の壁バッファを覚えておき、終わったら戻す（`covered`）。live / faces がオンならそちらを出し直す。work light 中に別の照明を出したら（fill、recall など）覚えた絵は捨てる。
-- **シーケンスの `led` ステップ**: 通常の撮影では work light を切って `led.ensureShown()`（溜まっている変更を通したあと、壁バッファをもう一度送って ACK を待つ）。壁が未接続なら何もしない（以前は「no LED image」の warning）。再演は記録した粒を戻す。記録が無ければ warning で飛ばす。
-- 古いデータ: project.json の `led.topFilmY`、frames.json の `led`、set.json の `u` / `imageWidth`、ショットの `led.file` は残っていても無視する（消しには行かない）。
-- 確認: vitest、ヘッドレス Chromium（壁未接続）で fill → work light オン / オフ → 元の色に戻る、素早いオン / オフ、faces との組み合わせ、LED パネルの表示。**壁を繋いだ状態（実機・MockDevice）と、シーケンスの led ステップ、再演は未確認。**
-- ファイルは消さない（ショットを消しても `led-wall/` は残る。1 照明 9 KB）。relay の表示用コピーには送っていない。
-- 確認済（Playwright + `MockDevice`）: faces で記録 → 消灯 → recall で全ライン一致、同じ照明は同じファイル、lift 変更時の分岐、未接続では記録なし。実機は未。
-
-### Houdini からの直接制御（2026-09-28、§13.2 の実装）
-Houdini の LED 点群（1 点 = 1 粒、ws-fanout のライン順、`Cd` = 0-1 RGB、`face` 属性 = ライン名 L1…F2、P は Box Rig 機械座標 m）を、ファイル経由（配置）とリアルタイム（色・カメラ・フレーム）の両方で koma に流す。
-
-- **配置 = `previz/set.json`**: `led.frame: "rig"`（既定 `world`）と `led.unit: "m"`（既定 mm）を追加。koma が `rigOffset` で world に直すので、LED はリグと一体の物理座標のまま書ける（校正し直しても set.json は不変）。書き出しは `scripts/houdini/koma_bridge.py` の `export_set_json()`。
-- **リアルタイム = koma-relay の `role=control`**: 第三のクライアント種。`{type:'control', topic, data}` を capture（koma）へそのまま転送、state 配信は exhibit と同じく受け取れる。token は capture と同じものが要る。koma 側は `relay.onControl(topic, handler)`（汎用）→ `src/addsub/stores/houdini.ts` がトピックを配線、`HoudiniPanel.vue`（右ペイン "Houdini Live"）にスイッチ。**Houdini が繋がっただけでは何も動かない**（各トピックにスイッチ）。
 ### MachinePanel の機械別レイアウト（2026-09-28）
 （2026-10-02 に上の「軸セル」へ統一。以下は当時の記録。）
 `MachineDefinition.panel`（`layout: 'rows' | 'grid'`, `gridColumns`, `showFeed`, `showGoToZero`）。Box Rig は `grid`（Work 座標のみ、X Y Z / A B C の 3 列 2 行、各セルに値・−/+・zero/set）、Feed 入力と「Go to 0」無し。ミルは従来の行レイアウト（machine / work）。軸ごとの「Go to # = 0」ボタンは両方から削除（Work 行の「Go to 0」はミルのみ）。
@@ -916,14 +902,24 @@ ESP32 が最後に SHOW したフレーム（全粒の RGB と輝度上限）を
 ### ショットの LED 記録（2026-10-01）
 撮影した時点で壁に出ていた**全粒の RGB をそのまま記録**する。LED 画像が無い照明（faces / Houdini live / 手動 fill / work light）で撮ったショットでも「Recall Shot Lighting (LED)」が効く。
 
-  - `led:frame` `{rgb: base64（全ライン連結・3 byte/粒）, layoutVersion}` → `led.pushLiveFrame()`。LED ストアの **`mode === 'live'`**（2026-10-16 まで `liveLight` トグル）。latch 中に来たフレームは最新だけ残す（スクラブで遅れない）。`led.showColors()` が粒色を直接出す汎用 API（画像サンプル無し、gain は適用）。
-  - `rig:pose` `{position, rotation|angles, frame: film|world|rig, unit}` または `{axes:{x,y,z,a,b,c}}` → IK → `rigLimits` 内・シーケンス停止中・Idle/Jog のときだけ、`$J=G90 G53` の絶対ジョグ（直前のジョグは 0x85 でキャンセル、200 ms 間隔、`addsub.houdini.rigFollowFeed` 既定 600 mm/min）。**`rigFollow` は永続化せず起動時 off**、シーケンス開始で自動 off。
-  - `timeline:frame` `{frame}`（previz 番号）→ `previzFrameOffset` を引いてプレビューフレームへ（`followTimeline`、既定 on）。
-- **Houdini 側 `scripts/houdini/koma_bridge.py`**: 依存なし（標準ライブラリだけの最小 WebSocket クライアント、relay の ping に pong を返すリーダースレッド付き）。`KomaBridge(url).send_led(geo)` / `send_camera(cam)` / `send_pose()` / `send_axes()` / `send_frame()`、`follow_playbar(led_node=, camera=)` で playbar 連動。動作確認済（relay + 偽 capture + Python、3 トピックの転送と ping 生存）。ブラウザ側（koma 本体でのスイッチ→LED/リグ）は実機・ハード無し mock ともに未確認。
-- **シェルフ「Koma」**（2026-10-01、`scripts/houdini/toolbar/koma.shelf` + `koma_shelf.py`）: `python3 scripts/houdini/install.py [21.0]` が `$HOUDINI_USER_PREF_DIR/packages/koma.json`（`hpath` = `scripts/houdini`、env `KOMA_HOUDINI`）を書く → Houdini を再起動 → シェルフ領域の + > Shelves > Koma。ツール: **LED Live**（playbar 連動のトグル。フレーム番号と LED 色を毎フレーム送る）/ **LED Send**（いまのフレームを 1 回）/ **Koma Stop**（連動停止 + 切断）/ **Export Set**（プロジェクトフォルダを選んで `previz/set.json`）/ **Koma Settings**（relay URL・token・LED ノード・カメラ）。設定は `$HOUDINI_USER_PREF_DIR/koma_bridge.json`。LED ノードは保存済みのもの、無ければ選択中の SOP（初回に保存）。接続と playbar コールバックはモジュールが保持するので Houdini セッション中は続く。確認は hython（シェルフの読み込み、1 回送信、連動のオン/オフ、relay 不通のエラー、set.json）で、playbar は hython に無いので代役で発火させた。**GUI の Houdini でのボタン操作と実 playbar は未確認。**
-- （2026-10-02）展開図 PNG での照明は廃止。Houdini からの直接色が照明の指定手段で、filmLift のシフトは Houdini が知っている前提。
+- **記録**: `led.recordForShot()`（App.vue の `shoot()` が露光前に呼び、ショット確定時に await）。中身はデバイス側のバッファ（`device.getLine(i)` = 実際に LINE で送ったもの、gain 適用後）を露光時点でコピーしたもの。**壁が繋がっているときだけ**記録する（未接続のプレビュー用バッファは「送出した」ものではないので記録しない）。書き込みに失敗しても撮影は止めない（console.error のみ）。
+- **保存先**: プロジェクトフォルダの `led-wall/<SHA-1 先頭 16 桁>.ledwall`（`src/addsub/led/wallRecord.ts`）。内容ハッシュが名前なので、同じ照明のショットは 1 ファイルを共有する。形式は `'KLW1' | u8 ライン数 | u16le 粒数 × ライン | RGB…`（ws-fanout のライン順、3108 粒で 9,345 byte）。project.json には入れない（3000 コマで ~37 MB になり autosave が重くなるため）。
+- **ショット側**: `shot.led = {layoutVersion, wall?, brightnessCap?}`（`ShotLedRecord`）。`brightnessCap` はファームの輝度上限（記録のみ、recall では触らない）。旧ショットに残る `file`（照明の画像）は 2026-10-02 以降読まない。
+- **recall**（`sequence.recallLed`）: 記録した粒を**そのまま**戻す（`led.showWallRecord`: gain 無し、ラインは現在の配置にクリップ）。粒の記録が無いショットは「no lighting recorded」。
+- **再演パス**: 記録した粒をそのまま出す（lift ぶんの縦ずらしはできない。面ごと一様な faces なら問題なし）。
 
-### テストデータ: 2021 年の VICE 撮影（Dragonframe）の取り込み
+### LED の画像指定を削除（2026-10-02）
+展開図の画像（`previz/led/NNNN.png`）で照明を指定する経路を全部外した（ユーザー指定）。照明は faces / Houdini live / 手動 fill / 記録の recall だけ。
+
+- 削除: `led/sampler.ts`・`led/decode.ts`、LED ストアの `showImage` / `showImageBlob` / `showFile` / `ensureFrame` / `followCapture` / `shown` / `lift`、LED パネルの Frame ボタン・Follow・Shown・Top Y、タイトルバーの Follow、`project.addsub.led.topFilmY`、previz の `led` パスと `ledTopFilmY`、配置の `u` / `imageWidth`、`shot.led.file`、Houdini の `export_set_json()` の `image_width` / `u`。
+- 残したもの: `project.addsub.led.gain`（live の色に掛かる）、配置の `pitch`、ショットの粒の記録（上）。
+- **work light / chase のあと**: 以前は follow がコマの照明を出し直していた。今は点ける直前の壁バッファを覚えておき、終わったら戻す（`covered`）。live / faces がオンならそちらを出し直す。work light 中に別の照明を出したら（fill、recall など）覚えた絵は捨てる。
+- **シーケンスの `led` ステップ**: 通常の撮影では work light を切って `led.ensureShown()`（溜まっている変更を通したあと、壁バッファをもう一度送って ACK を待つ）。壁が未接続なら何もしない（以前は「no LED image」の warning）。再演は記録した粒を戻す。記録が無ければ warning で飛ばす。
+- 古いデータ: project.json の `led.topFilmY`、frames.json の `led`、set.json の `u` / `imageWidth`、ショットの `led.file` は残っていても無視する（消しには行かない）。
+- 確認: vitest、ヘッドレス Chromium（壁未接続）で fill → work light オン / オフ → 元の色に戻る、素早いオン / オフ、faces との組み合わせ、LED パネルの表示。**壁を繋いだ状態（実機・MockDevice）と、シーケンスの led ステップ、再演は未確認。**
+- ファイルは消さない（ショットを消しても `led-wall/` は残る。1 照明 9 KB）。relay の表示用コピーには送っていない。
+- 確認済（Playwright + `MockDevice`）: faces で記録 → 消灯 → recall で全ライン一致、同じ照明は同じファイル、lift 変更時の分岐、未接続では記録なし。実機は未。
+
 ### LED 配置のハードコードと出力モードのラジオ（2026-10-16）
 - **配置は GUI でいじらない**（ユーザー指定）。`src/addsub/led/layout.ts` の定数が唯一の正: `LED_STRIPS`（ライン毎のストリップの [x, z]）、`LED_PITCH` = 1370 / 41 ≈ 33.41 mm、`LED_TOP_Y` 1265 / `LED_BOTTOM_Y` −105（42 粒）、`LED_WALL`（LED 面: x = ±900、z = −900（B）/ +1000（F））。`LED_LAYOUT = buildLedLayout()`。Houdini の `/obj/LED_box`（`10_addsub_boxrig.hiplc`、m 単位、原点 = リグの Work 原点）を MCP で読み、全 3108 粒を 0.001 mm 以内で一致確認した。
   - L1 z 850→50、L2 z −50→−850（x −900）、B1 x −50→−850、B2 x 850→50（z −900）、R1 z −50→−850、R2 z 50→850（x 900）。**F1 の 1 本目は R 面（x 900, z 950）、F2 の 10 本目は L 面（x −900, z 950）に回り込み**、残り 18 本が z 1000 に x 850→−850。ライン毎に 9 本（F は 10 本）、各ラインの 1 本目は上→下で蛇行。粒数 378 ×6 + 420 ×2 = 3108。
@@ -936,6 +932,19 @@ ESP32 が最後に SHOW したフレーム（全粒の RGB と輝度上限）を
   - chase の終わりの復元は従来どおり（モードが off なら `covered`、live / faces なら出し直し）。
   - 確認: vitest（配置の spot 値、粒数、蛇行、回り込み）。ブラウザでの確認はハード無し。
 
+### Houdini からの直接制御（2026-09-28、§13.2 の実装）
+Houdini の LED 点群（1 点 = 1 粒、ws-fanout のライン順、`Cd` = 0-1 RGB、`face` 属性 = ライン名 L1…F2、P は Box Rig 機械座標 m）を、ファイル経由（配置）とリアルタイム（色・カメラ・フレーム）の両方で koma に流す。
+
+- **配置 = `previz/set.json`**: `led.frame: "rig"`（既定 `world`）と `led.unit: "m"`（既定 mm）を追加。koma が `rigOffset` で world に直すので、LED はリグと一体の物理座標のまま書ける（校正し直しても set.json は不変）。書き出しは `scripts/houdini/koma_bridge.py` の `export_set_json()`。
+- **リアルタイム = koma-relay の `role=control`**: 第三のクライアント種。`{type:'control', topic, data}` を capture（koma）へそのまま転送、state 配信は exhibit と同じく受け取れる。token は capture と同じものが要る。koma 側は `relay.onControl(topic, handler)`（汎用）→ `src/addsub/stores/houdini.ts` がトピックを配線、`HoudiniPanel.vue`（右ペイン "Houdini Live"）にスイッチ。**Houdini が繋がっただけでは何も動かない**（各トピックにスイッチ）。
+  - `led:frame` `{rgb: base64（全ライン連結・3 byte/粒）, layoutVersion}` → `led.pushLiveFrame()`。LED ストアの **`mode === 'live'`**（2026-10-16 まで `liveLight` トグル）。latch 中に来たフレームは最新だけ残す（スクラブで遅れない）。`led.showColors()` が粒色を直接出す汎用 API（画像サンプル無し、gain は適用）。
+  - `rig:pose` `{position, rotation|angles, frame: film|world|rig, unit}` または `{axes:{x,y,z,a,b,c}}` → IK → `rigLimits` 内・シーケンス停止中・Idle/Jog のときだけ、`$J=G90 G53` の絶対ジョグ（直前のジョグは 0x85 でキャンセル、200 ms 間隔、`addsub.houdini.rigFollowFeed` 既定 600 mm/min）。**`rigFollow` は永続化せず起動時 off**、シーケンス開始で自動 off。
+  - `timeline:frame` `{frame}`（previz 番号）→ `previzFrameOffset` を引いてプレビューフレームへ（`followTimeline`、既定 on）。
+- **Houdini 側 `scripts/houdini/koma_bridge.py`**: 依存なし（標準ライブラリだけの最小 WebSocket クライアント、relay の ping に pong を返すリーダースレッド付き）。`KomaBridge(url).send_led(geo)` / `send_camera(cam)` / `send_pose()` / `send_axes()` / `send_frame()`、`follow_playbar(led_node=, camera=)` で playbar 連動。動作確認済（relay + 偽 capture + Python、3 トピックの転送と ping 生存）。ブラウザ側（koma 本体でのスイッチ→LED/リグ）は実機・ハード無し mock ともに未確認。
+- **シェルフ「Koma」**（2026-10-01、`scripts/houdini/toolbar/koma.shelf` + `koma_shelf.py`）: `python3 scripts/houdini/install.py [21.0]` が `$HOUDINI_USER_PREF_DIR/packages/koma.json`（`hpath` = `scripts/houdini`、env `KOMA_HOUDINI`）を書く → Houdini を再起動 → シェルフ領域の + > Shelves > Koma。ツール: **LED Live**（playbar 連動のトグル。フレーム番号と LED 色を毎フレーム送る）/ **LED Send**（いまのフレームを 1 回）/ **Koma Stop**（連動停止 + 切断）/ **Export Set**（プロジェクトフォルダを選んで `previz/set.json`）/ **Koma Settings**（relay URL・token・LED ノード・カメラ）。設定は `$HOUDINI_USER_PREF_DIR/koma_bridge.json`。LED ノードは保存済みのもの、無ければ選択中の SOP（初回に保存）。接続と playbar コールバックはモジュールが保持するので Houdini セッション中は続く。確認は hython（シェルフの読み込み、1 回送信、連動のオン/オフ、relay 不通のエラー、set.json）で、playbar は hython に無いので代役で発火させた。**GUI の Houdini でのボタン操作と実 playbar は未確認。**
+- （2026-10-02）展開図 PNG での照明は廃止。Houdini からの直接色が照明の指定手段で、filmLift のシフトは Houdini が知っている前提。
+
+### テストデータ: 2021 年の VICE 撮影（Dragonframe）の取り込み
 - `scripts/import-dragonframe.mjs <dgn-root> <dest> --name …` で Dragonframe の `.dgn` を koma プロジェクトに変換（テイクごとに名前付きレイヤー、フレーム 0 始まり。EDL から外れたコマは `_trash` に「撮影されたフレーム」つきで入る。EXIF + take.xml のメタデータ、meta.txt の FIRST FRAME でカメラ時計を補正。jpg は 3000px に縮小、lv は 1920px、RAW はコピーせず名前だけ）。
 - 生成済み: `~/Dropbox/Works/2024/10_addsub/capture/vice-tests-2021`（"VICE tests 2021"、14 テイク = 440 コマ + 破棄 145、1.2 GB）。プリセット "All takes" / "Main only"。
 - `scripts/import-sequence.mjs <dir> <project> --name …` で画像連番をレイヤーとして追加（`Previz (shapes)` = `prj/render/2024_10_addsub_shapes.viewport_preview1_cache` の 840 枚を取り込み済み）。

@@ -142,6 +142,64 @@ describe('serialDiscovery', () => {
 		expect(discovery.serialPortOwner(port)).toBe('cnc')
 	})
 
+	it('offers a dropped port to its family again, as often as asked', async () => {
+		const led = fakePort(0x10c4, 0xea60)
+		const other = fakePort(0x10c4, 0xea60)
+		granted = [led, other]
+		let powered = false
+		let probes: SerialPort[] = []
+		let held = false
+		const family: SerialFamily = {
+			id: 'led',
+			label: 'LED Wall',
+			wants: () => !held,
+			probe: async port => {
+				probes.push(port)
+				if (port !== led || !powered) return false
+				held = true
+				return true
+			},
+			holder: port => (held && port === led ? 'LED Wall' : null),
+		}
+		discovery.registerSerialFamily(family)
+
+		// Discovery asks once and remembers the rejection…
+		await discovery.discoverSerialPorts()
+		await discovery.discoverSerialPorts()
+		expect(probes).toEqual([led, other])
+
+		// …the family itself may keep asking about its own port.
+		probes = []
+		expect(await discovery.reofferSerialPort(family, led)).toBe(false)
+		powered = true
+		expect(await discovery.reofferSerialPort(family, led)).toBe(true)
+		expect(probes).toEqual([led, led])
+		expect(discovery.serialPortOwner(led)).toBe('led')
+
+		// Already there: nothing is opened.
+		expect(await discovery.reofferSerialPort(family, led)).toBe(true)
+		expect(probes).toHaveLength(2)
+	})
+
+	it('labels a connected port by its place in the granted list', async () => {
+		const usb = (vendor: number) =>
+			({getInfo: () => ({usbVendorId: vendor, usbProductId: 0xea60})}) as SerialPort
+		const a = usb(0x10c4)
+		const b = usb(0x10c4)
+		// Nothing listed yet: only what the OS knows.
+		expect(discovery.serialPortLabel(b)).toBe('CP210x 10c4:ea60')
+		granted = [a, b]
+		await discovery.discoverSerialPorts()
+		expect(discovery.serialPortLabel(a)).toBe('#1 · CP210x 10c4:ea60')
+		expect(discovery.serialPortLabel(b)).toBe('#2 · CP210x 10c4:ea60')
+		// A port granted since (requestPort) joins the list.
+		const c = usb(0x1a86)
+		granted = [a, b, c]
+		picked = c
+		await discovery.requestSerialPort()
+		expect(discovery.serialPortLabel(c)).toBe('#3 · CH34x 1a86:ea60')
+	})
+
 	it('gives up on a probe that never returns', async () => {
 		vi.useFakeTimers()
 		const port = fakePort(0x1a86, 0x7523)

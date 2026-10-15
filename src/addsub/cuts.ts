@@ -18,9 +18,9 @@
 import type {Project} from '@/stores/project'
 import {layerGcodeDir} from '@/utils/projectLayout'
 
-import type {CutRun, CutTable, FrameCut} from './projectData'
+import type {CutPreset, CutRun, CutTable, FrameCut} from './projectData'
 
-export type {CutRun, CutTable, FrameCut}
+export type {CutPreset, CutRun, CutTable, FrameCut}
 
 /**
  * Folder (relative to the project) dropped G-code files are copied into on

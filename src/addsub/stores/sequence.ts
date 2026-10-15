@@ -23,10 +23,10 @@
 import {defineStore} from 'pinia'
 import type {ConfigType} from 'tethr'
 import {computed, readonly, ref, shallowRef, watch} from 'vue'
-import {basenameOf, layerGcodeDir} from '@/utils'
 
 import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
+import {basenameOf, layerGcodeDir} from '@/utils'
 import {
 	AXES,
 	type AxesPosition,
@@ -39,10 +39,12 @@ import {parseToolpathCached, toolpathTimeAt} from '@/utils/fluidnc/toolpathParse
 import {buzz, speak} from '@/utils/sound'
 
 import {
-	CUTS_DIR,
 	cutFilePath,
 	cutFor,
+	type CutPreset,
+	cutPresetPath,
 	type CutRun,
+	CUTS_DIR,
 	type FrameCut,
 	isCutDone,
 	measuredTimeRatio,
@@ -64,6 +66,7 @@ import {SEQUENCE_STEPS, type SequenceProgress, type SequenceStep} from '../proje
 import {useLedStore} from './led'
 import {useMillStore, useRigStore} from './machines'
 import {PREVIZ_DIR, usePrevizStore} from './previz'
+import {useRigWorkStore} from './rigWork'
 
 export interface CaptureRequest {
 	/** Timeline frame being shot. */
@@ -90,6 +93,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	const project = useProjectStore()
 	const mill = useMillStore()
 	const rig = useRigStore()
+	const rigWork = useRigWorkStore()
 	const led = useLedStore()
 	const camera = useCameraStore()
 	const previz = usePrevizStore()
@@ -165,9 +169,11 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			const v = target[axis as keyof AxesPosition]
 			if (v === undefined) continue
 			if (v < range[0] || v > range[1]) {
+				// Said in work coordinates, as the panels show them.
+				const work = (m: number) => rigWork.axisToWork(axis as Axis, m)
 				throw new SequenceError(
 					'rig',
-					`Rig ${axis.toUpperCase()} = ${v.toFixed(3)} is outside [${range[0]}, ${range[1]}]`
+					`Rig ${axis.toUpperCase()} = ${work(v).toFixed(3)} is outside [${work(range[0])}, ${work(range[1])}]`
 				)
 			}
 		}
@@ -181,11 +187,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	// What to do for a frame
 
 	interface FrameSource {
-		/** Partial: axes left out are not moved. */
+		/** Machine coordinates. Partial: axes left out are not moved. */
 		rigTarget: AxesPosition | null
 		cameraConfigs?: Record<string, unknown>
-		/** Timeline frame whose lighting `led.ensureFrame` should show. */
-		ledFrame: number
 	}
 
 	function resolveSource(frame: number): FrameSource {
@@ -199,11 +203,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			(pf?.pose ? cameraPoseToRigAxes(pf.pose, calibration) : null)
 		return {
 			rigTarget,
-			ledFile: pf?.led ?? null,
 			cameraConfigs: (plan?.cameraConfigs ?? pf?.cameraConfigs) as
 				| Record<string, unknown>
 				| undefined,
-			ledFrame: frame,
 		}
 	}
 
@@ -227,10 +229,13 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		setPlanFrame(project, frame, layer, plan)
 	}
 
-	/** Rig axes a plan asks for (explicit axes, else its camera pose solved). */
+	/**
+	 * Rig axes a plan asks for, in machine coordinates (its explicit axes —
+	 * stored in work coordinates — else its camera pose solved).
+	 */
 	function planRigTarget(plan: FramePlan | undefined): AxesPosition | null {
 		if (!plan) return null
-		if (plan.rig) return {...plan.rig}
+		if (plan.rig) return rigWork.toMachine(plan.rig)
 		if (plan.camera) {
 			return cameraPoseToRigAxes(plan.camera, project.addsub.calibration)
 		}
@@ -249,7 +254,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 
 	/**
 	 * Make (or extend) the frame's plan from what is there now: the rig's
-	 * machine position and/or the camera's current settings. Keeps whatever
+	 * position (work coordinates) and/or the camera's current settings. Keeps whatever
 	 * the plan already had that isn't replaced. Returns the stored plan.
 	 */
 	async function setPlanFromCurrent(
@@ -262,7 +267,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		if (what.rig) {
 			const m = rig.mpos
 			if (rig.connected && m.x !== undefined) {
-				plan.rig = {x: m.x, y: m.y, z: m.z, a: m.a, b: m.b, c: m.c}
+				plan.rig = rigWork.toWork({x: m.x, y: m.y, z: m.z, a: m.a, b: m.b, c: m.c})
 				delete plan.camera
 			} else {
 				problems.push('Box Rig is not connected — rig pose not recorded')
@@ -365,8 +370,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 					const rotary = axis === 'a' || axis === 'b' || axis === 'c'
 					const limit = rotary ? tol.rotary : tol.linear
 					if (have === undefined || Math.abs(have - want) > limit) {
+						const work = (m: number) => rigWork.axisToWork(axis, m).toFixed(2)
 						out.push(
-							`Rig ${axis.toUpperCase()} is ${have === undefined ? '?' : have.toFixed(2)}, ${where} wants ${want.toFixed(2)}`
+							`Rig ${axis.toUpperCase()} is ${have === undefined ? '?' : work(have)}, ${where} wants ${work(want)}`
 						)
 					}
 				}
@@ -398,40 +404,29 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	// Recall what a shot was taken with (timeline context menu / commands)
 
 	/**
-	 * Rig axes to reproduce a shot's camera position: the axes recorded at
-	 * capture, lifted by the blocks added since (§7.2). Falls back to the
-	 * frame's plan / previz pose when the shot recorded no axes (or there is no
-	 * shot on that cell yet).
+	 * Rig axes (machine) to reproduce a shot's camera position: the axes
+	 * recorded at capture. Falls back to the frame's plan / previz pose when
+	 * the shot recorded no axes (or there is no shot on that cell yet).
 	 */
 	function rigTargetForShot(frame: number, layer: number): AxesPosition | null {
 		const {calibration} = project.addsub
 		const shot = project.shot(frame, layer)
 		if (shot?.rig && shot.rig.x !== undefined) {
 			const r = shot.rig
-			return {
+			return rigWork.toMachine({
 				x: r.x ?? 0,
 				y: r.y ?? 0,
 				z: r.z ?? 0,
 				a: r.a ?? 0,
 				b: r.b ?? 0,
 				c: r.c ?? 0,
-			}
+			})
 		}
 		const pf = previz.frameFor(frame)
 		return (
 			planRigTarget(effectivePlan(frame, layer)?.plan) ??
 			(pf?.pose ? cameraPoseToRigAxes(pf.pose, calibration) : null)
 		)
-	}
-
-	/** The lighting image a shot recorded (the live feed's marker is not one). */
-	function ledImageOf(rec: ShotLedRecord | undefined): string | null {
-		return rec?.file && rec.file !== LIVE_SOURCE ? rec.file : null
-	}
-
-	/** Lighting image a shot was taken with, else the frame's previz lighting. */
-	function ledFileForShot(frame: number, layer: number): string | null {
-		return ledImageOf(project.shot(frame, layer)?.led) ?? previz.frameFor(frame)?.led ?? null
 	}
 
 	/**
@@ -543,40 +538,6 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	/** Cache stamp for a frame's G-code (the dropped file's addedAt, or previz's mtime). */
-	/**
-	 * A layer's folder changed (renamed, or the project moved to layer
-	 * folders): bring its attached G-code along and point the records at the
-	 * new paths. Any record (of any layer) whose file was under the old folder
-	 * follows too; a file that is already gone keeps its record untouched.
-	 */
-	project.onLayerFolderChanged(async ({layerId, from, to}) => {
-		const targetDir = layerGcodeDir(to)
-		const oldPrefix = from === null ? `${CUTS_DIR}/${layerId}/` : `${from}/`
-		for (const [owner, table] of Object.entries(project.addsub.cuts)) {
-			for (const [frame, cut] of Object.entries(table)) {
-				if (cut.source !== 'file') continue
-				let next: string | undefined
-				if (owner === layerId) next = `${targetDir}/${basenameOf(cut.file)}`
-				else if (cut.file.startsWith(oldPrefix)) next = `${to}/${cut.file.slice(oldPrefix.length)}`
-				if (!next || next === cut.file) continue
-				try {
-					await project.moveProjectFile(cut.file, next)
-				} catch {
-					continue
-				}
-				table[Number(frame)] = {...cut, file: next}
-			}
-		}
-		// Files nobody records any more (detached, superseded) go along too, so
-		// the old folder can be removed.
-		if (from === null) {
-			const stray = `${CUTS_DIR}/${layerId}`
-			for (const name of await project.listProjectFiles(stray)) {
-				await project.moveProjectFile(`${stray}/${name}`, `${targetDir}/${name}`).catch(() => {})
-			}
-		}
-	})
-
 	function gcodeStamp(g: {source: 'file' | 'previz'; cut?: FrameCut}): number {
 		return g.source === 'file' ? (g.cut?.addedAt ?? 0) : (previz.lastModified ?? 0)
 	}
@@ -612,12 +573,92 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		return cut
 	}
 
+	/**
+	 * A layer's folder changed (renamed, or the project moved to layer
+	 * folders): bring its attached G-code along and point the records at the
+	 * new paths. Any record (of any layer) whose file was under the old folder
+	 * follows too; a file that is already gone keeps its record untouched.
+	 */
+	project.onLayerFolderChanged(async ({layerId, from, to}) => {
+		const targetDir = layerGcodeDir(to)
+		const oldPrefix = from === null ? `${CUTS_DIR}/${layerId}/` : `${from}/`
+		for (const [owner, table] of Object.entries(project.addsub.cuts)) {
+			for (const [frame, cut] of Object.entries(table)) {
+				if (cut.source !== 'file') continue
+				let next: string | undefined
+				if (owner === layerId) next = `${targetDir}/${basenameOf(cut.file)}`
+				else if (cut.file.startsWith(oldPrefix)) next = `${to}/${cut.file.slice(oldPrefix.length)}`
+				if (!next || next === cut.file) continue
+				try {
+					await project.moveProjectFile(cut.file, next)
+				} catch {
+					continue
+				}
+				table[Number(frame)] = {...cut, file: next}
+			}
+		}
+		// Files nobody records any more (detached, superseded) go along too, so
+		// the old folder can be removed.
+		if (from === null) {
+			const stray = `${CUTS_DIR}/${layerId}`
+			for (const name of await project.listProjectFiles(stray)) {
+				await project.moveProjectFile(`${stray}/${name}`, `${targetDir}/${name}`).catch(() => {})
+			}
+		}
+	})
+
 	/** Detach a dropped file from a frame (the previz cut, if any, applies again). */
 	async function removeCut(frame: number, layer: number) {
 		const cut = cutFor(project, frame, layer)
 		if (!cut) return
 		setCut(project, frame, layer, null)
 		if (cut.source === 'file') await project.removeProjectFile(cut.file).catch(() => {})
+	}
+
+	//--------------------------------------------------------------------------
+	// Presets: G-code kept in the project (`gcode/_presets/`) to attach to any
+	// frame later. Attaching copies the file, so a frame's cut never depends
+	// on the preset still being there.
+
+	/** Keep a G-code file as a preset. A preset of the same name is replaced. */
+	async function addCutPreset(file: File): Promise<CutPreset> {
+		const path = cutPresetPath(file.name)
+		await project.writeProjectFile(path, file)
+		const addedAt = Date.now()
+		const text = await file.text()
+		const tp = await parseToolpathCached(`${path}@${addedAt}`, async () => text)
+		const preset: CutPreset = {
+			file: path,
+			name: file.name,
+			addedAt,
+			lines: prepareGCode(text).length,
+			estimatedSec: tp?.seconds,
+		}
+		const list = (project.addsub.cutPresets ?? []).filter(p => p.file !== path)
+		project.addsub.cutPresets = [...list, preset]
+		return preset
+	}
+
+	/** Delete a preset and its file. Frames it was attached to keep their copy. */
+	async function removeCutPreset(preset: CutPreset) {
+		project.addsub.cutPresets = (project.addsub.cutPresets ?? []).filter(p => p.file !== preset.file)
+		await project.removeProjectFile(preset.file).catch(() => {})
+	}
+
+	/** Attach a preset to a frame, as if its file had been dropped on the cell. */
+	async function applyCutPreset(preset: CutPreset, frame: number, layer: number): Promise<FrameCut> {
+		if (cutting.value?.frame === frame && cutting.value.layer === layer) {
+			throw new SequenceError('cut', `Frame ${frame} is being cut`)
+		}
+		const root = project.directoryHandle
+		if (!root) throw new SequenceError('cut', 'Project folder is not available')
+		let text: string
+		try {
+			text = await readProjectText(root, preset.file)
+		} catch {
+			throw new SequenceError('cut', `Preset file missing: ${preset.file}`)
+		}
+		return attachCutFile(frame, layer, new File([text], preset.name, {type: 'text/plain'}))
 	}
 
 	/** Forget a frame's run (it will be cut again by the sequence / warned about). */
@@ -1115,7 +1156,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		if (!takeParkShot || !parkPose) return
 		if (!rig.connected) throw new SequenceError('park', 'Box Rig is not connected')
 		message.value = 'Moving rig to park'
-		await rig.moveTo(parkPose, {feed: rigFeed, signal: signal()})
+		await rig.moveTo(rigWork.toMachine(parkPose), {feed: rigFeed, signal: signal()})
 		await stepSettle()
 		await stepCapture(frame, 'park')
 	}
@@ -1127,11 +1168,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		}
 		const back = project.addsub.sequence?.returnPosition
 		if (!back) {
-			warn('No return position recorded — table left at the shoot position')
+			warn('No return position recorded — table left at X 0')
 			return
 		}
-		const target: AxesPosition = {x: back.x}
-		if (back.y !== undefined) target.y = back.y
 		message.value = 'Returning table'
 		await mill.send(`G90 G0 X${back.x}`)
 		await mill.waitIdle({signal: signal()})
@@ -1380,6 +1419,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		gcodeStamp,
 		attachCutFile,
 		removeCut,
+		addCutPreset,
+		removeCutPreset,
+		applyCutPreset,
 		clearCutRun,
 		cutFrame,
 		autoRun,
@@ -1394,6 +1436,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		hasSource,
 		goToPlan,
 		recallRig,
+		aimRigAt,
 		recallLed,
 		rigTargetForShot,
 		steps: SEQUENCE_STEPS,
