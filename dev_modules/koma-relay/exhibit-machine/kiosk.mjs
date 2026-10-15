@@ -4,6 +4,7 @@
  * fullscreen window per display (screen A on the first, screen B on the
  * second), and keeps them there — a display that shows up late (a projector
  * switched on after the Mac), a window that left fullscreen or was closed.
+ * While a display is missing (projectors switched off), screen A is silent.
  *
  * Both windows live in one Chrome profile: screen B follows screen A over a
  * BroadcastChannel, which does not cross profiles. Chrome's command line can
@@ -61,7 +62,9 @@ function log(...args) {
 	console.log(new Date().toLocaleString('ja-JP', {hour12: false}), ...args)
 }
 
-const urlOf = token => `${PAGE}?screen=${token}`
+// `displays`: how many displays the exhibit is set up for. Screen A's sound
+// goes silent while fewer are connected (src/exhibit/sound.ts).
+const urlOf = token => `${PAGE}?screen=${token}&displays=${SCREENS.length}`
 
 /** Which exhibit screen a page shows (null: not the exhibit page). */
 function screenOf(url) {

@@ -239,6 +239,7 @@ async function goFullscreen() {
 					</label>
 					<span class="hint">
 						<template v-if="sound.muted">muted by ?mute</template>
+						<template v-else-if="sound.displaysOff.value">silent while a display is disconnected</template>
 						<template v-else-if="sound.blocked.value">autoplay blocked — click anywhere to start</template>
 						<template v-else-if="sound.playing.value">playing</template>
 						<template v-else>stopped</template>

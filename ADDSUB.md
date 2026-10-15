@@ -610,6 +610,8 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 
 ### 画面 A の環境音（2026-09-28）
 - Max Cooper のトラックから **クリック/パーカッション成分だけ**を抜いたステム `public/sound/exhibit-clicks.mp3`（4:59、320 kbps、ピーク −3.9 dB / 平均 −37 dB。疎な音なので静か）を、画面 A が載っている窓（`?screen=a` と両方表示）で `<audio loop>` ループ再生する。`src/exhibit/sound.ts`（`useExhibitSound`）、Exhibit.vue の Setup に On/Off と音量（localStorage `exhibit.sound.*`、展示機ごと）、`?mute` で強制無音。映像との同期はしない（独立ループ）。
+- **ディスプレイが外れている間は無音（2026-10-02）**: URL の `?displays=<n>`（展示が使うディスプレイの数。`kiosk.mjs` が `KOMA_EXHIBIT_SCREENS` の枚数（`-` も数える）を付ける）より、つながっているディスプレイが少ない間は音を止め、戻ったら続きから鳴らす。プロジェクターを落とした夜に音だけ鳴り続けないため。判定はページ内の Window Management API（`getScreenDetails()` の `screens.length` と `screenschange`）。権限が `granted` のときだけ読む（kiosk が付与。プロンプトは出さない）。権限が無い・`?displays` が無いときは従来どおり鳴る。読み込み時は先にディスプレイを確かめてから再生する。Setup の音の欄に「silent while a display is disconnected」。
+  - 確認はモック（`getScreenDetails` を差し替えて 2 → 1 → 0 → 2 枚、1 枚の状態で読み込み、`?displays` 無し）。**実機では未確認**: プロジェクターの電源を切ったとき macOS がディスプレイを「外れた」と見るか（HDMI の分配器などが EDID を保持すると外れない）、ディスプレイが 0 枚のとき Chrome が何枚と報告するか（仮のディスプレイを 1 枚返すなら、`ab` 1 枚構成では消音されない。`a,b` の 2 枚構成なら 1 < 2 で消音される）。手で開いた展示画面（kiosk を使わない）は URL に `&displays=2` を足せば同じ。
 - autoplay: キオスク Chrome は `--autoplay-policy=no-user-gesture-required` で起動するので即再生。ブロックされる環境では Setup に "autoplay blocked" と出て、ページ上の最初の click / key で始まる（headless Chromium で両経路確認済み）。
 - 抜き出し方（再現用）: `demucs -n htdemucs -d mps --mp3` で 4 ステム → `other` を librosa の HPSS（`margin=(1.0, 3.0)`）で percussive 側だけ取ったもの。drums ステムではなく other の percussive がクリックだった。demucs は `pipx install --python python3.11 demucs` + `pipx inject demucs numpy librosa soundfile`（Python 3.14 は torch 不可）。
 
@@ -670,7 +672,9 @@ exhibit の LIVE VIEW 区画に出るのを「カメラの最新映像」から�
 - **空白のコマでは前の絵を保持する（2026-10-01）**: Preview に描くものが無いとき（ショットの無いコマ、ライブビューの無い撮影コマ、再生中にそれらを通るとき、lv をまだ decode できていない / 解決できないコマ）は canvas を描き直さず、最後の絵をそのまま送り続ける（`previewCast.ts` の `hasPicture()`。判定はシーンの中身で行い、画素は見ない）。heartbeat は canvas を自分自身に描いて出す（後から繋いだ画面にも保持中の絵が届く）。撮影機の Preview 自体は従来どおり黒。
   - 起動してから最初の絵が出るまでは relay に stream を渡さない（`offered`）。その間 exhibit は「live view is off on the shooting machine」と自分で保存した最後の絵（暗め）を出す。最初の絵が出た時点で、待っていた画面に offer が飛ぶ。
   - 確認済（Playwright、テスト用 relay、メモリ上のショット）: 空のコマ / ライブビュー無しの撮影コマへのシーク、再生で空のコマを通過、保持中に exhibit をリロード、空のコマで撮影機をリロード → 絵のあるコマへ移動。実カメラ（シャッターの瞬間にライブビューが途切れるか）は未確認。
-- **最後の映像の保持（exhibit 側 `src/exhibit/lastLive.ts`）**: stream が無くなる瞬間（撮影機の終了・切断）に `<video>` の最後のフレームを JPEG にして IndexedDB（`exhibit.lastLive`）へ。受信中も 10 秒ごとに保存（展示機の再起動・停電用）。stream が無い間はその絵を従来の「off」と同じ暗さで出し、「last picture <日時>」を添える。展示機をリロードしても残る。
+- **最後の映像の保持（exhibit 側 `src/exhibit/lastLive.ts`）**: stream が無くなる瞬間（撮影機の終了・切断）に `<video>` の最後のフレームを JPEG にして IndexedDB（`exhibit.lastLive`）へ。受信中も 10 秒ごとに保存（展示機の再起動・停電用）。stream が無い間はその絵を出す。展示機をリロードしても残る。
+  - **保持した絵は薄くしない・文字も重ねない（2026-10-02、ユーザー指定）**: 以前は 25% の不透明度で「live view is off… / last picture <日時>」を重ねていた。今は受信中と同じ明るさでそのまま出す（撮影機の接続状態はヘッダの `● LIVE / ○ OFFLINE` だけ）。「offline / live view is off」の文字は、一度も絵を受け取っていないときだけ。`Pane.vue` は保持した `<img>` を下、`<video>` を上に重ね、video は最初のフレームが出るまで `opacity: 0`（`hasFrame`、`loadeddata` で立つ）。stream が消えるときは、最後のフレームを保持 → `<img>` の decode を待ってから `srcObject` を外すので、切り替えで黒が挟まらない。再接続時も最初のフレームまで保持した絵のまま。
+  - 確認済（Playwright、テスト用 relay + canvas の偽 capture）: 切断 → 保持した絵が不透明度 1・文字なし、リロード後も同じ、再接続で映像に戻る、切断 / 再接続の間に何も出ていないフレーム 0。
 - 確認済（スクラッチの playwright-core、偽のライブビュー、テスト用 relay）: ライブ / オニオンスキン / 色付き / シーク / ズーム / 再生 / ライブビュー無し が Preview と同じ絵で exhibit に届く、撮影機を閉じる → 保持、exhibit をリロード → 保持。実カメラ・実 LAN は未。
 - 既知: dev で `exhibit.html?relay=`（別オリジン）を使うと、`project.json` の条件付き GET が relay の CORS（`Access-Control-Allow-Headers` に `If-None-Match` が無い）で弾かれる。キオスク（relay 自身が配る同一オリジン）では起きない。未修正。
 

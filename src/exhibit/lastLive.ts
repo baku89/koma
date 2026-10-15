@@ -25,25 +25,32 @@ void get<{blob: Blob; t: number}>(KEY)
 
 let canvas: HTMLCanvasElement | null = null
 
-/** Keep what `video` shows right now (nothing happens before its first frame). */
-export function keepLastLive(video: HTMLVideoElement) {
-	if (video.readyState < 2 || video.videoWidth === 0) return
+/**
+ * Keep what `video` shows right now (nothing happens before its first frame).
+ * Resolves once that picture is the held one.
+ */
+export function keepLastLive(video: HTMLVideoElement): Promise<void> {
+	if (video.readyState < 2 || video.videoWidth === 0) return Promise.resolve()
 	canvas ??= document.createElement('canvas')
 	canvas.width = video.videoWidth
 	canvas.height = video.videoHeight
 	const ctx = canvas.getContext('2d')
-	if (!ctx) return
+	if (!ctx) return Promise.resolve()
 	ctx.drawImage(video, 0, 0)
 	const t = Date.now()
-	canvas.toBlob(
-		blob => {
-			if (!blob) return
-			hold(blob, t)
-			void set(KEY, {blob, t}).catch(() => {})
-		},
-		'image/jpeg',
-		0.9
-	)
+	return new Promise(resolve => {
+		canvas!.toBlob(
+			blob => {
+				if (blob) {
+					hold(blob, t)
+					void set(KEY, {blob, t}).catch(() => {})
+				}
+				resolve()
+			},
+			'image/jpeg',
+			0.9
+		)
+	})
 }
 
 export function useLastLive() {

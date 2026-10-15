@@ -8,6 +8,12 @@ import {onMounted, onUnmounted, ref, watch} from 'vue'
  * blocked, so the first pointer/key gesture on the page starts it.
  * Volume and on/off live in localStorage (per exhibit machine, set from the
  * setup overlay). `?mute` in the URL keeps it silent regardless.
+ *
+ * `?displays=<n>` (the kiosk adds it: the number of displays the exhibit is
+ * set up for) silences it while fewer displays than that are connected —
+ * projectors switched off for the night, a cable pulled — and brings it back
+ * with them. Needs the window-management permission (the kiosk grants it);
+ * without it the displays are unknown and the sound stays on.
  */
 export const SOUND_SRC = 'sound/exhibit-clicks.mp3'
 
@@ -41,18 +47,26 @@ function write(key: string, value: string) {
 	}
 }
 
+interface ScreenDetails extends EventTarget {
+	screens: unknown[]
+}
+
 export function useExhibitSound(active: boolean) {
-	const muted = new URLSearchParams(location.search).has('mute')
+	const params = new URLSearchParams(location.search)
+	const muted = params.has('mute')
+	const expectedDisplays = Math.max(0, Math.floor(Number(params.get('displays')) || 0))
 	const enabled = ref(readBool(ENABLED_KEY, true))
 	const volume = ref(Math.min(1, Math.max(0, readNumber(VOLUME_KEY, 1))))
 	/** true while autoplay is blocked and we wait for a gesture */
 	const blocked = ref(false)
 	const playing = ref(false)
+	/** true while a display the exhibit is set up for is not connected */
+	const displaysOff = ref(false)
 
 	let audio: HTMLAudioElement | null = null
 
 	function shouldPlay() {
-		return active && !muted && enabled.value
+		return active && !muted && enabled.value && !displaysOff.value
 	}
 
 	async function tryPlay() {
@@ -105,6 +119,37 @@ export function useExhibitSound(active: boolean) {
 		write(ENABLED_KEY, v ? '1' : '0')
 		sync()
 	})
+	watch(displaysOff, sync)
+
+	let screenDetails: ScreenDetails | null = null
+	let unmounted = false
+	function updateDisplays() {
+		if (screenDetails) displaysOff.value = screenDetails.screens.length < expectedDisplays
+	}
+	async function watchDisplays() {
+		const getScreenDetails = (window as any).getScreenDetails as
+			| (() => Promise<ScreenDetails>)
+			| undefined
+		if (!expectedDisplays || typeof getScreenDetails !== 'function') return
+		try {
+			const permission = await navigator.permissions.query({
+				name: 'window-management' as PermissionName,
+			})
+			// Only once it is granted: asking would put a prompt on the screen.
+			const start = async () => {
+				if (permission.state !== 'granted' || screenDetails || unmounted) return
+				const details = await getScreenDetails.call(window)
+				if (screenDetails || unmounted) return
+				screenDetails = details
+				details.addEventListener('screenschange', updateDisplays)
+				updateDisplays()
+			}
+			permission.addEventListener('change', () => void start().catch(() => {}))
+			await start()
+		} catch {
+			// displays unknown: the sound stays on
+		}
+	}
 
 	onMounted(() => {
 		if (!active || muted) return
@@ -112,13 +157,16 @@ export function useExhibitSound(active: boolean) {
 		audio.loop = true
 		audio.preload = 'auto'
 		audio.volume = volume.value
-		sync()
+		// The displays first: no burst of sound on a load with one missing.
+		void watchDisplays().finally(sync)
 	})
 
 	onUnmounted(() => {
+		unmounted = true
+		screenDetails?.removeEventListener('screenschange', updateDisplays)
 		audio?.pause()
 		audio = null
 	})
 
-	return {enabled, volume, blocked, playing, muted, active}
+	return {enabled, volume, blocked, playing, displaysOff, muted, active}
 }
