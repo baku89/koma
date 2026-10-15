@@ -320,7 +320,9 @@ class KomaBridge:
             self.capture_online = bool(msg.get('capture'))
             self.id = msg.get('id')
             if isinstance(msg.get('state'), dict):
-                self.state.update(msg['state'])
+                # The replay holds {topic: {data, t}}; live messages carry data at top level.
+                for topic, entry in msg['state'].items():
+                    self.state[topic] = entry.get('data') if isinstance(entry, dict) and 'data' in entry else entry
         elif t == 'capture':
             self.capture_online = bool(msg.get('online'))
         elif t == 'state' and isinstance(msg.get('topic'), str):

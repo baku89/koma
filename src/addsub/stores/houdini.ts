@@ -242,7 +242,12 @@ export const useHoudiniStore = defineStore('addsub:houdini', () => {
 		} catch (e) {
 			outcome = {status: 'rejected', error: e instanceof Error ? e.message : String(e)}
 		}
-		if (!outcome) outcome = {status: 'rejected', error: 'no project is open'}
+		if (!outcome) {
+			outcome = {
+				status: 'rejected',
+				error: project.directoryHandle ? 'the project is being opened' : 'the project has no folder yet (save it first)',
+			}
+		}
 		lastPatch.value = {t, from, id, status: outcome.status}
 		relay.publish('inbox:result', {id, from, t, ...outcome})
 	})

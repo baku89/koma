@@ -105,6 +105,7 @@ koma はプロジェクトをメモリに持ち、autosave で `project.json` �
 - タイトルバー右の受け箱アイコン（`TitleBarInbox.vue`）: そのセッションでパッチを処理したら現れ、開くまで点灯。適用数・skip・拒否理由の一覧。`alert()` は使わない（切削の送出中に来てもメインスレッドを止めない）。
 - 確認済（Playwright、OPFS プロジェクト）: 適用 → 保存 → applied、conflict / ファイル無し / 可動域外 / 未知の op の拒否（何も適用されない）、skip。未実装: 保存時に「`project.json` が外で書き換えられていたら上書きしない」ガード。
 - 登録済みの op は addsub の `setCut` / `clearCut` / `setPlan` / `clearPlan`（`src/addsub/inboxOps.ts`、ADDSUB.md 参照）。
+- **relay 経由でも同じパッチを流せる（2026-10-16）**: `role=control` のクライアントが `{type:'control', topic:'inbox', data:{id, patch}}` を送ると、koma は `inbox.applyPatch`（ファイル経路と同じ検査・all-or-nothing）で即適用し、`inbox:result` state `{id, from, …outcome}` で返す（`src/addsub/stores/houdini.ts`）。ファイルは作らない（保存は通常の autosave）。Houdini の Send Plans がこれを使う。
 
 ---
 

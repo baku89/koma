@@ -304,7 +304,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	async function goToPlan(
 		frame = project.captureShot.frame,
 		layer = project.captureShot.layer,
-		what: {rig?: boolean; camera?: boolean} = {rig: true, camera: true}
+		what: {rig?: boolean; camera?: boolean; led?: boolean} = {rig: true, camera: true, led: true}
 	) {
 		if (running.value) throw new SequenceError('rig', 'Sequence is running')
 		const eff = effectivePlan(frame, layer)
@@ -312,8 +312,17 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		const {plan} = eff
 		const target = planRigTarget(plan)
 		const configs = plan.cameraConfigs
-		if (!target && !configs) throw new SequenceError('rig', `Frame ${frame}: plan is empty`)
+		if (!target && !configs && !plan.led) throw new SequenceError('rig', `Frame ${frame}: plan is empty`)
 		const problems: string[] = []
+
+		// The wall first: it has nothing to wait for and lights the move.
+		if (what.led !== false && plan.led) {
+			try {
+				await led.showWallRecord(plan.led.file)
+			} catch (e) {
+				problems.push(`LED: ${e instanceof Error ? e.message : String(e)}`)
+			}
+		}
 
 		if (what.rig !== false && target) {
 			if (!rig.connected) {
@@ -988,16 +997,19 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	/**
-	 * The lighting isn't planned per frame: the wall shows whatever mode is on
-	 * (faces, live feed, a manual fill). This step takes the work light off
-	 * and waits for the latch. Without the wall there is nothing of this
-	 * frame's to set: shoot with it as it is.
+	 * The wall for the frame: its plan's recorded wall (plan.led, from
+	 * Houdini's Send Plans) put back pixel for pixel; otherwise whatever mode
+	 * is on (faces, live feed, a manual fill) — the step just takes the work
+	 * light off and waits for the latch. Without the wall there is nothing
+	 * of this frame's to set: shoot with it as it is.
 	 */
 	async function stepLed() {
 		if (!led.connected) return
 		led.leaveWorkLight()
+		const planned = effectivePlan(project.captureShot.frame, project.captureShot.layer)?.plan.led
 		try {
-			await led.ensureShown()
+			if (planned) await led.showWallRecord(planned.file)
+			else await led.ensureShown()
 		} catch (e) {
 			warn(`LED: ${e instanceof Error ? e.message : String(e)}`)
 		}
