@@ -21,12 +21,16 @@ import {
 } from '@/addsub/projectData'
 import {
 	assignReactive,
+	basenameOf,
 	clearAssets,
 	debounceAsync,
 	deepMergeExceptArray,
-	frameAssetFilename,
+	frameAssetPath,
 	getAssetFilename,
 	healAssetBlob,
+	layerAssetPath,
+	layerDirName,
+	liveAssetPaths,
 	openJson,
 	preventConcurrentExecution,
 	queryPermission,
@@ -34,13 +38,18 @@ import {
 	reconcileAssets,
 	registerDiskAsset,
 	registerTrashedAsset,
+	relocateTrashedAssets,
+	removeDirIfEmpty,
 	resizeBlobImage,
 	resolveBlob,
+	sameDirName,
 	saveJson,
 	showReadwriteDirectoryPicker,
 	TRASH_DIR,
+	walkPath,
 	writeFileToDirectory,
 } from '@/utils'
+import type {AssetLayout} from '@/utils/projectLayout'
 
 import defaultCustomScript from './defaultCustomScript.js?raw'
 import defaultPreShootScript from './defaultPreShootScript.js?raw'
@@ -74,6 +83,12 @@ export interface Layer {
 	/** Stable id (survives renames / reordering). */
 	id: string
 	name: string
+	/**
+	 * Folder (under the project) holding this layer's images and G-code,
+	 * named after the layer — projects with `assetLayout` 2 only (see
+	 * utils/projectLayout.ts). Changed with the name by `renameLayer`.
+	 */
+	dir?: string
 	/** Deleted in the Layers dialog: hidden everywhere, shots kept. */
 	deleted?: boolean
 }
@@ -181,6 +196,12 @@ export interface Project {
 		zoom: number
 	}
 	layers: Layer[]
+	/**
+	 * How images are laid out in the project folder: 2 = a folder per layer
+	 * (`Main/0001.jpg`), 1 = flat `name_layer=N_0001.jpg` (projects from
+	 * before; kept until migrated). See utils/projectLayout.ts.
+	 */
+	assetLayout: AssetLayout
 	/** Saved ways of showing the layers (see LayerPreset). */
 	layerPresets: LayerPreset[]
 	/** Id of the preset in use. */
@@ -310,7 +331,8 @@ const emptyProject: Project = {
 		`,
 		zoom: 1.3,
 	},
-	layers: [{id: 'main', name: 'Main'}],
+	layers: [{id: 'main', name: 'Main', dir: 'Main'}],
+	assetLayout: 2,
 	layerPresets: [
 		{
 			id: 'default',
@@ -330,6 +352,23 @@ const emptyProject: Project = {
 }
 
 type BlobRef = {$type: 'blob'; filename: string}
+
+/** Copy `from` to `to` in `dir`, unless `to` is already there. */
+async function keepCopy(dir: FileSystemDirectoryHandle, from: string, to: string) {
+	try {
+		await dir.getFileHandle(to)
+		return
+	} catch {
+		// Not there yet.
+	}
+	const file = await (await dir.getFileHandle(from)).getFile()
+	const writable = await (await dir.getFileHandle(to, {create: true})).createWritable()
+	try {
+		await writable.write(await file.arrayBuffer())
+	} finally {
+		await writable.close()
+	}
+}
 
 function refFilename(ref: unknown): string | undefined {
 	if (typeof ref === 'string') return ref
@@ -419,7 +458,11 @@ async function loadProject(dir: FileSystemDirectoryHandle): Promise<Project> {
 		}
 	}
 
-	return {...json, komas, audio, trash}
+	// A file without the field is from before layer folders: flat layout, and it
+	// stays flat (the merge with emptyProject below would otherwise say 2).
+	const assetLayout: AssetLayout = json.assetLayout === 2 ? 2 : 1
+
+	return {...json, komas, audio, trash, assetLayout}
 }
 
 function audioFilename(src: Blob): string {
@@ -451,7 +494,7 @@ async function reconcileProjectAssets(
 	) => {
 		if (!id) return
 		protectedIds.add(id)
-		desired.push({id, name: frameAssetFilename(project.name, layer, frame, type)})
+		desired.push({id, name: frameAssetPath(project, layer, frame, type)})
 	}
 
 	// Backup shots have no timeline slot, so keep their current name — but still
@@ -551,6 +594,16 @@ async function saveProject(dir: FileSystemDirectoryHandle, project: Project) {
 	return data
 }
 
+/** Give every layer without a folder name one made from its name (layout 2). */
+function assignLayerDirs(layers: Layer[]) {
+	const taken = layers.flatMap(l => (l.dir ? [l.dir] : []))
+	for (const l of layers) {
+		if (l.dir) continue
+		l.dir = layerDirName(l.name, taken)
+		taken.push(l.dir)
+	}
+}
+
 /**
  * Bring a loaded project's layers up to the current model: give every layer
  * an id and a name, make sure there is a layer for every shot slot in use
@@ -562,6 +615,7 @@ function normalizeLayers(p: Project) {
 	const layers: Layer[] = raw.map((l, i) => ({
 		id: l.id ?? (i === 0 ? 'main' : newLayerId()),
 		name: l.name ?? l.label ?? (i === 0 ? 'Main' : l.kind ? `${l.kind} ${i}` : `Layer ${i}`),
+		...(typeof l.dir === 'string' && l.dir ? {dir: l.dir} : {}),
 		...(l.deleted && i > 0 ? {deleted: true} : {}),
 	}))
 	const used = Math.max(
@@ -575,6 +629,7 @@ function normalizeLayers(p: Project) {
 			name: layers.length === 0 ? 'Main' : `Layer ${layers.length}`,
 		})
 	}
+	if (p.assetLayout === 2) assignLayerDirs(layers)
 	p.layers = layers
 
 	let presets: LayerPreset[] = (p.layerPresets ?? [])
@@ -923,7 +978,21 @@ export const useProjectStore = defineStore('project', () => {
 				cloneDeep(emptyProject)
 			)
 			normalizeLayers(mergedProject)
-			migrateAddsubData(mergedProject)
+			// addsub: a file from before rig axes were stored in work coordinates
+			// has every stored position rewritten — keep it as it was, once.
+			const rawAddsub = (unflatProject as {addsub?: {rigStorage?: string}}).addsub
+			const rigInMachine = rawAddsub?.rigStorage !== 'work'
+			if (rawAddsub && rigInMachine) {
+				await keepCopy(
+					directoryHandle.value,
+					'project.json',
+					'project.machine-coords.json'
+				).catch(e => {
+					// eslint-disable-next-line no-console
+					console.error('[project] could not keep a copy of project.json', e)
+				})
+			}
+			migrateAddsubData(mergedProject, {rigInMachine})
 
 			autoSave.pause()
 			assignReactive(project, mergedProject)
@@ -1203,12 +1272,24 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	/** Append a new named layer (shown on top in the active preset). */
+	/** The preset the exhibition screens follow, by name (see src/exhibit/store.ts). */
+	function isExhibitPreset(preset: LayerPreset) {
+		return /^exhibit$/i.test(preset.name.trim())
+	}
+
 	function addLayer(name: string): number {
 		const id = newLayerId()
-		project.layers.push({id, name})
+		const layer: Layer = {id, name}
+		if (project.assetLayout === 2) {
+			layer.dir = layerDirName(name, project.layers.flatMap(l => (l.dir ? [l.dir] : [])))
+		}
+		project.layers.push(layer)
 		for (const preset of project.layerPresets) {
 			const entry: LayerStackEntry = {layerId: id, opacity: 1, mixBlendMode: 'normal'}
-			if (preset !== activePreset.value) entry.hidden = true
+			// Shown where it was made, and on the exhibition: the exhibit screens
+			// play the layers of a preset named "Exhibit" (src/exhibit/store.ts),
+			// so a new take hidden there would never reach the gallery.
+			if (preset !== activePreset.value && !isExhibitPreset(preset)) entry.hidden = true
 			stackOf(preset).push(entry)
 			syncShown(preset)
 		}
@@ -1242,6 +1323,160 @@ export const useProjectStore = defineStore('project', () => {
 			stackOf(preset).push({layerId: layer.id, opacity: 1, mixBlendMode: 'normal', hidden: true})
 			syncShown(preset)
 		}
+	}
+
+	//---- Layer folders (assetLayout 2, utils/projectLayout.ts)
+
+	/**
+	 * Fires when a layer's files get a new folder: `from` → `to` on a rename,
+	 * `from: null` when a flat project is migrated (its images were loose in
+	 * the project folder, its G-code under `gcode/<layer id>/`). Whoever owns
+	 * other files of the layer (addsub: the attached G-code) moves them and
+	 * rewrites its records here; the images follow on the next save.
+	 */
+	const layerFolderHook = createEventHook<{layerId: string; from: string | null; to: string}>()
+
+	/**
+	 * Move a file inside the project folder (`/`-separated paths), creating the
+	 * target folders and removing the source folder if that empties it.
+	 * Byte-free where the browser allows (OPFS); copy + delete otherwise.
+	 */
+	async function moveProjectFile(from: string, to: string): Promise<void> {
+		const root = directoryHandle.value
+		if (!root || from === to) return
+		const src = await walkPath(root, from, false)
+		const handle = await src.dir.getFileHandle(src.name)
+		const dst = await walkPath(root, to, true)
+		try {
+			await (handle as any).move(dst.dir, dst.name)
+		} catch {
+			const blob = await handle.getFile()
+			const target = await dst.dir.getFileHandle(dst.name, {create: true})
+			const w = await target.createWritable()
+			try {
+				await w.write(blob)
+			} finally {
+				await w.close()
+			}
+			await src.dir.removeEntry(src.name)
+		}
+		const fromDir = from.split('/').slice(0, -1)
+		for (let n = fromDir.length; n > 0; n--) {
+			if (!(await removeDirIfEmpty(root, fromDir.slice(0, n).join('/')))) break
+		}
+	}
+
+	/** Names of the files (not folders) directly under `rel` in the project folder; [] if absent. */
+	async function listProjectFiles(rel: string): Promise<string[]> {
+		const root = directoryHandle.value
+		if (!root) return []
+		try {
+			let dir = root
+			for (const p of rel.split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(p)
+			const out: string[] = []
+			for await (const [name, h] of dir as any) if (h.kind === 'file') out.push(name)
+			return out.sort()
+		} catch {
+			return []
+		}
+	}
+
+	/** Every file path under `rel`, recursively (relative to the project folder). */
+	async function listProjectTree(rel: string): Promise<string[]> {
+		const root = directoryHandle.value
+		if (!root) return []
+		const out: string[] = []
+		const visit = async (dir: FileSystemDirectoryHandle, prefix: string) => {
+			for await (const [name, h] of dir as any) {
+				if (h.kind === 'file') out.push(`${prefix}${name}`)
+				else await visit(h, `${prefix}${name}/`)
+			}
+		}
+		try {
+			let dir = root
+			for (const p of rel.split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(p)
+			await visit(dir, rel.replace(/\/?$/, '/'))
+		} catch {
+			return []
+		}
+		return out
+	}
+
+	/**
+	 * Rename a layer. With layer folders, the folder follows the name: the
+	 * layer's images move on the next save (reconcile), its displaced shots
+	 * move inside `_trash`, and whatever else is in the folder (attached
+	 * G-code, through `onLayerFolderChanged`; then any stray file) is moved
+	 * too. On a folder project that is a copy of every file — which is why
+	 * the Layers dialog calls this when the name is confirmed, not per key.
+	 */
+	async function renameLayer(index: number, rawName: string): Promise<void> {
+		const layer = project.layers[index]
+		const name = rawName.trim()
+		if (!layer || !name || name === layer.name) return
+		layer.name = name
+		if (project.assetLayout !== 2) return
+
+		const taken = project.layers.flatMap(l => (l !== layer && l.dir ? [l.dir] : []))
+		const to = layerDirName(name, taken)
+		const from = layer.dir
+		if (from === undefined) {
+			layer.dir = to
+			return
+		}
+		// Only the case changed: same folder on the file systems we run on.
+		if (sameDirName(from, to)) return
+		layer.dir = to
+		if (!directoryHandle.value) return
+
+		// 1. Displaced shots: `_trash/<from>/…` → `_trash/<to>/…`.
+		await relocateTrashedAssets((_id, path) =>
+			path.startsWith(`${from}/`) ? `${to}${path.slice(from.length)}` : undefined
+		)
+		// 2. Files other owners keep in the folder (G-code records).
+		await layerFolderHook.trigger({layerId: layer.id, from, to})
+		// 3. Whatever is still there that isn't an image reconcile will move.
+		const owned = liveAssetPaths()
+		for (const path of await listProjectTree(from)) {
+			if (owned.has(path)) continue
+			try {
+				await moveProjectFile(path, `${to}${path.slice(from.length)}`)
+			} catch (e) {
+				// eslint-disable-next-line no-console
+				console.error(`[project] could not move ${path}`, e)
+			}
+		}
+		await removeDirIfEmpty(directoryHandle.value, from)
+	}
+
+	/**
+	 * Switch a flat project (`assetLayout` 1) to layer folders. Gives every
+	 * layer a folder name, moves its displaced shots to `_trash/<dir>/`, lets
+	 * other owners move their files (G-code: `gcode/<id>/` → `<dir>/gcode/`),
+	 * and leaves the images to the next save. On a folder project the browser
+	 * can't rename without copying, so every file is copied once — for a big
+	 * project use scripts/migrate-layer-folders.mjs (plain renames) instead.
+	 */
+	async function migrateToLayerFolders(): Promise<void> {
+		if (project.assetLayout === 2) return
+		project.assetLayout = 2
+		assignLayerDirs(project.layers)
+
+		const where = new Map<string, {layer: number; frame: number}>()
+		for (const t of project.trash) {
+			for (const id of [t.shot.lv, t.shot.jpg, t.shot.raw]) if (id) where.set(id, t)
+		}
+		await relocateTrashedAssets((id, path) => {
+			const at = where.get(id)
+			const dir = at && project.layers[at.layer]?.dir
+			if (!dir) return undefined
+			const type = path.endsWith('.lv.jpg') ? 'lv' : path.endsWith('.dng') ? 'raw' : 'jpg'
+			return `${dir}/${id}__${basenameOf(layerAssetPath(dir, at.frame, type))}`
+		})
+		for (const layer of project.layers) {
+			if (layer.dir) await layerFolderHook.trigger({layerId: layer.id, from: null, to: layer.dir})
+		}
+		dirty.value = true
 	}
 
 	//---- Presets
@@ -1588,6 +1823,11 @@ export const useProjectStore = defineStore('project', () => {
 		addLayer,
 		deleteLayer,
 		restoreLayer,
+		renameLayer,
+		migrateToLayerFolders,
+		onLayerFolderChanged: layerFolderHook.on,
+		moveProjectFile,
+		listProjectFiles,
 		activePreset,
 		layerStack,
 		setActivePreset,

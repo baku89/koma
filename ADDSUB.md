@@ -419,8 +419,8 @@ previz は Houdini で作る。上のデータは Houdini が koma の project �
 
 ### 14.2 保存フォルダ
 
-- これまではルートに全部並べていたのを、レイヤーごとにフォルダにまとめる
-- 既存プロジェクトの移行手順を用意する
+- （2026-10-16 実装）レイヤーごとにフォルダ: `<レイヤー名>/0001.jpg` / `0001.lv.jpg` / `0001.dng`、そのレイヤーの G-code は `<レイヤー名>/gcode/`、削除は `_trash/<レイヤー名>/`。フォルダ名はレイヤー名に追従し、名前の確定時にだけ移す。詳細は CLAUDE.md「アセット保存」の「レイヤーごとのフォルダ」
+- 既存プロジェクトの移行は `scripts/migrate-layer-folders.mjs`（koma を閉じて実行。rename のみ）か、koma のコマンド「Move Images into Layer Folders…」
 
 ### 14.3 `_lv`（リサイズ画像）の扱い（将来）
 
@@ -542,8 +542,8 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
   - プリセットは `stack`（非表示も含む全レイヤーの並び、`hidden` 付き）を正とし、`layers`（表示中だけ）はそこから毎回作り直す派生。古いビルド（配信中の exhibit など）は `layers` だけを読むので従来どおり動く。Show のオン/オフは `hidden` を切り替えるだけなので**行が動かない**（以前は非表示にするとプリセットから外れ、戻すと一番上に入り直し、blend / opacity も消えていた）。Order の上下は非表示の行にも効く。旧ファイルはプリセットに無いレイヤーを一番上に非表示で足す。
   - exhibit が previz を映すのは「Exhibit」プリセットとは別の仕組み（名前に previz を含むレイヤー、または「Previz」プリセットのレイヤーで、本編の未撮影コマを埋める）。映したくなければそのレイヤーを削除する。
   - 確認済（スクラッチの Chromium）: Show 切替で行順不変、UI からの削除 → プリセット・表示から消える / ショットは残る / 撮影スロットが本編へ、リロード後も維持、Restore、exhibit のテイク数 7 → 4（previz の穴埋め 3 が消える）。
-- **テストショット**: 「New Test Shot…」で名前付きレイヤーを作り、撮影スロットをそのレイヤーの現在コマに移す。手動撮影もシーケンスもそのレイヤーに沿って進む。park ショットの行き先は Shot Sequence 設定の「Park layer」（未指定なら "Park" を自動作成）、再演パスは `Replay +<lift>mm` を作って進行に id を保存。§14.2 のフォルダ分けと移行は未実装。
-- **LED 追従**: LED ストアは撮影コマ（`captureShot.frame`）に合わせて自動でその照明を出す（`followCapture`）。`workLight` で一時的に全白、戻すとコマの照明に復帰。シーケンスの `led` ステップは「出ていることを確認して ACK を待つ」だけ。
+- **テストショット**: 「New Test Shot…」で名前付きレイヤーを作り、撮影スロットをそのレイヤーの現在コマに移す。手動撮影もシーケンスもそのレイヤーに沿って進む。park ショットの行き先は Shot Sequence 設定の「Park layer」（未指定なら "Park" を自動作成）、再演パスは `Replay +<lift>mm` を作って進行に id を保存。§14.2 のフォルダ分けは 2026-10-16 に実装（CLAUDE.md「アセット保存」）。
+- **LED**: コマごとの照明の指定は無い（追従 `followCapture` は 2026-10-02 に削除）。`led.mode` の Work light で一時的に全白、`leaveWorkLight()` で点ける前のモードに復帰（2026-10-16 まで `workLight` トグル）。シーケンスの `led` ステップは work light を切り、壁バッファを送り直して ACK を待つ（`led.ensureShown()`。壁が未接続なら何もしない）。
 - **In → Out の連続撮影（2026-10-01）**: `sequence.startRange()`（Shot Sequence の Run「In → Out (a–b)」/ コマンド `sequence_run_range`）。プレビュー範囲の in から out まで、撮影レイヤー上で 1 コマずつ通常のシーケンスを回して out で止まる。既にショットのあるコマは撮り直し（旧ショットは `_trash`）。撮影のたびに out-point が撮影カーソルへ動く既存の挙動は、範囲実行中は毎コマ・終了時に元の範囲へ戻す。途中で止めたら Resume が残りの範囲を続ける（`progress.range`）。plan / previz の無いコマに当たるとそこで止まる（Continuous と同じ）。
 - **settle = 固定待ち + ライブビューが静止するまで（2026-10-01、`src/addsub/motion.ts`）**: `settleMs` は必ず待つ最小値。`settleStill`（既定オン、Settings の「Until Still」）なら、その後もライブビューの連続フレーム差分（160×108 グレースケールの平均絶対差）が「静止時のレベル × 1.5」以下で 1 秒続くまで待ち、`settleMaxMs`（既定 20 秒）で打ち切って撮る（warning を出す）。静止時のレベルは rig を動かす直前に 0.8 秒測り、実行中は**下げる方向にだけ**更新する（前コマの揺れ残りで基準が甘くなっていかないように。打ち切りになったら測り直し）。ライブビューが無い・更新されないときは固定待ちだけ。実行中のメッセージに `motion 0.82 (still ≤ 0.60)` と出るので、効き具合はそこで見る。
   - 確認はハード無し（偽のリグ + 減衰振動するライブビュー）: 固定 2 秒では残り振幅 3.6 px で撮っていたのが、静止待ちで ~7 秒・0.4–0.5 px。**実機のライブビュー（ノイズ、LED のちらつき、PTP の fps）でしきい値が妥当かは未確認**。効きすぎる（毎コマ打ち切りまで待つ）ならオフにして `settleMs` を伸ばす。定数は `sequence.ts` の `STILL_FACTOR` / `STILL_HOLD_MS`。
@@ -692,7 +692,7 @@ WebSerial のポートは koma のタブが握っているので、スマホは 
 
 ### コマごとの G-code（drop → Cut → shoot condition、2026-09-30）
 タイムラインのセルに `.nc` / `.gcode` / `.ngc` / `.tap` をドロップすると、そのコマの「撮影前に流す切削」になる（`src/addsub/cuts.ts`）。
-- **保存**: ファイルはプロジェクトフォルダの `gcode/<layerId>/<NNNN>_<元の名前>` にコピー（`project.writeProjectFile`。未保存の in-app プロジェクトはここで OPFS に materialize される）。記録は `project.addsub.cuts[layerId][frame] = {source:'file'|'previz', file, name, addedAt, lines, estimatedSec, run}`。複数ファイルをまとめて落とすと名前順にそのコマから連番で付く。Cut パネルの「Attach」（`showOpenFilePicker`）でも同じ。
+- **保存**: ファイルはそのレイヤーのフォルダ `<layer dir>/gcode/<NNNN>_<元の名前>`（平らな旧レイアウトのプロジェクトでは `gcode/<layerId>/…`、`cutFilePath`）にコピー（`project.writeProjectFile`。未保存の in-app プロジェクトはここで OPFS に materialize される）。レイヤー改名でフォルダごと移り、記録の `file` も書き換わる（`project.onLayerFolderChanged`）。記録は `project.addsub.cuts[layerId][frame] = {source:'file'|'previz', file, name, addedAt, lines, estimatedSec, run}`。複数ファイルをまとめて落とすと名前順にそのコマから連番で付く。Cut パネルの「Attach」（`showOpenFilePicker`）でも同じ。
 - **解決順**（`sequence.gcodeFor(frame, layer)`）: ドロップしたファイル → `previz/frames.json` の cut。sequence の `cut` ステップ、タイトルバー中央の **`Cut #N`** ボタン（capture frame。切削中は `#N 43% · −2:10` になり押すと `stop()` = feed hold）、Cut パネルの「Cut now」（選択セル）はすべて `runCut()` を通り、`G10 L2 P1` → stream → Idle 待ちのあと **`run = {startedAt, durationMs, linesSent, total, done, error, filmLift, estimatedSec}`** を記録する。previz のコマも初回実行時に `source:'previz'` のレコードができる（path は毎回 previz から引き直す）。撮影時は `shot.cut = {file, durationMs}` も残る。
 - **shoot condition**: `sequence.cutAlerts()` — G-code があるのに `run.done` でない（未実行 / 途中停止 / ファイル差し替え後）と「Frame N: G-code … not cut yet」で止まる。`project.addsub.requireCut`（Cut パネルの Require）でオフ。sequence 経由の capture も同じ判定。
 - **ETA**: `parseToolpath` が F ワード（modal、初期 `DEFAULT_FEED` 300）と rapid（`DEFAULT_RAPID_FEED` 1500 mm/min、`addsub.millRapidFeed` は今は未接続）から各セグメント末尾の累積秒 `t` と合計 `seconds` を出す（加減速無し）。worker の `CompactToolpath` に `time`/`seconds` が乗り、`toolpathTimeAt(tp, sentLines)` で送信済み行から残りを出す。実行中は経過 20 s 以降は「経過 / 見積り経過」の比、それまではプロジェクトの完了済み run から求めた `measuredTimeRatio` で補正（0.3–5 にクランプ）。`sequence.cutProgress` = `{sent, total, fraction, elapsedMs, remainingMs}`。

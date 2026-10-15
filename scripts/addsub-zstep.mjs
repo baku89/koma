@@ -131,12 +131,25 @@ const ext = base.name.slice(baseName.length)
 
 let basePlan = null
 if (rigDy !== null) {
+	// Plans hold the rig's work coordinates; a file from before that still has
+	// machine coordinates, and a patch written now would be read as work.
+	if (addsub.rigStorage !== 'work') {
+		throw new Error(
+			'project.json still stores rig axes in machine coordinates. Open the project in koma once (it converts them), then run this again.'
+		)
+	}
 	basePlan = addsub.plan?.[layerId]?.[planFrom]
 	if (!basePlan?.rig || basePlan.rig.y === undefined) {
 		throw new Error(`Frame ${planFrom} has no plan with a rig pose to step from`)
 	}
 }
 
+// Where the layer's G-code lives: `<layer dir>/gcode/` with layer folders,
+// `gcode/<layer id>/` on the flat layout (src/utils/projectLayout.ts).
+const gcodeDir =
+	project.assetLayout === 2 && project.layers[layerIndex]?.dir
+		? `${project.layers[layerIndex].dir}/gcode`
+		: `gcode/${layerId}`
 const now = Date.now()
 const items = []
 const problems = []
@@ -145,7 +158,7 @@ for (let i = 0; i < count; i++) {
 	const shift = dz * (i + 1)
 	const {text, changed} = shiftZ(baseText, shift)
 	const name = `${baseName} Z${shift >= 0 ? '+' : ''}${fmt(shift)}${ext}`
-	const file = `gcode/${layerId}/${String(frame).padStart(4, '0')}_${safeName(name)}`
+	const file = `${gcodeDir}/${String(frame).padStart(4, '0')}_${safeName(name)}`
 	const header = `(Z ${shift >= 0 ? '+' : ''}${fmt(shift)} from "${base.name}", frame ${from} - addsub-zstep)\n`
 	const cut = {
 		source: 'file',
@@ -168,7 +181,9 @@ for (let i = 0; i < count; i++) {
 	if (existingCut) problems.push(`frame ${frame} already has a cut (${existingCut.name})`)
 	if (plan && existingPlan) problems.push(`frame ${frame} already has a plan`)
 	if (existingShot) problems.push(`frame ${frame} already has a shot`)
-	const limit = addsub.rigLimits?.y
+	// The travel limits are machine coordinates: machine = work + rigOffset.
+	const rigOffsetY = addsub.calibration?.rigOffset?.[1] ?? 0
+	const limit = addsub.rigLimits?.y?.map(v => v - rigOffsetY)
 	if (plan && limit && (plan.rig.y < limit[0] || plan.rig.y > limit[1])) {
 		problems.push(`frame ${frame}: rig Y ${plan.rig.y} is outside [${limit[0]}, ${limit[1]}]`)
 	}

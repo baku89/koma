@@ -65,6 +65,12 @@ NB: macOS `ptpcamera` デーモンの claim 競合（症状は `claimInterface` 
 ## アセット保存（lazy-resolve モデル, 2026-06-26）
 OPFS ハードコピー方式を lazy-resolve に置換（Phase 1+2 実装、実機 smoke test 済 2026-06-26、delete→undo 画像復元も確認）。
 
+**レイヤーごとのフォルダ（2026-10-16、`project.assetLayout` 2）:** 画像はプロジェクト直下に `<name>_layer=N_0001.jpg` と平らに並べるのをやめ、**レイヤー名のフォルダ**に入れる: `Main/0001.jpg` / `Main/0001.lv.jpg` / `Main/0001.dng`、削除は `_trash/Main/<id>__0001.jpg`、addsub の G-code は `Main/gcode/0041_x.nc`。規則は `src/utils/projectLayout.ts`（`layerDirName` = 空白の正規化・禁止文字 → `_`・先頭の `.`/`_` 除去・大文字小文字を区別しない重複回避・koma の予約名 `_inbox` `_trash` `gcode` `led-wall` `previz` は避ける、`frameAssetPath`）。フォルダ名は `Layer.dir` に保存し、ファイル名からは何も読み戻さない（project.json の `filename` が全パス）。**レイヤー改名で `dir` も変わる**（Layers ダイアログの名前欄は確定時 = Enter / blur に `project.renameLayer`、1 文字ごとに同期すると実フォルダでは全コピーになるため）。改名の実体: `dir` を変えるだけで次の保存の reconcile が画像を動かす（`desired` のパスが変わる）、`_trash/<old>/` は `relocateTrashedAssets`、G-code は `project.onLayerFolderChanged` フック（addsub の sequence store が cuts の `file` を書き換えつつ `moveProjectFile`）、残りの未知ファイルは `renameLayer` が丸ごと移す、空になったフォルダは消す（`.DS_Store` が残っていると消えない）。大文字小文字だけの改名はフォルダを動かさない（`sameDirName`）。
+- アセットストアの `filename` は **root（プロジェクト or `_trash`）からの `/` 区切りパス**になった（`walkPath`）。`reconcileAssets` はパスで比較し、移動で空になったフォルダを `removeVacated` で片付ける。`src/utils/assets.test.ts` がメモリ上の偽 FSA でこれを検証（trash → undo、改名、move() 無しの copy+delete、平らな旧レイアウト）。
+- **旧プロジェクト（フィールド無し = layout 1）は開いても勝手に移さない**（`loadProject` が `assetLayout: 1` を明示。emptyProject との merge で 2 になるのを防ぐ）。新規ショットも平らな名前のまま。移行は (a) `scripts/migrate-layer-folders.mjs <dir> [--write]`（Node の rename だけ、バイトコピー無し。**koma を閉じてから**）か (b) コマンド `Move Images into Layer Folders…` / Layers ダイアログのボタン（`project.migrateToLayerFolders` + 保存。OPFS は `move()` で速いが、実フォルダは全ファイルの copy+delete になるので confirm で警告）。
+- 取り込みスクリプト（`import-dragonframe.mjs` / `import-sequence.mjs`）は layout 2 で書く（`scripts/lib/layerDir.mjs` に `layerDirName` の移植。TS 側と揃えること）。`addsub-zstep.mjs` は `assetLayout` を見て G-code の置き場を切り替える。
+- relay / exhibit は `filename` をそのまま相対パスとして扱うので無変更で動く（PUT はサブフォルダを作る）。古いビルドの koma 本体は `/` 入りのパスを開けないので、移行後のプロジェクトは新しいビルドで開く。
+
 **as-built:**
 - `src/utils/assets.ts` がランタイム AssetStore: `Map<id, {filename, parentDir, handle, blob?, url?, trashed}>`。`resolveBlob`/`resolveAssetUrl`（lazy getFile→キャッシュ object URL）、`registerDiskAsset`/`registerCapturedAsset`、`frameAssetFilename`、`reconcileAssets`、`clearAssets`。撮影 blob はセッション中 RAM 保持（再撮影でディスクスロット上書きしても undo 可達 id を壊さないため）。
 - `Shot.lv/jpg/raw` は `string` id。`audio.src` は実 Blob（1ファイル、lazy read、WeakMap で毎autosave 再書込み防止）。

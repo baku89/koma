@@ -6,8 +6,9 @@
  *   node scripts/import-sequence.mjs <image-dir> <project-dir> --name "Previz"
  *        [--lv-max 1280] [--jobs 8] [--preset default] [--no-preset]
  *
- * The full image is copied as the shot's `jpg`; a downscaled `_lv` preview is
- * made with sips (macOS). The layer is appended to the given preset (default:
+ * The full image is copied as the shot's `jpg`, a downscaled `.lv.jpg` preview
+ * is made with sips (macOS), both into the layer's folder (`<name>/0001.jpg`;
+ * a project still on the flat layout gets flat `…_layer=N_` names). The layer is appended to the given preset (default:
  * the active one) at the top of the stack; `--no-preset` leaves it hidden.
  * Not a "take": no captureDate, so the exhibition screen (which prefers an
  * "Exhibit" preset) is unaffected unless that preset includes it.
@@ -17,6 +18,8 @@ import {copyFile, mkdir, readdir, readFile, writeFile} from 'node:fs/promises'
 import {execFile} from 'node:child_process'
 import path from 'node:path'
 import {promisify} from 'node:util'
+
+import {layerDirName} from './lib/layerDir.mjs'
 
 const run = promisify(execFile)
 
@@ -49,10 +52,18 @@ if (files.length === 0) {
 
 const layerIndex = project.layers.length
 const layerId = 'L' + Math.random().toString(36).slice(2, 10)
-project.layers.push({id: layerId, name: LAYER_NAME})
+const layerFolders = project.assetLayout === 2
+const layerDir = layerFolders
+	? layerDirName(LAYER_NAME, project.layers.flatMap(l => (l.dir ? [l.dir] : [])))
+	: undefined
+project.layers.push(layerDir ? {id: layerId, name: LAYER_NAME, dir: layerDir} : {id: layerId, name: LAYER_NAME})
+if (layerDir) await mkdir(path.join(projectDir, layerDir), {recursive: true})
 
 const name = project.name
 const seq = n => String(n).padStart(4, '0')
+/** Where frame `frame`'s file goes (relative to the project), by layout. */
+const framePath = (frame, sub, ext) =>
+	layerDir ? `${layerDir}/${seq(frame)}${sub}.${ext}` : `${name}_layer=${layerIndex}_${seq(frame)}${sub}.${ext}`
 const blob = filename => ({$type: 'blob', filename})
 
 let active = 0
@@ -75,10 +86,9 @@ function pump() {
 
 const jobs = []
 files.forEach((file, frame) => {
-	const ext = /\.png$/i.test(file) ? 'png' : 'jpg'
-	const base = `${name}_layer=${layerIndex}_${seq(frame)}`
-	const jpgName = `${base}.${ext}`
-	const lvName = `${base}.lv.jpg`
+	// koma names every hi-res `.jpg` whatever the bytes are (a PNG keeps its content).
+	const jpgName = framePath(frame, '', 'jpg')
+	const lvName = framePath(frame, '.lv', 'jpg')
 	const src = path.join(srcDir, file)
 	jobs.push(enqueue(() => copyFile(src, path.join(projectDir, jpgName))))
 	jobs.push(

@@ -19,6 +19,32 @@ const viewport = useViewportStore()
 
 const newName = ref('')
 
+// Names being typed: the folder follows the name only when it is confirmed
+// (Enter / blur), so a folder project isn't copied on every keystroke.
+const draftNames = ref<Record<string, string>>({})
+
+function commitName(index: number) {
+	const layer = project.layers[index]
+	const draft = draftNames.value[layer.id]
+	delete draftNames.value[layer.id]
+	if (draft === undefined) return
+	project.renameLayer(index, draft).catch(e => {
+		// eslint-disable-next-line no-console
+		console.error('[layers] rename failed', e)
+		alert(`Could not move the layer's folder: ${(e as Error).message}`)
+	})
+}
+
+/** Where a layer's files are, for the Folder column. */
+function folderOf(layer: {dir?: string}, index: number) {
+	if (project.assetLayout === 2) return layer.dir ? `${layer.dir}/` : ''
+	return `…_layer=${index}_`
+}
+
+async function migrate() {
+	await Tq.actions.perform('migrate_layer_folders')
+}
+
 const presetOptions = computed(() => project.layerPresets.map(p => p.id))
 const presetLabels = computed(() => project.layerPresets.map(p => p.name))
 
@@ -118,6 +144,7 @@ function setCapture(index: number) {
 		<div class="grid">
 			<div class="head">Show</div>
 			<div class="head">Name</div>
+			<div class="head">Folder</div>
 			<div class="head">Blend</div>
 			<div class="head">Opacity</div>
 			<div class="head">Slot</div>
@@ -131,9 +158,19 @@ function setCapture(index: number) {
 					@update:modelValue="project.setLayerVisible(row.index, $event)"
 				/>
 				<Tq.InputString
-					:modelValue="row.layer.name"
-					@update:modelValue="project.layers[row.index].name = $event"
+					:modelValue="draftNames[row.layer.id] ?? row.layer.name"
+					@update:modelValue="draftNames[row.layer.id] = $event"
+					@confirm="commitName(row.index)"
 				/>
+				<span
+					class="mono folder"
+					v-tooltip="
+						project.assetLayout === 2
+							? 'The folder this layer\'s images and G-code are in. It follows the name when the name is confirmed.'
+							: 'Images are loose in the project folder, named by layer slot.'
+					"
+					>{{ folderOf(row.layer, row.index) }}</span
+				>
 				<Tq.InputDropdown
 					:modelValue="row.view.mixBlendMode"
 					:options="MixBlendModeValues"
@@ -213,6 +250,17 @@ function setCapture(index: number) {
 			<Tq.InputString v-model="newName" placeholder="New layer name" @confirm="add" />
 			<Tq.InputButton label="Add Layer" icon="mdi:plus" :disabled="!newName.trim()" @click="add" />
 		</div>
+		<div v-if="project.assetLayout !== 2" class="migrate">
+			<span class="hint">
+				This project keeps every image loose in its folder (<code>…_layer=N_0001.jpg</code>).
+			</span>
+			<Tq.InputButton
+				label="Move into layer folders…"
+				icon="mdi:folder-move-outline"
+				subtle
+				@click="migrate"
+			/>
+		</div>
 		<p class="hint">
 			Layers are separate timelines sharing the film's frame numbers — a test
 			shot, a replay pass, park references. Presets decide which are shown,
@@ -245,7 +293,7 @@ function setCapture(index: number) {
 
 .grid
 	display grid
-	grid-template-columns auto 1fr 7.5em 5em auto auto auto auto auto
+	grid-template-columns auto 1fr auto 7.5em 5em auto auto auto auto auto
 	align-items center
 	gap var(--tq-gap-group) var(--tq-gap-control)
 
@@ -262,6 +310,22 @@ function setCapture(index: number) {
 
 .order
 	display flex
+
+.folder
+	text-align left
+	max-width 12em
+	overflow hidden
+	text-overflow ellipsis
+	white-space nowrap
+	font-size 0.85em
+
+.migrate
+	display flex
+	align-items center
+	gap var(--tq-gap-control)
+
+	> .hint
+		flex 1 1 0
 
 .deleted
 	display flex

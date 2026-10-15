@@ -37,7 +37,7 @@ import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
 import {preventConcurrentExecution} from '@/utils'
 import {
-	frameAssetFilename,
+	frameAssetPath,
 	playSound,
 	registerCapturedAsset,
 	resizeBlobImage,
@@ -335,19 +335,10 @@ const {fn: shoot} = preventConcurrentExecution(
 			const name = project.name
 
 			return {
-				lv: registerCapturedAsset(
-					lv,
-					frameAssetFilename(name, layer, frame, 'lv')
-				),
-				jpg: registerCapturedAsset(
-					jpg,
-					frameAssetFilename(name, layer, frame, 'jpg')
-				),
+				lv: registerCapturedAsset(lv, frameAssetPath(project, layer, frame, 'lv')),
+				jpg: registerCapturedAsset(jpg, frameAssetPath(project, layer, frame, 'jpg')),
 				raw: raw
-					? registerCapturedAsset(
-							raw,
-							frameAssetFilename(name, layer, frame, 'raw')
-						)
+					? registerCapturedAsset(raw, frameAssetPath(project, layer, frame, 'raw'))
 					: undefined,
 				jpgFilename,
 				rawFilename,
@@ -548,6 +539,30 @@ async function applyExposureFromShot(shot: Shot | null) {
 // sequence is a plain warning, not an uncaught rejection.
 async function recallForSelectedShot(run: () => Promise<void>) {
 	try {
+/**
+ * "Move Images into Layer Folders…": switch a flat project to a folder per
+ * layer (utils/projectLayout.ts). The browser copies every file of a folder
+ * project to do it, so say so and offer the script for big ones.
+ */
+async function migrateLayerFolders() {
+	if (project.assetLayout === 2) {
+		alert('This project already keeps its images in layer folders')
+		return
+	}
+	let files = 0
+	for (const koma of project.komas) {
+		for (const shot of koma?.shots ?? []) if (shot) files += shot.raw ? 3 : 2
+	}
+	files += project.trash.length * 2
+	const onDisk = project.isSavedToDisk
+	const note = onDisk
+		? `This project is in a folder on disk: the browser can't rename files there, so every image (${files} files) is copied once — for a large project, close koma and run scripts/migrate-layer-folders.mjs instead.`
+		: `${files} files are moved (no copying).`
+	if (!confirm(`Move this project's images into one folder per layer?\n\n${note}`)) return
+	await project.migrateToLayerFolders()
+	project.save()
+}
+
 		await run()
 	} catch (e) {
 		alert(e instanceof Error ? e.message : String(e))
@@ -1016,6 +1031,12 @@ Tq.actions.register([
 			},
 			{
 				id: 'recall_shot_led',
+			{
+				id: 'migrate_layer_folders',
+				label: 'Move Images into Layer Folders…',
+				icon: 'mdi:folder-move-outline',
+				perform: migrateLayerFolders,
+			},
 				label: 'Recall Shot Lighting (LED)',
 				icon: 'mdi:lightbulb-on-outline',
 				perform: () =>

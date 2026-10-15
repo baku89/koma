@@ -22,6 +22,8 @@
 import {execFile} from 'node:child_process'
 import {mkdir, readdir, readFile, stat, writeFile} from 'node:fs/promises'
 import path from 'node:path'
+
+import {layerDirName} from './lib/layerDir.mjs'
 import {promisify} from 'node:util'
 
 const run = promisify(execFile)
@@ -269,7 +271,9 @@ if (!DRY) {
 	await mkdir(path.join(destDir, TRASH_DIR), {recursive: true})
 }
 
-const layers = [{id: 'main', name: 'Main'}]
+// Layer folders (src/utils/projectLayout.ts): `<layer dir>/0001.jpg`,
+// displaced frames under `_trash/<layer dir>/<id>__0001.jpg`.
+const layers = [{id: 'main', name: 'Main', dir: 'Main'}]
 const komas = []
 const trash = []
 const jobs = []
@@ -280,7 +284,12 @@ for (const t of allTakes) {
 	const layerIndex = layers.length
 	const layerId = newId('L')
 	const layerName = `${t.scene} ${t.takeId.replace(/^0+(?=\d)/, '')}`
-	layers.push({id: layerId, name: layerName})
+	const layerDir = layerDirName(layerName, layers.map(l => l.dir))
+	layers.push({id: layerId, name: layerName, dir: layerDir})
+	if (!DRY) {
+		await mkdir(path.join(destDir, layerDir), {recursive: true})
+		await mkdir(path.join(destDir, TRASH_DIR, layerDir), {recursive: true})
+	}
 
 	const exif = await exifOf(t.x1, t.files)
 
@@ -297,9 +306,8 @@ for (const t of allTakes) {
 	const makeShot = (file, frame, target) => {
 		const e = exif.get(file)
 		const date = exifDate(e)
-		const base = `${NAME}_layer=${layerIndex}_${seq(frame)}`
-		const jpgName = target === 'trash' ? `${newId('T')}__${base}.jpg` : `${base}.jpg`
-		const lvName = target === 'trash' ? `${newId('T')}__${base}.lv.jpg` : `${base}.lv.jpg`
+		const jpgName = `${layerDir}/${target === 'trash' ? `${newId('T')}__` : ''}${seq(frame)}.jpg`
+		const lvName = `${layerDir}/${target === 'trash' ? `${newId('T')}__` : ''}${seq(frame)}.lv.jpg`
 		const outDir = target === 'trash' ? path.join(destDir, TRASH_DIR) : destDir
 		const src = path.join(t.x1, file)
 		jobs.push(enqueue(() => convert(src, path.join(outDir, jpgName), JPG_MAX, 90)))
@@ -346,6 +354,7 @@ komas.push({shots: []})
 
 const project = {
 	name: NAME,
+	assetLayout: 2,
 	fps: FPS,
 	captureShot: {frame: 0, layer: 0},
 	previewRange: [0, Math.max(0, komas.length - 2)],

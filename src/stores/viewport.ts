@@ -6,7 +6,7 @@ import {useTweeq} from 'tweeq'
 import {computed, readonly, ref, shallowRef, watch} from 'vue'
 
 import {
-	frameAssetFilename,
+	frameAssetPath,
 	getObjectURL,
 	imageSignature,
 	playSound,
@@ -222,12 +222,7 @@ export const useViewportStore = defineStore('viewport', () => {
 	): Promise<string | undefined> {
 		const blob = await resolveBlob(assetId)
 		if (!blob) return undefined
-		const filename = frameAssetFilename(
-			project.name,
-			currentLayer.value,
-			currentFrame.value,
-			type
-		)
+		const filename = frameAssetPath(project, currentLayer.value, currentFrame.value, type)
 		return registerCapturedAsset(blob, filename)
 	}
 
@@ -255,11 +250,11 @@ export const useViewportStore = defineStore('viewport', () => {
 
 		const jpg = registerCapturedAsset(
 			jpeg,
-			frameAssetFilename(project.name, layer, frame, 'jpg')
+			frameAssetPath(project, layer, frame, 'jpg')
 		)
 		const lv = registerCapturedAsset(
 			lvBlob,
-			frameAssetFilename(project.name, layer, frame, 'lv')
+			frameAssetPath(project, layer, frame, 'lv')
 		)
 
 		project.setShot(frame, layer, {lv, jpg, captureDate: Date.now()})

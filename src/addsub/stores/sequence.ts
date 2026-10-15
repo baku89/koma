@@ -26,6 +26,7 @@
 import {defineStore} from 'pinia'
 import type {ConfigType} from 'tethr'
 import {computed, readonly, ref, shallowRef, watch} from 'vue'
+import {basenameOf, layerGcodeDir} from '@/utils'
 
 import {useCameraStore} from '@/stores/camera'
 import {useProjectStore} from '@/stores/project'
@@ -43,6 +44,7 @@ import {buzz, speak} from '@/utils/sound'
 
 import {filmOriginMill} from '../coords'
 import {
+	CUTS_DIR,
 	cutFilePath,
 	cutFor,
 	type CutRun,
@@ -571,6 +573,40 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	/** Cache stamp for a frame's G-code (the dropped file's addedAt, or previz's mtime). */
+	/**
+	 * A layer's folder changed (renamed, or the project moved to layer
+	 * folders): bring its attached G-code along and point the records at the
+	 * new paths. Any record (of any layer) whose file was under the old folder
+	 * follows too; a file that is already gone keeps its record untouched.
+	 */
+	project.onLayerFolderChanged(async ({layerId, from, to}) => {
+		const targetDir = layerGcodeDir(to)
+		const oldPrefix = from === null ? `${CUTS_DIR}/${layerId}/` : `${from}/`
+		for (const [owner, table] of Object.entries(project.addsub.cuts)) {
+			for (const [frame, cut] of Object.entries(table)) {
+				if (cut.source !== 'file') continue
+				let next: string | undefined
+				if (owner === layerId) next = `${targetDir}/${basenameOf(cut.file)}`
+				else if (cut.file.startsWith(oldPrefix)) next = `${to}/${cut.file.slice(oldPrefix.length)}`
+				if (!next || next === cut.file) continue
+				try {
+					await project.moveProjectFile(cut.file, next)
+				} catch {
+					continue
+				}
+				table[Number(frame)] = {...cut, file: next}
+			}
+		}
+		// Files nobody records any more (detached, superseded) go along too, so
+		// the old folder can be removed.
+		if (from === null) {
+			const stray = `${CUTS_DIR}/${layerId}`
+			for (const name of await project.listProjectFiles(stray)) {
+				await project.moveProjectFile(`${stray}/${name}`, `${targetDir}/${name}`).catch(() => {})
+			}
+		}
+	})
+
 	function gcodeStamp(g: {source: 'file' | 'previz'; cut?: FrameCut}): number {
 		return g.source === 'file' ? (g.cut?.addedAt ?? 0) : (previz.lastModified ?? 0)
 	}
@@ -582,9 +618,8 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	 * run) on that frame.
 	 */
 	async function attachCutFile(frame: number, layer: number, file: File): Promise<FrameCut> {
-		const layerId = project.layers[layer]?.id
-		if (layerId === undefined) throw new SequenceError('cut', `No layer ${layer}`)
-		const path = cutFilePath(layerId, frame, file.name)
+		if (!project.layers[layer]) throw new SequenceError('cut', `No layer ${layer}`)
+		const path = cutFilePath(project, layer, frame, file.name)
 		const previous = cutFor(project, frame, layer)
 		await project.writeProjectFile(path, file)
 		const addedAt = Date.now()

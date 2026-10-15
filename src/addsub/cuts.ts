@@ -4,8 +4,9 @@
  *
  * A frame's G-code comes from one of two places, in this order:
  *   1. a file the operator dropped on the timeline cell (copied into the
- *      project folder under `gcode/<layer id>/`), recorded here as a
- *      `FrameCut` with `source: 'file'`;
+ *      layer's folder, `<layer dir>/gcode/` — or `gcode/<layer id>/` in a
+ *      project still on the flat layout, see utils/projectLayout.ts),
+ *      recorded here as a `FrameCut` with `source: 'file'`;
  *   2. the cut previz/frames.json plans for the frame (previz store).
  * Either way the *run* is recorded here, so "has this frame been cut?" is
  * one lookup — the shoot condition (shootConditions.ts) refuses the shutter
@@ -15,12 +16,17 @@
  */
 
 import type {Project} from '@/stores/project'
+import {layerGcodeDir} from '@/utils/projectLayout'
 
 import type {CutRun, CutTable, FrameCut} from './projectData'
 
 export type {CutRun, CutTable, FrameCut}
 
-/** Folder (relative to the project) dropped G-code files are copied into. */
+/**
+ * Folder (relative to the project) dropped G-code files are copied into on
+ * the flat layout (`gcode/<layer id>/`); presets live under it on both
+ * layouts (`gcode/_presets/`).
+ */
 export const CUTS_DIR = 'gcode'
 
 export const GCODE_EXTENSIONS = ['.nc', '.gcode', '.ngc', '.tap', '.cnc', '.txt']
@@ -51,10 +57,26 @@ export function isCutDone(cut: FrameCut | undefined | null): boolean {
 	return !!cut?.run?.done
 }
 
-/** Where a dropped file goes: `gcode/<layer id>/<frame>_<name>`. */
-export function cutFilePath(layerId: string, frame: number, name: string): string {
+/**
+ * Where a dropped file goes: `<layer dir>/gcode/<frame>_<name>` (layer
+ * folders), `gcode/<layer id>/<frame>_<name>` (flat layout).
+ */
+export function cutFilePath(project: Project, layer: number, frame: number, name: string): string {
 	const safe = name.replace(/[\\/:*?"<>|]/g, '_')
-	return `${CUTS_DIR}/${layerId}/${String(frame).padStart(4, '0')}_${safe}`
+	const file = `${String(frame).padStart(4, '0')}_${safe}`
+	return `${cutsDirFor(project, layer)}/${file}`
+}
+
+/** The folder a layer's attached G-code is kept in (see cutFilePath). */
+export function cutsDirFor(project: Project, layer: number): string {
+	const l = project.layers[layer]
+	if (!l) throw new Error(`No layer ${layer}`)
+	return project.assetLayout === 2 && l.dir ? layerGcodeDir(l.dir) : `${CUTS_DIR}/${l.id}`
+}
+
+/** Where a preset's copy goes: `gcode/_presets/<name>`. */
+export function cutPresetPath(name: string): string {
+	return `${CUTS_DIR}/_presets/${name.replace(/[\\/:*?"<>|]/g, '_')}`
 }
 
 export function isGcodeFilename(name: string): boolean {
