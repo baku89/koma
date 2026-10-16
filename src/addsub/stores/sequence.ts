@@ -38,6 +38,7 @@ import type {CompactToolpath} from '@/utils/fluidnc/toolpath.worker'
 import {parseToolpathCached, toolpathTimeAt} from '@/utils/fluidnc/toolpathParser'
 import {buzz, speak} from '@/utils/sound'
 
+import {MILL_SHOOT_POSITION} from '../config'
 import {
 	cutFilePath,
 	cutFor,
@@ -976,13 +977,24 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			warn('Mill not connected — table not moved')
 			return
 		}
-		// Shooting happens with the table at work X 0 — the origin the block
-		// was zeroed at. Remember where it was, to return to after the shot.
-		if (!project.addsub.sequence?.returnPosition && mill.wpos.x !== undefined) {
-			patchProgress({returnPosition: {x: mill.wpos.x}})
+		// Shooting happens with the mill at MILL_SHOOT_POSITION (work
+		// coordinates). Remember where it was, to return to after the shot.
+		const {x, y, z} = mill.wpos
+		if (
+			!project.addsub.sequence?.returnPosition &&
+			x !== undefined &&
+			y !== undefined &&
+			z !== undefined
+		) {
+			patchProgress({returnPosition: {x, y, z}})
 		}
-		message.value = 'Extending table to X 0'
-		await mill.send('G90 G0 X0')
+		const to = MILL_SHOOT_POSITION
+		message.value = `Moving mill to shoot position X ${to.x} Y ${to.y} Z ${to.z}`
+		// X/Y first — the head is up after a cut — then lower Z, so the tool
+		// never descends over the block.
+		await mill.send(`G90 G0 X${to.x} Y${to.y}`)
+		await mill.waitIdle({signal: signal()})
+		await mill.send(`G90 G0 Z${to.z}`)
 		await mill.waitIdle({signal: signal()})
 	}
 
@@ -1180,11 +1192,17 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		}
 		const back = project.addsub.sequence?.returnPosition
 		if (!back) {
-			warn('No return position recorded — table left at X 0')
+			warn('No return position recorded — mill left at the shoot position')
 			return
 		}
-		message.value = 'Returning table'
-		await mill.send(`G90 G0 X${back.x}`)
+		message.value = 'Returning mill'
+		// The way it came: Z first (back up out of the shoot height), then X/Y.
+		if (back.z !== undefined) {
+			await mill.send(`G90 G0 Z${back.z}`)
+			await mill.waitIdle({signal: signal()})
+		}
+		const xy = `X${back.x}` + (back.y !== undefined ? ` Y${back.y}` : '')
+		await mill.send(`G90 G0 ${xy}`)
 		await mill.waitIdle({signal: signal()})
 	}
 

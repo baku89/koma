@@ -58,8 +58,12 @@ export interface SequenceProgress {
 	done: SequenceStep[]
 	status: 'running' | 'paused' | 'stopped' | 'error' | 'done'
 	error?: string
-	/** Mill table work X before it was extended to the origin, to return to. */
-	returnPosition?: {x: number; y?: number}
+	/**
+	 * Mill work position before `extend` moved it to the shoot position, to
+	 * return to in `retract`. Y/Z are missing on progress saved before
+	 * 2026-10-16, when only X moved.
+	 */
+	returnPosition?: {x: number; y?: number; z?: number}
 	updatedAt: number
 }
 

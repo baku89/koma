@@ -76,6 +76,14 @@ export const RIG_LIMITS = {
 } as const satisfies Record<'x' | 'y' | 'z', readonly [number, number]>
 
 /**
+ * Where the mill parks for the shot, in its work coordinates (the G54 the
+ * block was zeroed at): the table shifted 100 mm in mill Y so the block sits
+ * clear of the spindle, head down at Z 0. The sequence's `extend` step goes
+ * here (X/Y first, then Z) and `retract` returns the way it came (Z first).
+ */
+export const MILL_SHOOT_POSITION = {x: 0, y: 100, z: 0} as const
+
+/**
  * Bump when the physical placement (led/layout.ts) changes; shots record the
  * version they were lit under. 2 = the Houdini set model (2026-10-16).
  */

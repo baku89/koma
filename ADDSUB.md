@@ -47,7 +47,7 @@ koma 全体のプロジェクト知識（Tethr、アセット保存、Preview、
 
 **撮影位置（X の突き出し）について**
 
-- 撮影位置は毎コマ同じ X 座標に固定する。値は project に持つ
+- 撮影位置は毎コマ同じ座標に固定する。（2026-10-16）値は Work X 0 / Y 100 / Z 0、`config.ts` の `MILL_SHOOT_POSITION` に持つ（project の設定ではない）
 - カメラから見たブロックの位置は、この X 移動の再現性にも左右される。park 参照ショットとマーカーで、ずれを検出できるようにしておく
 - 12章の手順3（Box Rig とフライス盤の位置合わせ）は、撮影位置に出した状態で行う
 - 撮影中もフライス盤のモーターは励磁したままにして、テーブルが動かないようにする
@@ -834,7 +834,7 @@ Box Rig もフライス盤も同じセル（行レイアウトは廃止）。`Ma
 - **Calibration に残るのは `pupilOffset` と `rotarySigns`**（`rigOffset` / `rotaryZero` はコントローラの WCO から自動追従する値なので UI から外した。データは Work↔Machine 換算に必要）。`filmOriginWorld` / `millOffset` は削除。
 - **ブロック（§7）の実装を全部削除**: `filmLift` / `blockHeight` / Append Block / 「Film lift」「Mill offset」の照準ボタン / `shot.filmLift` の記録 / recall・再演の lift 補正 / `kBase` 移行 / 3D のブロックの立方体 / exhibit の `lift … mm`（FRAME・SEQUENCE 区画、`store.ts` の `filmLift` / `kBase`）/ relay の `sequence.filmLift`。**再演パス（`startReplay`、`SequenceMode 'replay'`、`REPLAY_STEPS`、`Replay +<lift>mm` レイヤー、`replayLayerId`）も削除**（lift 差分が前提の機能だったため）。
 - **Cut は G54 を触らない**: `cutSetsWorkOffset` / `cutWorkOffsetLine` / `G10 L2 P1` / Cut パネルの「Set G54」を削除。`runCut` は stream して Idle を待つだけ。`CutRun.filmLift` は旧 run の読み取り用に optional で残る（書かない）。
-- **Shot Sequence の Mill 設定を削除**: `shootPosition`（Shoot X）/ `cutPosition` / `millFeed`。`extend` は **Work X 0 へ `G90 G0 X0`**（撮影位置 = 原点、送りは rapid）、直前の Work X を `sequence.returnPosition` に覚えて `retract` で `G90 G0 X<x>`。Y は動かさない。
+- **Shot Sequence の Mill 設定を削除**: `shootPosition`（Shoot X）/ `cutPosition` / `millFeed`。撮影位置は **`config.ts` の `MILL_SHOOT_POSITION` = Work X 0 / Y 100 / Z 0**（ユーザー指定 2026-10-16。テーブルを mill Y に 100 mm ずらしてブロックを主軸から外し、ヘッドは Z 0 まで下ろす）。`extend` は直前の Work X/Y/Z を `sequence.returnPosition` に覚え、**`G90 G0 X0 Y100` → Idle → `G90 G0 Z0`**（切削後はヘッドが上がっているので XY を先に動かし、ブロックの上で Z を下ろさない）。`retract` は逆順で **`G90 G0 Z<z>` → `G90 G0 X<x> Y<y>`**。以前（X だけ）の進行が残っていれば Y/Z 無しで X だけ戻す。
 - **`ledOptional` を削除**: `led` ステップは壁が未接続なら何もしない、失敗は warning で続行（以前の既定 true と同じ挙動）。
 - **ステップ順を `(rig ∥ led) → cut → extend → settle → capture → park → retract` に**（ユーザー指定）: カメラは切削の前に所定の姿勢へ行くので、切削が終わる頃には揺れは収まっていて `settle` はテーブルの出し入れぶんだけで済む。切削後の掃除のタイミングで、人がアングルやフォーカスを手で詰められる。**注意**: 手で詰めた姿勢は plan から外れるので、`planTolerance` の shoot condition がシャッターを止める。詰めたあと Plan パネルの「From current」で plan を更新するか、force-shoot。**extend の経路とカメラの干渉**（カメラが先に所定位置にいる状態でテーブルが突き出る）は実機で要確認。
 - 3D ビュー: 工具先端はミルの **WPos** を巡回置換した位置、ツールパスは world 原点に描く（G-code が走る作業原点 = world 原点）。テーブルの移動に合わせた「ブロックのシフト」（`tableShiftWorld`）は廃止（工具とブロックの相対位置は Work 座標で正しい）。
