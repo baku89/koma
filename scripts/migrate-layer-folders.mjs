@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Move a koma project from the flat image layout to one folder per layer
- * (ADDSUB.md §14.2, src/utils/projectLayout.ts) by renaming — no copying —
- * which koma itself can't do on a folder outside the browser's own storage.
+ * Bring a koma project to the current image layout — one folder per layer,
+ * files named `<project>_<layer>_0001` (ADDSUB.md §14.2, src/utils/
+ * projectLayout.ts, "layout 3") — by renaming, no copying, which koma itself
+ * can't do on a folder outside the browser's own storage.
  *
  *   node scripts/migrate-layer-folders.mjs <project-dir> [--write]
  *
@@ -10,14 +11,17 @@
  * this project isn't open in it) before writing: a running koma would save
  * the old paths back over project.json.
  *
- *   <name>_layer=<slot>_0001.jpg          → <layer dir>/0001.jpg
- *   <name>_layer=<slot>_0001.lv.jpg       → <layer dir>/0001.lv.jpg
- *   <name>_layer=<slot>_0001.dng          → <layer dir>/0001.dng
- *   _trash/<id>__<name>_layer=…_0001.jpg  → _trash/<layer dir>/<id>__0001.jpg
+ * From the flat layout 1:
+ *   <name>_layer=<slot>_0001.jpg          → <layer dir>/<name>_<layer dir>_0001.jpg
+ *   <name>_layer=<slot>_0001.lv.jpg       → <layer dir>/<name>_<layer dir>_0001.lv.jpg
+ *   <name>_layer=<slot>_0001.dng          → <layer dir>/<name>_<layer dir>_0001.dng
+ *   _trash/<id>__<name>_layer=…_0001.jpg  → _trash/<layer dir>/<id>__<name>_<layer dir>_0001.jpg
  *   gcode/<layer id>/<file>.nc            → <layer dir>/gcode/<file>.nc
+ * From layout 2 (folders, numbers alone):
+ *   <layer dir>/0001.jpg                  → <layer dir>/<name>_<layer dir>_0001.jpg   (and lv / dng / _trash)
  *
  * The layer dir is made from the layer's name (same rule as koma's
- * layerDirName — keep the two in step). project.json gets `assetLayout: 2`
+ * layerDirName — keep the two in step). project.json gets `assetLayout: 3`
  * and each layer its `dir`; the previous project.json is kept next to it.
  * Backup shots (koma.backupShots) have no slot and stay where they are.
  */
@@ -26,7 +30,7 @@ import {existsSync} from 'node:fs'
 import {copyFile, mkdir, readdir, readFile, rename, rmdir, stat, writeFile} from 'node:fs/promises'
 import path from 'node:path'
 
-import {layerDirName} from './lib/layerDir.mjs'
+import {assetFileName, layerDirName} from './lib/layerDir.mjs'
 
 const args = process.argv.slice(2)
 const WRITE = args.includes('--write')
@@ -36,9 +40,7 @@ if (!projectDir) {
 	process.exit(1)
 }
 
-const seq = n => String(n).padStart(4, '0')
 const typeOf = f => (f.endsWith('.lv.jpg') ? 'lv' : /\.dng$/i.test(f) ? 'raw' : 'jpg')
-const frameFile = (frame, type) => `${seq(frame)}${type === 'lv' ? '.lv' : ''}.${type === 'raw' ? 'dng' : 'jpg'}`
 const refName = ref => (typeof ref === 'string' ? ref : ref && ref.$type === 'blob' ? ref.filename : undefined)
 const setRef = (shot, key, filename) => {
 	shot[key] = typeof shot[key] === 'string' ? filename : {...shot[key], filename}
@@ -46,10 +48,12 @@ const setRef = (shot, key, filename) => {
 
 const projectFile = path.join(projectDir, 'project.json')
 const project = JSON.parse(await readFile(projectFile, 'utf8'))
-if (project.assetLayout === 2) {
-	console.log('already on layer folders (assetLayout 2) — nothing to do')
+if (project.assetLayout === 3) {
+	console.log('already on the current layout (assetLayout 3) — nothing to do')
 	process.exit(0)
 }
+const fromLayout = project.assetLayout === 2 ? 2 : 1
+const frameFile = (frame, type) => assetFileName(project.name ?? path.basename(projectDir), dirOfName, frame, type)
 
 // ---- layer folders
 const layers = project.layers ?? []
@@ -65,6 +69,11 @@ const dirOf = i => {
 	if (!d) throw new Error(`shot on layer slot ${i} but the project has no such layer`)
 	return d
 }
+let dirOfName = '' // the layer dir `frameFile` is naming for (set before each call)
+const target = (layer, frame, type, prefix = '') => {
+	dirOfName = dirOf(layer)
+	return `${dirOfName}/${prefix}${frameFile(frame, type)}`
+}
 
 // ---- plan every rename: [from, to] relative to the project folder
 const moves = []
@@ -79,9 +88,8 @@ project.komas.forEach((koma, frame) => {
 		for (const key of ['lv', 'jpg', 'raw']) {
 			const from = refName(shot[key])
 			if (from === undefined) continue
-			if (from.includes('/')) continue // already in a folder
-			const type = key
-			const to = `${dirOf(layer)}/${frameFile(frame, type)}`
+			const to = target(layer, frame, key)
+			if (from === to) continue
 			if (path.extname(from).toLowerCase() !== path.extname(to)) extChanges++
 			moves.push([from, to])
 			setRef(shot, key, to)
@@ -94,16 +102,18 @@ for (const t of project.trash ?? []) {
 	if (!t?.shot) continue
 	for (const key of ['lv', 'jpg', 'raw']) {
 		const from = refName(t.shot[key])
-		if (from === undefined || from.includes('/')) continue
-		const id = from.includes('__') ? from.slice(0, from.indexOf('__')) : 'x'
-		const to = `${dirOf(t.layer ?? 0)}/${id}__${frameFile(t.frame ?? 0, key)}`
+		if (from === undefined) continue
+		const base = path.basename(from)
+		const id = base.includes('__') ? base.slice(0, base.indexOf('__')) : 'x'
+		const to = target(t.layer ?? 0, t.frame ?? 0, key, `${id}__`)
+		if (from === to) continue
 		moves.push([`_trash/${from}`, `_trash/${to}`])
 		setRef(t.shot, key, to)
 	}
 }
 
-// G-code attached to frames: by record first, then whatever is left in gcode/<layer id>/.
-const cuts = project.addsub?.cuts ?? {}
+// G-code attached to frames (flat layout only): by record first, then whatever is left in gcode/<layer id>/.
+const cuts = fromLayout === 1 ? (project.addsub?.cuts ?? {}) : {}
 const layerById = Object.fromEntries(layers.map(l => [l.id, l]))
 for (const [layerId, table] of Object.entries(cuts)) {
 	const dir = layerById[layerId]?.dir
@@ -125,7 +135,7 @@ for (const [layerId, table] of Object.entries(cuts)) {
 }
 for (const l of layers) {
 	const stray = path.join(projectDir, 'gcode', l.id)
-	if (!existsSync(stray)) continue
+	if (fromLayout !== 1 || !existsSync(stray)) continue
 	for (const name of await readdir(stray)) {
 		const from = `gcode/${l.id}/${name}`
 		if (moves.some(([f]) => f === from)) continue
@@ -144,7 +154,7 @@ for (const [from, to] of moves) {
 	targets.set(to, from)
 }
 
-project.assetLayout = 2
+project.assetLayout = 3
 
 console.log(`${projectDir}`)
 console.log(`  layers: ${layers.map(l => `${l.id} → ${JSON.stringify(l.dir)}`).join(', ')}`)
@@ -166,7 +176,7 @@ if (!WRITE) {
 
 // ---- apply
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-')
-await copyFile(projectFile, path.join(projectDir, `project.json.before-layer-folders-${stamp}`))
+await copyFile(projectFile, path.join(projectDir, `project.json.before-layout3-${stamp}`))
 const dirs = new Set(moves.map(([, to]) => path.dirname(to)))
 for (const d of dirs) await mkdir(path.join(projectDir, d), {recursive: true})
 let done = 0

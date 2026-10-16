@@ -16,7 +16,7 @@
  */
 
 import type {Project} from '@/stores/project'
-import {layerGcodeDir} from '@/utils/projectLayout'
+import {hasLayerFolders, layerGcodeDir} from '@/utils/projectLayout'
 
 import type {CutPreset, CutRun, CutTable, FrameCut} from './projectData'
 
@@ -71,7 +71,7 @@ export function cutFilePath(project: Project, layer: number, frame: number, name
 export function cutsDirFor(project: Project, layer: number): string {
 	const l = project.layers[layer]
 	if (!l) throw new Error(`No layer ${layer}`)
-	return project.assetLayout === 2 && l.dir ? layerGcodeDir(l.dir) : `${CUTS_DIR}/${l.id}`
+	return hasLayerFolders(project.assetLayout) && l.dir ? layerGcodeDir(l.dir) : `${CUTS_DIR}/${l.id}`
 }
 
 /** Where a preset's copy goes: `gcode/_presets/<name>`. */

@@ -12,6 +12,7 @@ import {computed, ref} from 'vue'
 
 import {MixBlendModeValues, useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
+import {hasLayerFolders} from '@/utils/projectLayout'
 
 const Tq = useTweeq()
 const project = useProjectStore()
@@ -37,7 +38,7 @@ function commitName(index: number) {
 
 /** Where a layer's files are, for the Folder column. */
 function folderOf(layer: {dir?: string}, index: number) {
-	if (project.assetLayout === 2) return layer.dir ? `${layer.dir}/` : ''
+	if (hasLayerFolders(project.assetLayout)) return layer.dir ? `${layer.dir}/` : ''
 	return `…_layer=${index}_`
 }
 
@@ -165,7 +166,7 @@ function setCapture(index: number) {
 				<span
 					class="mono folder"
 					v-tooltip="
-						project.assetLayout === 2
+						hasLayerFolders(project.assetLayout)
 							? 'The folder this layer\'s images and G-code are in. It follows the name when the name is confirmed.'
 							: 'Images are loose in the project folder, named by layer slot.'
 					"
@@ -250,12 +251,15 @@ function setCapture(index: number) {
 			<Tq.InputString v-model="newName" placeholder="New layer name" @confirm="add" />
 			<Tq.InputButton label="Add Layer" icon="mdi:plus" :disabled="!newName.trim()" @click="add" />
 		</div>
-		<div v-if="project.assetLayout !== 2" class="migrate">
-			<span class="hint">
+		<div v-if="project.assetLayout !== 3" class="migrate">
+			<span v-if="project.assetLayout === 2" class="hint">
+				Images are in layer folders but named by number alone (<code>0001.jpg</code>).
+			</span>
+			<span v-else class="hint">
 				This project keeps every image loose in its folder (<code>…_layer=N_0001.jpg</code>).
 			</span>
 			<Tq.InputButton
-				label="Move into layer folders…"
+				:label="project.assetLayout === 2 ? 'Rename to project_layer_0001…' : 'Move into layer folders…'"
 				icon="mdi:folder-move-outline"
 				subtle
 				@click="migrate"

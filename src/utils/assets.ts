@@ -423,7 +423,7 @@ export async function reconcileAssets(
 	// 1. Move files that live in the project folder but are no longer referenced
 	//    into _trash (kept, not deleted — undo can bring them back).
 	for (const [id, e] of entries) {
-		if (e.trashed || !e.parentDir) continue
+		if (e.trashed || !e.parentDir || !e.filename) continue
 		if (protectedIds.has(id)) continue
 		if (!(await sameDir(e.parentDir, dir))) continue
 		await moveEntry(e, await getTrashDir(), trashPath(id, e.filename), true, vacated)
@@ -434,7 +434,7 @@ export async function reconcileAssets(
 	//     backed displaced shots were already moved to _trash by step 1.
 	for (const id of trashedIds) {
 		const e = entries.get(id)
-		if (!e || e.trashed || !e.blob) continue
+		if (!e || e.trashed || !e.blob || !e.filename) continue
 		await moveEntry(e, await getTrashDir(), trashPath(id, e.filename), true, vacated)
 	}
 

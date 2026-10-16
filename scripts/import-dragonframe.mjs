@@ -23,7 +23,7 @@ import {execFile} from 'node:child_process'
 import {mkdir, readdir, readFile, stat, writeFile} from 'node:fs/promises'
 import path from 'node:path'
 
-import {layerDirName} from './lib/layerDir.mjs'
+import {assetFileName, layerDirName} from './lib/layerDir.mjs'
 import {promisify} from 'node:util'
 
 const run = promisify(execFile)
@@ -306,8 +306,9 @@ for (const t of allTakes) {
 	const makeShot = (file, frame, target) => {
 		const e = exif.get(file)
 		const date = exifDate(e)
-		const jpgName = `${layerDir}/${target === 'trash' ? `${newId('T')}__` : ''}${seq(frame)}.jpg`
-		const lvName = `${layerDir}/${target === 'trash' ? `${newId('T')}__` : ''}${seq(frame)}.lv.jpg`
+		const prefix = target === 'trash' ? `${newId('T')}__` : ''
+		const jpgName = `${layerDir}/${prefix}${assetFileName(NAME, layerDir, frame, 'jpg')}`
+		const lvName = `${layerDir}/${prefix}${assetFileName(NAME, layerDir, frame, 'lv')}`
 		const outDir = target === 'trash' ? path.join(destDir, TRASH_DIR) : destDir
 		const src = path.join(t.x1, file)
 		jobs.push(enqueue(() => convert(src, path.join(outDir, jpgName), JPG_MAX, 90)))
@@ -354,7 +355,7 @@ komas.push({shots: []})
 
 const project = {
 	name: NAME,
-	assetLayout: 2,
+	assetLayout: 3,
 	fps: FPS,
 	captureShot: {frame: 0, layer: 0},
 	previewRange: [0, Math.max(0, komas.length - 2)],

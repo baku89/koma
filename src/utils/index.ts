@@ -19,3 +19,4 @@ export const deepMergeExceptArray = createDefu((obj, key, value) => {
 		return true
 	}
 })
+export * from './frames'

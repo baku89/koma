@@ -19,7 +19,7 @@ import {execFile} from 'node:child_process'
 import path from 'node:path'
 import {promisify} from 'node:util'
 
-import {layerDirName} from './lib/layerDir.mjs'
+import {assetFileName, layerDirName} from './lib/layerDir.mjs'
 
 const run = promisify(execFile)
 
@@ -52,7 +52,7 @@ if (files.length === 0) {
 
 const layerIndex = project.layers.length
 const layerId = 'L' + Math.random().toString(36).slice(2, 10)
-const layerFolders = project.assetLayout === 2
+const layerFolders = project.assetLayout >= 2
 const layerDir = layerFolders
 	? layerDirName(LAYER_NAME, project.layers.flatMap(l => (l.dir ? [l.dir] : [])))
 	: undefined
@@ -63,7 +63,11 @@ const name = project.name
 const seq = n => String(n).padStart(4, '0')
 /** Where frame `frame`'s file goes (relative to the project), by layout. */
 const framePath = (frame, sub, ext) =>
-	layerDir ? `${layerDir}/${seq(frame)}${sub}.${ext}` : `${name}_layer=${layerIndex}_${seq(frame)}${sub}.${ext}`
+	!layerDir
+		? `${name}_layer=${layerIndex}_${seq(frame)}${sub}.${ext}`
+		: project.assetLayout === 3
+			? `${layerDir}/${assetFileName(name, layerDir, frame, sub ? 'lv' : ext === 'dng' ? 'raw' : 'jpg')}`
+			: `${layerDir}/${seq(frame)}${sub}.${ext}`
 const blob = filename => ({$type: 'blob', filename})
 
 let active = 0

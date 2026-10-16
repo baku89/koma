@@ -1,6 +1,13 @@
 import {describe, expect, it} from 'vitest'
 
-import {frameAssetPath, layerAssetPath, layerDirName, legacyFrameAssetFilename} from './projectLayout'
+import {
+	assetFileStem,
+	frameAssetPath,
+	layerAssetPath,
+	layerDirName,
+	legacyFrameAssetFilename,
+	namedAssetPath,
+} from './projectLayout'
 
 describe('layerDirName', () => {
 	it('keeps plain names', () => {
@@ -35,6 +42,15 @@ describe('frameAssetPath', () => {
 		expect(frameAssetPath(p, 1, 12, 'lv')).toBe('Test 1/0012.lv.jpg')
 		expect(frameAssetPath(p, 1, 12, 'raw')).toBe('Test 1/0012.dng')
 		expect(layerAssetPath('X', 3, 'jpg')).toBe('X/0003.jpg')
+	})
+	it('names files after the project and layer on layout 3', () => {
+		const q = {...p, assetLayout: 3 as const}
+		expect(frameAssetPath(q, 0, 1, 'jpg')).toBe('Main/film_Main_0001.jpg')
+		expect(frameAssetPath(q, 1, 12, 'lv')).toBe('Test 1/film_Test 1_0012.lv.jpg')
+		expect(frameAssetPath(q, 1, 12, 'raw')).toBe('Test 1/film_Test 1_0012.dng')
+		expect(frameAssetPath(q, 2, 5, 'jpg')).toBe('film_layer=2_0005.jpg')
+		expect(namedAssetPath('a/b: c', 'X', 3, 'jpg')).toBe('X/a_b_ c_X_0003.jpg')
+		expect(assetFileStem('', 'X')).toBe('project_X')
 	})
 	it('falls back to the flat name for a layer without a folder, and on layout 1', () => {
 		expect(frameAssetPath(p, 2, 5, 'jpg')).toBe('film_layer=2_0005.jpg')

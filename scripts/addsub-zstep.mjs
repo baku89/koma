@@ -147,7 +147,7 @@ if (rigDy !== null) {
 // Where the layer's G-code lives: `<layer dir>/gcode/` with layer folders,
 // `gcode/<layer id>/` on the flat layout (src/utils/projectLayout.ts).
 const gcodeDir =
-	project.assetLayout === 2 && project.layers[layerIndex]?.dir
+	project.assetLayout >= 2 && project.layers[layerIndex]?.dir
 		? `${project.layers[layerIndex].dir}/gcode`
 		: `gcode/${layerId}`
 const now = Date.now()

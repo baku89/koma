@@ -25,12 +25,15 @@ import {
 	clearAssets,
 	debounceAsync,
 	deepMergeExceptArray,
+	deleteFramesOnLayer,
 	frameAssetPath,
 	getAssetFilename,
+	hasLayerFolders,
 	healAssetBlob,
-	layerAssetPath,
+	insertFramesOnLayer,
 	layerDirName,
 	liveAssetPaths,
+	namedAssetPath,
 	openJson,
 	preventConcurrentExecution,
 	queryPermission,
@@ -85,7 +88,7 @@ export interface Layer {
 	name: string
 	/**
 	 * Folder (under the project) holding this layer's images and G-code,
-	 * named after the layer — projects with `assetLayout` 2 only (see
+	 * named after the layer — projects with layer folders (`assetLayout` 2 / 3, see
 	 * utils/projectLayout.ts). Changed with the name by `renameLayer`.
 	 */
 	dir?: string
@@ -332,7 +335,7 @@ const emptyProject: Project = {
 		zoom: 1.3,
 	},
 	layers: [{id: 'main', name: 'Main', dir: 'Main'}],
-	assetLayout: 2,
+	assetLayout: 3,
 	layerPresets: [
 		{
 			id: 'default',
@@ -391,16 +394,20 @@ const audioSavedDir = new WeakMap<Blob, FileSystemDirectoryHandle>()
 async function loadProject(dir: FileSystemDirectoryHandle): Promise<Project> {
 	const json: any = await openJson(dir, 'project.json')
 
+	// A shot whose json lacks an image reference (a save that could not resolve
+	// an asset id drops the ref) must not register a nameless asset: the next
+	// save's reconcile would throw on it and every save after would fail.
+	const diskRef = (ref: unknown): string | undefined => {
+		const filename = refFilename(ref)
+		return filename === undefined ? undefined : registerDiskAsset(filename, dir)
+	}
 	const loadShot = (shot: any): Shot | null => {
 		if (!shot) return null
 		return {
 			...shot,
-			lv: registerDiskAsset(refFilename(shot.lv)!, dir),
-			jpg: registerDiskAsset(refFilename(shot.jpg)!, dir),
-			raw:
-				refFilename(shot.raw) !== undefined
-					? registerDiskAsset(refFilename(shot.raw)!, dir)
-					: undefined,
+			lv: diskRef(shot.lv) as string,
+			jpg: diskRef(shot.jpg) as string,
+			raw: diskRef(shot.raw),
 		}
 	}
 
@@ -438,14 +445,17 @@ async function loadProject(dir: FileSystemDirectoryHandle): Promise<Project> {
 			trashDir = undefined
 		}
 		if (trashDir) {
+			const trashRef = (ref: unknown): string | undefined => {
+				const filename = refFilename(ref)
+				return filename === undefined
+					? undefined
+					: registerTrashedAsset(filename, trashDir!)
+			}
 			const loadTrashedShot = (shot: any): Shot => ({
 				...shot,
-				lv: registerTrashedAsset(refFilename(shot.lv)!, trashDir!),
-				jpg: registerTrashedAsset(refFilename(shot.jpg)!, trashDir!),
-				raw:
-					refFilename(shot.raw) !== undefined
-						? registerTrashedAsset(refFilename(shot.raw)!, trashDir!)
-						: undefined,
+				lv: trashRef(shot.lv) as string,
+				jpg: trashRef(shot.jpg) as string,
+				raw: trashRef(shot.raw),
 			})
 			trash = json.trash
 				.filter((t: any) => t && t.shot)
@@ -460,7 +470,7 @@ async function loadProject(dir: FileSystemDirectoryHandle): Promise<Project> {
 
 	// A file without the field is from before layer folders: flat layout, and it
 	// stays flat (the merge with emptyProject below would otherwise say 2).
-	const assetLayout: AssetLayout = json.assetLayout === 2 ? 2 : 1
+	const assetLayout: AssetLayout = json.assetLayout === 3 ? 3 : json.assetLayout === 2 ? 2 : 1
 
 	return {...json, komas, audio, trash, assetLayout}
 }
@@ -629,7 +639,7 @@ function normalizeLayers(p: Project) {
 			name: layers.length === 0 ? 'Main' : `Layer ${layers.length}`,
 		})
 	}
-	if (p.assetLayout === 2) assignLayerDirs(layers)
+	if (hasLayerFolders(p.assetLayout)) assignLayerDirs(layers)
 	p.layers = layers
 
 	let presets: LayerPreset[] = (p.layerPresets ?? [])
@@ -1250,6 +1260,54 @@ export const useProjectStore = defineStore('project', () => {
 		koma.shots[layer] = shot
 	}
 
+	/**
+	 * Open `count` empty frames at `frame` on one layer: that layer's shots from
+	 * there on move later, nothing else does — not other layers, not plans or
+	 * G-code keyed by frame (utils/frames.ts). The capture cursor follows when
+	 * it sits on that layer at or after `frame`. Undoable like any koma edit.
+	 * Returns how many shots moved.
+	 */
+	// Both edits touch one koma after another; bracket them so autosave and
+	// history traverse the timeline once at the end instead of per koma (on a
+	// 200-frame project that loop took seconds).
+	function insertFrames(frame: number, layer: number, count = 1): number {
+		beginInteraction()
+		try {
+			const moved = insertFramesOnLayer<Shot, Koma>(
+				project.komas,
+				frame,
+				layer,
+				() => ({shots: []}),
+				count
+			)
+			const c = project.captureShot
+			if (c.layer === layer && c.frame >= frame) c.frame += count
+			return moved
+		} finally {
+			endInteraction()
+		}
+	}
+
+	/**
+	 * Remove `count` frames at `frame` on one layer, closing the gap on that
+	 * layer only (the removed shots go to the trash ledger via syncTrash).
+	 * Returns the removed shots.
+	 */
+	function deleteFrames(frame: number, layer: number, count = 1): (Shot | null)[] {
+		beginInteraction()
+		try {
+			const removed = deleteFramesOnLayer<Shot, Koma>(project.komas, frame, layer, count)
+			const c = project.captureShot
+			if (c.layer === layer && c.frame > frame) c.frame = Math.max(frame, c.frame - count)
+			if (project.previewRange[1] > project.komas.length) {
+				project.previewRange[1] = project.komas.length
+			}
+			return removed
+		} finally {
+			endInteraction()
+		}
+	}
+
 	/** Layer by storage index. Never creates: unknown → a placeholder. */
 	function layer(index: number): Layer {
 		return project.layers[index] ?? {id: `missing-${index}`, name: `Layer ${index}`}
@@ -1280,7 +1338,7 @@ export const useProjectStore = defineStore('project', () => {
 	function addLayer(name: string): number {
 		const id = newLayerId()
 		const layer: Layer = {id, name}
-		if (project.assetLayout === 2) {
+		if (hasLayerFolders(project.assetLayout)) {
 			layer.dir = layerDirName(name, project.layers.flatMap(l => (l.dir ? [l.dir] : [])))
 		}
 		project.layers.push(layer)
@@ -1325,7 +1383,7 @@ export const useProjectStore = defineStore('project', () => {
 		}
 	}
 
-	//---- Layer folders (assetLayout 2, utils/projectLayout.ts)
+	//---- Layer folders (assetLayout 2 / 3, utils/projectLayout.ts)
 
 	/**
 	 * Fires when a layer's files get a new folder: `from` → `to` on a rename,
@@ -1415,7 +1473,7 @@ export const useProjectStore = defineStore('project', () => {
 		const name = rawName.trim()
 		if (!layer || !name || name === layer.name) return
 		layer.name = name
-		if (project.assetLayout !== 2) return
+		if (!hasLayerFolders(project.assetLayout)) return
 
 		const taken = project.layers.flatMap(l => (l !== layer && l.dir ? [l.dir] : []))
 		const to = layerDirName(name, taken)
@@ -1450,16 +1508,19 @@ export const useProjectStore = defineStore('project', () => {
 	}
 
 	/**
-	 * Switch a flat project (`assetLayout` 1) to layer folders. Gives every
-	 * layer a folder name, moves its displaced shots to `_trash/<dir>/`, lets
-	 * other owners move their files (G-code: `gcode/<id>/` → `<dir>/gcode/`),
-	 * and leaves the images to the next save. On a folder project the browser
-	 * can't rename without copying, so every file is copied once — for a big
-	 * project use scripts/migrate-layer-folders.mjs (plain renames) instead.
+	 * Bring a project to the current layout (3: a folder per layer, images
+	 * named `<project>_<layer>_0001`). From the flat layout 1 that also moves
+	 * displaced shots to `_trash/<dir>/` and lets other owners move their files
+	 * (G-code: `gcode/<id>/` → `<dir>/gcode/`); from layout 2 only the image
+	 * names change. The images themselves are left to the next save. On a
+	 * folder project the browser can't rename without copying, so every file
+	 * is copied once — for a big project use scripts/migrate-layer-folders.mjs
+	 * (plain renames) instead.
 	 */
 	async function migrateToLayerFolders(): Promise<void> {
-		if (project.assetLayout === 2) return
-		project.assetLayout = 2
+		if (project.assetLayout === 3) return
+		const from = project.assetLayout
+		project.assetLayout = 3
 		assignLayerDirs(project.layers)
 
 		const where = new Map<string, {layer: number; frame: number}>()
@@ -1471,10 +1532,12 @@ export const useProjectStore = defineStore('project', () => {
 			const dir = at && project.layers[at.layer]?.dir
 			if (!dir) return undefined
 			const type = path.endsWith('.lv.jpg') ? 'lv' : path.endsWith('.dng') ? 'raw' : 'jpg'
-			return `${dir}/${id}__${basenameOf(layerAssetPath(dir, at.frame, type))}`
+			return `${dir}/${id}__${basenameOf(namedAssetPath(project.name, dir, at.frame, type))}`
 		})
-		for (const layer of project.layers) {
-			if (layer.dir) await layerFolderHook.trigger({layerId: layer.id, from: null, to: layer.dir})
+		if (from === 1) {
+			for (const layer of project.layers) {
+				if (layer.dir) await layerFolderHook.trigger({layerId: layer.id, from: null, to: layer.dir})
+			}
 		}
 		dirty.value = true
 	}
@@ -1818,6 +1881,8 @@ export const useProjectStore = defineStore('project', () => {
 		shot,
 		ensureLv,
 		setShot,
+		insertFrames,
+		deleteFrames,
 		layer,
 		layerIndexOf,
 		addLayer,

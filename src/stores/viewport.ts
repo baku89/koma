@@ -14,6 +14,7 @@ import {
 	registerCapturedAsset,
 	resizeBlobImage,
 	resolveBlob,
+	shotsAtOrAfter,
 } from '@/utils'
 import {scrub, seekAndPlay} from '@/utils'
 
@@ -49,11 +50,42 @@ export const useViewportStore = defineStore('viewport', () => {
 	const coloredOnionskin = config.ref('coloredOnionskin', false)
 
 	function setCurrentFrame(value: number) {
+		selectionAnchor.value = null
 		currentFrame.value = clamp(value, 0, project.allKomas.length - 1)
 	}
 
 	function setCurrentLayer(value: number) {
+		selectionAnchor.value = null
 		currentLayer.value = clamp(value, 0, Math.max(0, project.layers.length - 1))
+	}
+
+	// A shift-click extends the selection along the current layer: the anchor
+	// is where the selection started, the current frame its other end.
+	const selectionAnchor = ref<number | null>(null)
+
+	/** Selected frames on the current layer, inclusive — one frame unless extended. */
+	const selectedRange = computed<[number, number] | null>(() => {
+		if (!isShotSelected.value) return null
+		const a = selectionAnchor.value ?? currentFrame.value
+		const b = currentFrame.value
+		return [Math.min(a, b), Math.max(a, b)]
+	})
+
+	function isFrameSelected(frame: number, layer: number): boolean {
+		const r = selectedRange.value
+		return !!r && layer === currentLayer.value && r[0] <= frame && frame <= r[1]
+	}
+
+	/**
+	 * Shift-click: keep the anchor (the frame the selection started at, or the
+	 * cursor if nothing was extended yet), move the other end to `frame`, and
+	 * (re)register the selection — it may just have been unselected by the
+	 * timeline's reserved unselect between pointerdown and click.
+	 */
+	function extendSelection(frame: number) {
+		if (selectionAnchor.value === null) selectionAnchor.value = currentFrame.value
+		currentFrame.value = clamp(frame, 0, project.allKomas.length - 1)
+		registerShotSelection()
 	}
 
 	/** Step to the previous/next *visible* layer in display order. */
@@ -69,6 +101,14 @@ export const useViewportStore = defineStore('viewport', () => {
 	const isShotSelected = ref(false)
 
 	function selectShot() {
+		selectionAnchor.value = null
+		registerShotSelection()
+	}
+
+	// (Re)register the shot selection with the app-wide selection store. Every
+	// pointerdown on the timeline reserves an unselect that only a select() in
+	// the same tick cancels — so extending a selection has to register too.
+	function registerShotSelection() {
 		isShotSelected.value = true
 
 		appSelection.select({
@@ -88,73 +128,70 @@ export const useViewportStore = defineStore('viewport', () => {
 		isShotSelected.value = false
 	}
 
-	function deleteShot() {
-		if (!isShotSelected.value) return
-
-		const isDeletingCaptureFrame =
-			currentFrame.value === project.captureShot.frame
-
-		const frameToDelete = isDeletingCaptureFrame
-			? currentFrame.value - 1
-			: currentFrame.value
-
-		if (frameToDelete < 0 || project.duration <= frameToDelete) {
-			return
+	/**
+	 * The frames an edit applies to: the selected range, or — on the capture
+	 * slot itself, which has no shot yet — the frame before it. Null if nothing
+	 * sensible is selected.
+	 */
+	function framesToEdit(): [number, number] | null {
+		const r = selectedRange.value
+		if (!r) return null
+		let [from, to] = r
+		if (
+			from === to &&
+			from === project.captureShot.frame &&
+			!project.shot(from, currentLayer.value)
+		) {
+			from = to = from - 1
 		}
+		if (from < 0 || project.duration <= from) return null
+		return [from, Math.min(to, project.duration - 1)]
+	}
 
-		project.$patch(draft => {
-			// Blank the slot rather than splicing it out: `shots[i]` is the storage
-			// index of layer i, so removing the element would shift every layer
-			// above down by one. Only the frame itself ripples shut, and only once
-			// no layer has a shot left in it.
-			const shots = draft.komas[frameToDelete].shots
-			shots[currentLayer.value] = null
-
-			const shouldDeleteKoma = !shots.some(Boolean)
-
-			if (shouldDeleteKoma) {
-				// Equivalent to `draft.komas.splice(frameToDelete, 1)`,
-				// but it is way more faster.
-				draft.komas = [
-					...draft.komas.slice(0, frameToDelete),
-					...draft.komas.slice(frameToDelete + 1),
-				]
-
-				if (
-					isDeletingCaptureFrame &&
-					currentFrame.value === draft.captureShot.frame
-				) {
-					setCurrentFrame(currentFrame.value - 1)
-				}
-				if (frameToDelete < draft.captureShot.frame) {
-					draft.captureShot.frame -= 1
-				}
-				if (frameToDelete <= draft.previewRange[1]) {
-					draft.previewRange[1] -= 1
-				}
+	// Delete: take the selected frames out of the current layer and close the
+	// gap on that layer only. Other layers keep their frames (each layer is its
+	// own take sharing the numbering), and so does anything keyed by frame.
+	// Closing the gap moves every later shot on the layer, which renames their
+	// files on the next save (a byte copy of jpg + lv + raw on a folder project,
+	// and the kind of edit that wrecked a project on 2026-10-16) — so ask first
+	// whenever something would move. Deleting at the end of a layer is free.
+	function deleteShot() {
+		const r = framesToEdit()
+		if (!r) return
+		const [from, to] = r
+		const layer = currentLayer.value
+		const moving = shotsAtOrAfter(project.komas, to + 1, layer)
+		if (moving > 0) {
+			const name = project.layer(layer).name
+			const where = from === to ? `#${from}` : `#${from}–${to}`
+			const what = moving === 1 ? '1 shot' : `${moving} shots`
+			if (
+				!confirm(
+					`Delete ${where} on "${name}"?\n\n${what} after it move earlier on this layer (their files are renamed on the next save). Use Cut (⌘X) to blank the cells without moving anything.`
+				)
+			) {
+				return
 			}
-		})
-
+		}
+		project.deleteFrames(from, layer, to - from + 1)
+		setCurrentFrame(from)
 		playSound('sound/Hit08-1.mp3')
 	}
 
-	// Cut/clear a shot in place: blank the cell but keep its frame, so the
-	// timeline doesn't ripple shut. Unlike deleteShot, an emptied frame is left
-	// as an empty koma rather than spliced out.
+	// Cut/clear in place: blank the selected cells but keep their frames, so
+	// nothing ripples.
 	function clearShot() {
-		if (!isShotSelected.value) return
-
-		const frame =
-			currentFrame.value === project.captureShot.frame
-				? currentFrame.value - 1
-				: currentFrame.value
-
-		if (frame < 0 || project.duration <= frame) return
-
+		const r = framesToEdit()
+		if (!r) return
+		const [from, to] = r
+		const layer = currentLayer.value
 		project.$patch(draft => {
-			draft.komas[frame].shots[currentLayer.value] = null
+			for (let f = from; f <= to; f++) {
+				const shots = draft.komas[f]?.shots
+				if (shots && shots[layer]) shots[layer] = null
+			}
 		})
-
+		setCurrentFrame(from)
 		playSound('sound/Hit08-1.mp3')
 	}
 
@@ -451,6 +488,9 @@ export const useViewportStore = defineStore('viewport', () => {
 		setPlaybackPreroll,
 		isLiveview,
 		isShotSelected: readonly(isShotSelected),
+		selectedRange,
+		isFrameSelected,
+		extendSelection,
 		popup,
 		onionskin,
 		selectShot,

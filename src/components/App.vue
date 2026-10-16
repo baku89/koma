@@ -545,10 +545,11 @@ async function applyExposureFromShot(shot: Shot | null) {
  * project to do it, so say so and offer the script for big ones.
  */
 async function migrateLayerFolders() {
-	if (project.assetLayout === 2) {
-		alert('This project already keeps its images in layer folders')
+	if (project.assetLayout === 3) {
+		alert('This project already keeps its images in layer folders, named by project and layer')
 		return
 	}
+	const renameOnly = project.assetLayout === 2
 	let files = 0
 	for (const koma of project.komas) {
 		for (const shot of koma?.shots ?? []) if (shot) files += shot.raw ? 3 : 2
@@ -558,7 +559,10 @@ async function migrateLayerFolders() {
 	const note = onDisk
 		? `This project is in a folder on disk: the browser can't rename files there, so every image (${files} files) is copied once — for a large project, close koma and run scripts/migrate-layer-folders.mjs instead.`
 		: `${files} files are moved (no copying).`
-	if (!confirm(`Move this project's images into one folder per layer?\n\n${note}`)) return
+	const what = renameOnly
+		? `Rename this project's images to <project>_<layer>_0001.jpg?`
+		: `Move this project's images into one folder per layer, named <project>_<layer>_0001.jpg?`
+	if (!confirm(`${what}\n\n${note}`)) return
 	await project.migrateToLayerFolders()
 	project.save()
 }

@@ -15,7 +15,7 @@ import {useSequenceStore} from '@/addsub/stores/sequence'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
-import {resolveAssetUrl, toTime} from '@/utils'
+import {resolveAssetUrl, shotsAtOrAfter,toTime} from '@/utils'
 import type {Axis} from '@/utils/fluidnc'
 
 interface Props {
@@ -106,27 +106,40 @@ const lvUrl = asyncComputed(async () => {
 	return resolveAssetUrl(shot.value?.lv)
 })
 
-const selected = computed(() => {
-	return (
-		props.frame === viewport.currentFrame &&
-		props.layer === viewport.currentLayer &&
-		viewport.isShotSelected
-	)
-})
+const selected = computed(() => viewport.isFrameSelected(props.frame, props.layer))
 
+// "Insert": open a frame on THIS layer only — its shots from here on move one
+// frame later; other layers and anything keyed by frame stay. Moving shots
+// means renaming their files on the next save (a copy on a folder project),
+// so ask first when anything would move.
 function insertEmptyFrame(frame: number) {
-	project.$patch(state => {
-		state.komas.splice(frame, 0, {shots: []})
-		if (frame <= state.captureShot.frame) {
-			state.captureShot.frame += 1
+	const layer = props.layer
+	const moving = shotsAtOrAfter(project.komas, frame, layer)
+	if (moving > 0) {
+		const name = project.layer(layer).name
+		const what = moving === 1 ? '1 shot' : `${moving} shots`
+		if (
+			!confirm(
+				`Insert a frame on "${name}" at #${frame}?\n\n${what} from here on move one frame later on this layer (their files are renamed on the next save).`
+			)
+		) {
+			return
 		}
-		if (frame <= project.previewRange[1]) {
-			state.previewRange[1] += 1
-		}
-	})
+	}
+	project.insertFrames(frame, layer)
 }
 
-function selectShot() {
+// Click selects the cell; shift-click on the current layer extends the
+// selection from where it started to this frame. Don't gate this on
+// viewport.isShotSelected: the timeline's pointerdown reserves an unselect
+// that fires (setTimeout 0) between a real mouse's pointerdown and click, so
+// the flag is already false here. The cursor (currentFrame / currentLayer)
+// survives that and is what the extension is anchored to.
+function selectShot(e?: MouseEvent) {
+	if (e?.shiftKey && viewport.currentLayer === props.layer) {
+		viewport.extendSelection(props.frame)
+		return
+	}
 	viewport.setCurrentFrame(props.frame)
 	viewport.setCurrentLayer(props.layer)
 	viewport.selectShot()
@@ -167,7 +180,8 @@ const contextMenuItems = computed<Tq.MenuItem[]>(() =>
 function onContextMenu(e: MouseEvent) {
 	if (contextMenuItems.value.length === 0) return
 	e.preventDefault()
-	selectShot()
+	// Right-click inside the selection keeps it; elsewhere it selects the cell.
+	if (!selected.value) selectShot()
 	menuPosition.value = [e.clientX, e.clientY]
 	menuOpen.value = true
 }
@@ -327,7 +341,7 @@ function printShotInfo(shot: Shot, rigInfo = '') {
 		ref="$root"
 		class="Shot"
 		:class="{selected, dropping}"
-		@click="selectShot"
+		@click="selectShot($event)"
 		@dblclick="project.captureShot = {frame, layer}"
 		@contextmenu="onContextMenu"
 		@dragover="onDragOver"
