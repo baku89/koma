@@ -261,6 +261,12 @@ function homeTooltip(label: string, steps: HomingSteps) {
 const panel = computed(() => props.machine.def.panel ?? {})
 const gridColumns = computed(() => panel.value.gridColumns ?? 3)
 const showFeed = computed(() => panel.value.showFeed !== false)
+const outputs = computed(() =>
+	(['flood', 'mist'] as const).flatMap(which => {
+		const label = panel.value.outputs?.[which]
+		return label ? [{which, label}] : []
+	})
+)
 </script>
 
 <template>
@@ -501,6 +507,26 @@ const showFeed = computed(() => panel.value.showFeed !== false)
 					@update:modelValue="machine.rapidOverride($event as 25 | 50 | 100)"
 				/>
 			</div>
+		</Tq.Parameter>
+
+		<!-- Coolant outputs (M7 / M8 / M9), one switch each, labelled by what
+		     is wired to them. State comes from the A: letters of the status
+		     reports. -->
+		<Tq.Parameter
+			v-for="o in outputs"
+			:key="o.which"
+			:label="o.label"
+			icon="mdi:fan"
+			:hint="{
+				title: o.label,
+				description: `${o.which === 'flood' ? 'M8' : 'M7'} on / M9 off, sent like any G-code line. The G-code of a cut can switch it too.`,
+			}"
+		>
+			<Tq.InputSwitch
+				:modelValue="machine.coolant[o.which]"
+				:disabled="!machine.connected || machine.busy"
+				@update:modelValue="machine.setCoolant(o.which, $event)"
+			/>
 		</Tq.Parameter>
 
 		<!-- Axes: one cell per axis, `gridColumns` per row (e.g. X Y Z over

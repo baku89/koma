@@ -21,6 +21,8 @@ import {
 	axesWords,
 	type Axis,
 	type BuildInfo,
+	coolantAfterLine,
+	type CoolantState,
 	type FeedOverrideStep,
 	FluidNCClient,
 	FluidNCError,
@@ -28,6 +30,7 @@ import {
 	type JogOptions,
 	machineMoveLine,
 	type MachineStatus,
+	parseCoolant,
 	parsePins,
 	type RapidOverride,
 	type StreamOptions,
@@ -96,6 +99,11 @@ export interface MachinePanelOptions {
 	homeGroups?: readonly {label: string; steps: HomingSteps}[]
 	/** Hide the jog feed input (the stored default is still used). */
 	showFeed?: boolean
+	/**
+	 * Coolant outputs to offer as on/off buttons, labelled by what is wired
+	 * to them (e.g. `{flood: 'Dust collector'}` for M8/M9). None = no row.
+	 */
+	outputs?: {flood?: string; mist?: string}
 }
 
 /**
@@ -302,6 +310,15 @@ export function defineMachineStore(def: MachineDefinition) {
 		 */
 		const override = ref<{feed: number; rapid: number; spindle: number} | null>(null)
 		/**
+		 * Coolant outputs (M7 / M8 / M9) as koma believes them to be: tracked
+		 * from every line it sends (the switch, typed lines, streamed G-code),
+		 * off after a reset. The `A:` letters of status reports only ever
+		 * confirm an output is on — they come only with `Ov:`, and FluidNC
+		 * reads them back from the pin, which was seen not to reflect the
+		 * commanded state — so their absence never switches anything off here.
+		 */
+		const coolant = ref<CoolantState>({flood: false, mist: false})
+		/**
 		 * Connected to a controller that was suspended (Hold / Door) when its
 		 * port was picked, so it has not said which machine it is. Only the
 		 * real-time commands (resume, reset, …) go through until it is released
@@ -363,17 +380,31 @@ export function defineMachineStore(def: MachineDefinition) {
 
 			c.on('status', s => {
 				status.value = s
-				if (s.override) override.value = s.override
+				if (s.override) {
+					override.value = s.override
+					const seen = parseCoolant(s.accessories)
+					if ((seen.flood && !coolant.value.flood) || (seen.mist && !coolant.value.mist)) {
+						coolant.value = {
+							flood: coolant.value.flood || seen.flood,
+							mist: coolant.value.mist || seen.mist,
+						}
+					}
+				}
 				if (s.state !== 'Alarm') alarm.value = null
 				if (unidentified.value && !isSuspended(s)) void confirmIdentity(c)
 			})
 			c.on('line', l => pushLog('rx', l))
-			c.on('sent', l => pushLog('tx', l))
+			c.on('sent', l => {
+				pushLog('tx', l)
+				const next = coolantAfterLine(l, coolant.value)
+				if (next !== coolant.value) coolant.value = next
+			})
 			c.on('alarm', a => {
 				alarm.value = a
 			})
 			c.on('reset', () => {
 				override.value = null
+				coolant.value = {flood: false, mist: false}
 				pushLog('sys', 'Controller reset')
 			})
 			c.on('disconnect', () => {
@@ -382,6 +413,7 @@ export function defineMachineStore(def: MachineDefinition) {
 				client.value = null
 				status.value = null
 				override.value = null
+				coolant.value = {flood: false, mist: false}
 				unidentified.value = false
 				busy.value = false
 				streamProgress.value = null
@@ -673,6 +705,19 @@ export function defineMachineStore(def: MachineDefinition) {
 			await requireClient().requestStatus()
 		}
 
+		/**
+		 * Switch a coolant output: M8 (flood) / M7 (mist) on, M9 off. M9 turns
+		 * both off — Grbl has no per-output off — so the other one is re-sent
+		 * if it was on. Goes through the line queue, like any G-code; the
+		 * `sent` handler updates `coolant` as each line goes out.
+		 */
+		async function setCoolant(which: keyof CoolantState, on: boolean) {
+			const other: keyof CoolantState = which === 'flood' ? 'mist' : 'flood'
+			const keepOther = !on && coolant.value[other]
+			await send(on ? (which === 'flood' ? 'M8' : 'M7') : 'M9')
+			if (keepOther) await send(other === 'flood' ? 'M8' : 'M7')
+		}
+
 		function waitIdle(opts?: WaitOptions & {settle?: number}) {
 			return requireClient().waitIdle(opts)
 		}
@@ -718,6 +763,7 @@ export function defineMachineStore(def: MachineDefinition) {
 			busy: readonly(busy),
 			streamProgress: readonly(streamProgress),
 			override: readonly(override),
+			coolant: readonly(coolant),
 			connect,
 			disconnect,
 			send,
@@ -733,6 +779,7 @@ export function defineMachineStore(def: MachineDefinition) {
 			resume,
 			feedOverride,
 			rapidOverride,
+			setCoolant,
 			waitIdle,
 			moveTo,
 			setWorkPosition,

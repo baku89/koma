@@ -138,6 +138,41 @@ export function parseStatusReport(line: string): MachineStatus {
 }
 
 //------------------------------------------------------------------------------
+// Accessories (`A:`)
+
+export interface CoolantState {
+	/** Flood coolant (M8), `F` in `A:`. */
+	flood: boolean
+	/** Mist coolant (M7), `M` in `A:`. */
+	mist: boolean
+}
+
+/**
+ * Coolant outputs from the `A:` letters. Grbl / FluidNC print `A:` only in
+ * reports that carry `Ov:`, and leave it out when nothing is on — so read it
+ * from such a report only, and treat a missing field there as all off.
+ */
+export function parseCoolant(accessories: string | undefined): CoolantState {
+	const a = accessories ?? ''
+	return {flood: a.includes('F'), mist: a.includes('M')}
+}
+
+/**
+ * Apply the coolant M-codes of a G-code line (M7 mist on, M8 flood on, M9
+ * both off) to a state — what the controller will hold after running the
+ * line. Lines without any return the state unchanged.
+ */
+export function coolantAfterLine(line: string, state: CoolantState): CoolantState {
+	let next = state
+	for (const m of line.toUpperCase().matchAll(/(?:^|[^A-Z0-9.])M0*([789])(?![0-9.])/g)) {
+		if (m[1] === '7') next = {...next, mist: true}
+		else if (m[1] === '8') next = {...next, flood: true}
+		else next = {flood: false, mist: false}
+	}
+	return next
+}
+
+//------------------------------------------------------------------------------
 // Input pins (`Pn:`)
 
 export interface PinStates {

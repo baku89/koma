@@ -10,8 +10,10 @@ import {
 } from './gcode'
 import {
 	classifyLine,
+	coolantAfterLine,
 	mposToWpos,
 	parseBuildInfo,
+	parseCoolant,
 	parsePins,
 	parseStatusReport,
 } from './status'
@@ -40,6 +42,24 @@ describe('parseStatusReport', () => {
 		expect(s.override).toEqual({feed: 100, rapid: 90, spindle: 80})
 		expect(s.accessories).toBe('SF')
 		expect(s.sd).toEqual({progress: 12.5, filename: '/sd/frame.nc'})
+	})
+
+	it('reads coolant from the accessory letters', () => {
+		expect(parseCoolant('SF')).toEqual({flood: true, mist: false})
+		expect(parseCoolant('FM')).toEqual({flood: true, mist: true})
+		expect(parseCoolant(undefined)).toEqual({flood: false, mist: false})
+	})
+
+	it('tracks coolant through the M-codes of sent lines', () => {
+		const off = {flood: false, mist: false}
+		expect(coolantAfterLine('M8', off)).toEqual({flood: true, mist: false})
+		expect(coolantAfterLine('S12000 M3 M8', off)).toEqual({flood: true, mist: false})
+		expect(coolantAfterLine('m7', off)).toEqual({flood: false, mist: true})
+		expect(coolantAfterLine('M5 M9', {flood: true, mist: true})).toEqual(off)
+		// Not coolant: M80 / M98, an X8 word, a comment-free line without M
+		expect(coolantAfterLine('M80', off)).toBe(off)
+		expect(coolantAfterLine('G1 X8 Y9', off)).toBe(off)
+		expect(coolantAfterLine('M98 P1', off)).toBe(off)
 	})
 
 	it('rejects non-reports', () => {
