@@ -794,6 +794,13 @@ cncjs の 10〜200% スライダは Grbl 1.1 の**リアルタイム文字を生
 - **MachinePanel の軸セル**: − / + は `Tq.InputGroup` で 1 つにまとめ、軸ごとのホームボタンはその右に少し離して置いた（上の段の「go」ボタンの真下）。見出しの段は 名前 + ランプ / Machine 座標 / zero / set だけになり、80 px のセルに収まる。
 - 確認はヘッドレス Chromium（機器なし）: 10 タブの切り替え、タブごとのスクロール位置、リロード後も同じタブ、ツールチップが右に出て隣のタブを塞がない、折りたたんで保存済みのグループも開いて出る。
 
+### 集塵機の on/off（2026-10-16）
+集塵機のフォトカプラ入力（Spin-in）は PiBot の MOSFET 出力 io.4 につながっていて、FluidNC のクーラント出力（**M8 = on / M9 = off**）で動く。切削の G-code の中でも on/off するが、手動のトグルも Mill タブに置いた。
+- **汎用側（main に戻せる）**: `MachinePanelOptions.outputs`（`{flood?: string, mist?: string}` = 配線されているものの名前。無ければ行ごと出ない）→ MachinePanel に出力ごとに 1 行（Override の下。**行のラベルが配線名そのもの**、中身は `Tq.InputSwitch` 1 つ。ユーザー指定: 「Outputs」の見出しやボタンではなく素のトグル）。機械ストアに `coolant: {flood, mist}` と `setCoolant(which, on)`（flood は M8 / M9、mist は M7 / M9。M9 は両方消えるので、もう片方が点いていたら送り直す。行キューを通る普通の G-code なので、streaming 中 = `machine.busy` はスイッチ無効）。
+- **状態は koma 側が持つ**（ユーザー指定、2026-10-16）: 最初は実機で **スイッチが一向に更新されなかった**（`A:` から読んでいた）。今は `coolant` を「koma が送った行」から追う: `sent` イベントごとに `utils/fluidnc/status.ts coolantAfterLine(line, state)` で M7 / M8 / M9 を拾う（スイッチ・手打ち・ストリーミングの G-code すべて。M80 / M98 / `X8` には反応しない）。reset で両方オフ、切断でもオフ。ステータスの `A:`（`parseCoolant`、`Ov:` 付きのレポートにだけ載る）は **点いている方向にしか効かない**（`A:F` が来たらオンにする。無くてもオフにはしない）。FluidNC はピンを読み戻して `A:` を作るので、出力ピンの読み戻しが指令を反映しない（らしい）実機ではこれが無いと数レポートで勝手にオフに戻る。
+- addsub: `MILL_DEFINITION.panel.outputs = {flood: 'Dust collector'}`（`config.ts`）。
+- 確認はヘッドレス Chromium + 偽の FluidNC（`A:` を返さない版）: スイッチ → `M8` 送信・`Ov:` のみのレポートが続いてもオンのまま、`mill.stream` で `… M8 … M5 M9` を流すとスイッチが追従、`A:F` が来ればオン、その後 `A:` が消えてもオフにならない。vitest に `parseCoolant` / `coolantAfterLine`。**実機で io.4 が M8 で入るかは未確認。**
+
 ### MachinePanel の軸セル（2026-10-02）
 Box Rig もフライス盤も同じセル（行レイアウトは廃止）。`MachineDefinition.panel` は `gridColumns`（既定 3）と `showFeed` だけ。
 

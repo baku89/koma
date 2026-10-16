@@ -219,21 +219,25 @@ const frames = computed<ExhibitFrame[]>(() => {
 		})
 	}
 
-	// 1. The film: Main (layer 0), previz filling the gaps.
-	p.komas.forEach((koma, frame) => {
-		const main = koma?.shots?.[0]
-		if (main) {
-			push(main, frame, 0, 'main')
-			return
-		}
-		for (const layer of previz) {
-			const pv = koma?.shots?.[layer]
-			if (pv) {
-				push(pv, frame, layer, 'previz')
+	// 1. The film: Main (layer 0), previz filling the gaps — only while Main
+	// is shown in the "Exhibit" preset (the gating applies to the film too,
+	// not just the takes below).
+	if (!allowed || allowed.has(0)) {
+		p.komas.forEach((koma, frame) => {
+			const main = koma?.shots?.[0]
+			if (main) {
+				push(main, frame, 0, 'main')
 				return
 			}
-		}
-	})
+			for (const layer of previz) {
+				const pv = koma?.shots?.[layer]
+				if (pv) {
+					push(pv, frame, layer, 'previz')
+					return
+				}
+			}
+		})
+	}
 
 	// 2. Every other take, chronologically.
 	const takes: {f: ExhibitFrame; i: number}[] = []
