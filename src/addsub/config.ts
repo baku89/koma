@@ -30,6 +30,12 @@ export const MILL_DEFINITION: MachineDefinition = {
 		z: {unit: 'mm'},
 	},
 	jogFeed: 800,
+	// The dust collector's opto input hangs off the PiBot MOSFET output that
+	// FluidNC drives as flood coolant (M8 / M9); the cut G-code switches it
+	// too.
+	panel: {
+		outputs: {flood: 'Dust collector'},
+	},
 }
 
 export const RIG_DEFINITION: MachineDefinition = {
