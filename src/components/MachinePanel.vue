@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {useTweeq} from 'tweeq'
-import {computed, reactive, ref, watch} from 'vue'
+import {computed, reactive, ref, useTemplateRef,watch} from 'vue'
 
 import {
 	homingLines,
@@ -195,15 +195,38 @@ function isLimitActive(axis: Axis) {
 
 const showLog = Tq.config.ref(`machine.${props.machine.def.id}.showLog`, false)
 const consoleInput = ref('')
+const $console = useTemplateRef<InstanceType<typeof Tq.InputString>>('$console')
 
 async function sendConsole() {
 	const line = consoleInput.value.trim()
 	if (!line) return
 	consoleInput.value = ''
+	// InputString keeps showing what was typed while it has focus (and the
+	// Send button's mousedown.prevent leaves focus in the field), so blur it
+	// to let the cleared model through, then put the caret back for the
+	// next line.
+	$console.value?.blur()
+	$console.value?.select()
 	await props.machine.send(line).catch(() => {})
 }
 
 const recentLog = computed(() => props.machine.log.slice(-12))
+
+/** The whole log (not just the visible tail) as text, for the clipboard. */
+function formatLog() {
+	return props.machine.log
+		.map(e => (e.dir === 'tx' ? '› ' : e.dir === 'sys' ? '• ' : '') + e.text)
+		.join('\n')
+}
+
+async function copyLog() {
+	try {
+		await navigator.clipboard.writeText(formatLog())
+	} catch (e) {
+		// eslint-disable-next-line no-console
+		console.error('[MachinePanel] Could not copy the log', e)
+	}
+}
 
 async function setWorkValue(axis: Axis) {
 	const current = props.machine.wpos[axis] ?? 0
@@ -337,6 +360,16 @@ const outputs = computed(() =>
 						}"
 						@click="machine.reset()"
 					/>
+					<Tq.InputButton
+						label="Restart"
+						icon="mdi:power-cycle"
+						:tooltip="{
+							title: 'Restart the controller ($Bye)',
+							description:
+								'Reboots the ESP32 as after a power cycle. Not processed while held — Reset first.',
+						}"
+						@click="machine.restart()"
+					/>
 				</div>
 			</div>
 		</Tq.Parameter>
@@ -405,15 +438,39 @@ const outputs = computed(() =>
 				:hint="{
 					title: 'Send a line',
 					description:
-						'G-code or $-command, sent as typed (Enter). The chevron shows the last lines of the serial log.',
+						'G-code or $-command, sent as typed with Enter or the Send button (not on blur). The chevron shows the last lines of the serial log (status reports from the ? poll are left out); the copy button puts the whole log on the clipboard.',
 				}"
 			>
-				<div class="row">
+				<!--
+					Deliberately not @confirm: Tq.InputString confirms on blur too, and a
+					typed G-code line must only go out on an explicit Enter / Send.
+					Capture phase: the model must be cleared before InputString's own
+					Enter handler schedules its nextTick (display = model), or the
+					stale text is written back.
+				-->
+				<div class="row" @keydown.enter.capture="sendConsole">
 					<Tq.InputString
+						ref="$console"
 						v-model="consoleInput"
 						font="monospace"
 						:disabled="!machine.connected"
-						@confirm="sendConsole"
+					/>
+					<Tq.InputButton
+						icon="mdi:send"
+						subtle
+						narrow
+						tooltip="Send"
+						:disabled="!machine.connected || !consoleInput.trim()"
+						@click="sendConsole"
+					/>
+					<Tq.InputButton
+						v-if="showLog"
+						icon="mdi:content-copy"
+						subtle
+						narrow
+						tooltip="Copy log"
+						:disabled="machine.log.length === 0"
+						@click="copyLog"
 					/>
 					<Tq.InputButton
 						:icon="showLog ? 'mdi:chevron-up' : 'mdi:chevron-down'"
@@ -703,6 +760,16 @@ const outputs = computed(() =>
 					:disabled="!machine.connected"
 					@click="machine.reset()"
 				/>
+				<Tq.InputButton
+					icon="mdi:power-cycle"
+					:tooltip="{
+						title: 'Restart the controller ($Bye)',
+						description:
+							'Reboots the ESP32 as after a power cycle: config.yaml is re-read, homing is lost.',
+					}"
+					:disabled="!machine.connected"
+					@click="machine.restart()"
+				/>
 			</div>
 		</Tq.Parameter>
 	</Tq.ParameterGroup>
@@ -889,6 +956,8 @@ const outputs = computed(() =>
 	color var(--tq-color-text-mute)
 	max-height 12em
 	overflow auto
+	user-select text
+	cursor text
 	padding var(--tq-gap-group) 0 var(--tq-gap-group) var(--tq-gap-section)
 	background var(--tq-color-input)
 	border-radius var(--tq-radius-input)

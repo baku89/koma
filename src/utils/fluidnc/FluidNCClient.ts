@@ -517,6 +517,23 @@ export class FluidNCClient extends EventEmitter<Events> {
 		await this.realtime(Realtime.softReset)
 	}
 
+	/**
+	 * `$Bye`: reboot the ESP32 (the full restart, as after a power cycle —
+	 * config.yaml is re-read, homing is lost). A line command, so unlike
+	 * Ctrl-X it is not processed while the controller is held. Resolves once
+	 * the board is back: its banner fails the pending line with 'Controller
+	 * reset', which here is the expected outcome.
+	 */
+	async restart(timeout = 8000) {
+		this.#failAll(new FluidNCError('aborted', undefined, 'Restart'))
+		try {
+			await this.send('$Bye', {timeout})
+		} catch (e) {
+			if (e instanceof FluidNCError && e.kind === 'disconnected') return
+			throw e
+		}
+	}
+
 	//--------------------------------------------------------------------------
 	// Higher-level helpers
 

@@ -184,6 +184,8 @@ const stateClass = computed(() => {
 		max-height 20lh
 		overflow-y auto
 		font-size 0.85em
+		user-select text
+		cursor text
 
 .head
 	display flex

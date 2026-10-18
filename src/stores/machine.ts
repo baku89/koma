@@ -21,6 +21,7 @@ import {
 	axesWords,
 	type Axis,
 	type BuildInfo,
+	classifyLine,
 	coolantAfterLine,
 	type CoolantState,
 	type FeedOverrideStep,
@@ -33,6 +34,7 @@ import {
 	parseCoolant,
 	parsePins,
 	type RapidOverride,
+	type SendOptions,
 	type StreamOptions,
 	type WaitOptions,
 } from '@/utils/fluidnc'
@@ -329,11 +331,15 @@ export function defineMachineStore(def: MachineDefinition) {
 		const connected = computed(() => client.value !== null)
 		const state = computed(() => status.value?.state ?? null)
 		const mpos = computed<AxesPosition>(() => status.value?.mpos ?? {})
-		const wpos = computed<AxesPosition>(() => status.value?.wpos ?? mpos.value)
+		/**
+		 * Work position: the controller's own WPos, or MPos − WCO (the client
+		 * remembers the last WCO, which only comes every few reports). Empty
+		 * until a WCO has arrived — never machine coordinates in disguise.
+		 */
+		const wpos = computed<AxesPosition>(() => status.value?.wpos ?? {})
 		/**
 		 * Work coordinate offset (machine position of the work origin), null
-		 * until the controller has reported it — until then `wpos` reads as
-		 * `mpos`.
+		 * until the controller has reported it.
 		 */
 		const wco = computed<AxesPosition | null>(() => status.value?.wco ?? null)
 		const isIdle = computed(() => state.value === 'Idle')
@@ -393,7 +399,12 @@ export function defineMachineStore(def: MachineDefinition) {
 				if (s.state !== 'Alarm') alarm.value = null
 				if (unidentified.value && !isSuspended(s)) void confirmIdentity(c)
 			})
-			c.on('line', l => pushLog('rx', l))
+			// Status reports (`<Idle|MPos:…>`, the answer to koma's `?` poll every
+			// 200 ms) would drown everything else; they are shown as the axis
+			// readouts instead.
+			c.on('line', l => {
+				if (classifyLine(l).type !== 'status') pushLog('rx', l)
+			})
 			c.on('sent', l => {
 				pushLog('tx', l)
 				const next = coolantAfterLine(l, coolant.value)
@@ -572,9 +583,21 @@ export function defineMachineStore(def: MachineDefinition) {
 		//----------------------------------------------------------------------
 		// Commands
 
-		async function send(line: string) {
+		/**
+		 * Homing (`$H`, `$HX`, `$H=XZ`) answers `ok` only when the cycle is
+		 * done, which can take well over the default command timeout (10 s,
+		 * meant to catch a dead link). Give those lines no timeout: a failed
+		 * cycle still rejects through `ALARM:N`, a lost port through
+		 * 'disconnected'.
+		 */
+		function isHomingLine(line: string) {
+			return /^\$H/i.test(line.trim())
+		}
+
+		async function send(line: string, opts: SendOptions = {}) {
 			try {
-				return await requireIdentified().send(line)
+				const timeout = opts.timeout ?? (isHomingLine(line) ? 0 : undefined)
+				return await requireIdentified().send(line, {...opts, timeout})
 			} catch (e) {
 				lastError.value = e instanceof Error ? e.message : String(e)
 				throw e
@@ -639,6 +662,21 @@ export function defineMachineStore(def: MachineDefinition) {
 			await requireClient().softReset()
 			busy.value = false
 			streamProgress.value = null
+		}
+
+		/** Reboot the controller (`$Bye`). The port stays open; the board
+		 * comes back with its banner (→ 'reset' event) a few seconds later. */
+		async function restart() {
+			const c = requireClient()
+			busy.value = false
+			streamProgress.value = null
+			pushLog('sys', 'Restarting the controller ($Bye)…')
+			try {
+				await c.restart()
+			} catch (e) {
+				lastError.value = e instanceof Error ? e.message : String(e)
+				throw e
+			}
 		}
 
 		/**
@@ -774,6 +812,7 @@ export function defineMachineStore(def: MachineDefinition) {
 			home,
 			unlock,
 			reset,
+			restart,
 			feedHold,
 			spindleStop,
 			resume,
