@@ -256,6 +256,26 @@ def export_set_json(geo, path, frame='rig', unit='m', line_attr='face',
     return data
 
 
+def camera_focus(cam):
+    """
+    The normalised focus position (koma's `focusDistance`, 0–1) a camera set
+    up with the Koma Lens folder (koma_lens.setup) is focused at right now:
+    its focus distance (the focus-target object or `koma_focus_mm`) looked up
+    in the project's lens table. None for a camera without that setup or
+    without a table.
+    """
+    if cam.parm('koma_project') is None:
+        return None
+    try:
+        import koma_lens
+        table = koma_lens.load(cam.evalParm('koma_project'))
+        values = koma_lens.camera_values(table, pupil_distance_mm=koma_lens.focus_distance_mm(cam))
+    except Exception:
+        return None
+    n = values.get('normalized')
+    return None if n is None else round(float(n), 4)
+
+
 def camera_pose(cam, unit='m'):
     """
     A Houdini camera's pose in its parent space: position (pupil) and rotation
@@ -398,8 +418,13 @@ class KomaBridge:
             return self._results.pop(pid)
 
     def plan_op(self, layer_id, frame, led_geo=None, camera=None, camera_frame='world',
-                unit='m', cd_attr='Cd', gamma=1.0, solve_rig=True):
-        """A `setPlan` op for one koma frame from the LED point cloud / camera as they are now."""
+                unit='m', cd_attr='Cd', gamma=1.0, solve_rig=True, focus=True):
+        """
+        A `setPlan` op for one koma frame from the LED point cloud / camera as
+        they are now. With `focus`, a camera carrying the Koma Lens setup also
+        plans its focus (`cameraConfigs.focusDistance`, normalised through the
+        lens table from the camera's focus target).
+        """
         plan = {}
         if camera is not None:
             if isinstance(camera, str):
@@ -409,13 +434,18 @@ class KomaBridge:
             plan['camera'] = pose
             if not solve_rig:
                 plan['solveRig'] = False
+            if focus:
+                n = camera_focus(camera)
+                if n is not None:
+                    plan['cameraConfigs'] = {'focusDistance': n}
         if led_geo is not None:
             plan['led'] = {'rgb': base64.b64encode(led_rgb_bytes(led_geo, cd_attr, gamma)).decode('ascii')}
         return {'op': 'setPlan', 'layer': layer_id, 'frame': int(frame), 'plan': plan}
 
     def send_plans(self, koma_frames, layer_id, led_node=None, camera=None,
                    frame_offset=None, camera_frame='world', unit='m',
-                   on_conflict='overwrite', progress=None, cd_attr='Cd', gamma=1.0):
+                   on_conflict='overwrite', progress=None, cd_attr='Cd', gamma=1.0,
+                   focus=True):
         """
         Write the camera pose and/or the wall of every koma frame in
         `koma_frames` into koma's plans on layer `layer_id`, evaluating Houdini
@@ -438,7 +468,8 @@ class KomaBridge:
                 hou.setFrame(f + frame_offset)
                 geo = node.geometry() if node is not None else None
                 op = self.plan_op(layer_id, f, led_geo=geo, camera=camera,
-                                  camera_frame=camera_frame, unit=unit, cd_attr=cd_attr, gamma=gamma)
+                                  camera_frame=camera_frame, unit=unit, cd_attr=cd_attr, gamma=gamma,
+                                  focus=focus)
                 outcome = self.send_patch([op], on_conflict=on_conflict,
                                           note='Houdini send_plans frame %d' % f)
                 if outcome is None:
