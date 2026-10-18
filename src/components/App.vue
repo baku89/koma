@@ -13,6 +13,7 @@ import AddsubVisualizer from '@/addsub/components/AddsubVisualizer.vue'
 import CutPanel from '@/addsub/components/CutPanel.vue'
 import HoudiniPanel from '@/addsub/components/HoudiniPanel.vue'
 import LedPanel from '@/addsub/components/LedPanel.vue'
+import LensPanel from '@/addsub/components/LensPanel.vue'
 import PlanPanel from '@/addsub/components/PlanPanel.vue'
 import SequencePanel from '@/addsub/components/SequencePanel.vue'
 import {setupAddsubInbox} from '@/addsub/inboxOps'
@@ -21,10 +22,12 @@ import {setupAddsubRelay} from '@/addsub/relayPublish'
 import {setupAddsubShootAlerts} from '@/addsub/shootConditions'
 import {useHoudiniStore} from '@/addsub/stores/houdini'
 import {useLedStore} from '@/addsub/stores/led'
+import {useLensStore} from '@/addsub/stores/lens'
 import {useMillStore, useRigStore} from '@/addsub/stores/machines'
 import {usePrevizStore} from '@/addsub/stores/previz'
 import {useRigWorkStore} from '@/addsub/stores/rigWork'
 import {type CaptureRequest, useSequenceStore} from '@/addsub/stores/sequence'
+import {isElectron, native} from '@/electron'
 import {useCameraStore} from '@/stores/camera'
 import {useCncStore} from '@/stores/cnc'
 import {useDmxStore} from '@/stores/dmx'
@@ -45,12 +48,21 @@ import {
 	resizeBlobImage,
 	speak,
 } from '@/utils'
+import {nativeAssetPath, resolveBlob} from '@/utils/assets'
+import {
+	type ExportFrame,
+	exportFramesToMp4,
+	exportVideoFilename,
+	saveBlobAs,
+} from '@/utils/exportVideo'
+import {fitH264Size} from '@/utils/mp4'
 import {
 	discoverSerialPorts,
 	requestSerialPort,
 	resetRejections,
 	serialRequestError,
 } from '@/utils/serialDiscovery'
+import {buzz} from '@/utils/sound'
 
 import CameraControl from './CameraControl.vue'
 import InAppProjectsPanel from './InAppProjectsPanel.vue'
@@ -82,6 +94,7 @@ const mill = useMillStore()
 const rig = useRigStore()
 const rigWork = useRigWorkStore()
 const led = useLedStore()
+const lens = useLensStore()
 const previz = usePrevizStore()
 const sequence = useSequenceStore()
 
@@ -112,6 +125,9 @@ useEventListener(window, 'beforeunload', (e: BeforeUnloadEvent) => {
 		e.returnValue = ''
 	}
 })
+
+// Desktop build: menu items run app commands by id.
+native?.onCommand(id => Tq.actions.perform(id))
 
 const gamepad = Bndr.gamepad()
 
@@ -262,6 +278,11 @@ const {fn: shoot} = preventConcurrentExecution(
 
 			if (camera.focalLength.value) {
 				cameraConfigs.focalLength = camera.focalLength.value
+			}
+			// The lens table knows the real (pinhole) focal length at this
+			// focus; the lens itself only ever reports its nameplate.
+			if (lens.focalLength !== null) {
+				cameraConfigs.focalLength = lens.focalLength
 			}
 
 			const trackerData = tracker.enabled
@@ -621,6 +642,116 @@ Tq.actions.register([
 				bind: 'command+shift+s',
 				async perform() {
 					await project.saveAs()
+				},
+			},
+			// Desktop build only: the project folder in Finder.
+			...(isElectron
+				? [
+						{
+							id: 'open_project_folder',
+							label: 'Open Project Folder in Finder',
+							icon: 'mdi:folder-open-outline',
+							perform() {
+								const p = project.nativeProjectPath()
+								if (!p) {
+									alert(
+										'This project is not in a folder on disk ' +
+											'(in-app projects live in the browser storage). ' +
+											'Use Save Project As… to put it in a folder.'
+									)
+									return
+								}
+								native!.openPath(p)
+							},
+						},
+					]
+				: []),
+			{
+				id: 'export_mp4',
+				label: 'Export MP4 (Range)…',
+				icon: 'mdi:movie-open-outline',
+				async perform() {
+					// The frames: a Shift-selected range on the timeline, else the
+					// in → out range. Composited like the Preview (the active
+					// preset's layers up to the current one).
+					const last = Math.max(0, project.allKomas.length - 1)
+					const sel = viewport.selectedRange
+					const [from0, to0] = sel && sel[1] > sel[0] ? sel : project.previewRange
+					const result = await Tq.modal.prompt(
+						{from: from0, to: to0, fps: project.fps, hiRes: false},
+						{
+							from: {type: 'number', min: 0, max: last, step: 1},
+							to: {type: 'number', min: 0, max: last, step: 1},
+							fps: {type: 'number', min: 1, max: 120, step: 1},
+							// (no `label`: InputComplex hands it to the switch too, so it'd show twice)
+							hiRes: {type: 'boolean'},
+						},
+						{title: 'Export MP4'}
+					)
+					if (!result) return
+					const from = Math.min(result.from, result.to)
+					const to = Math.max(result.from, result.to)
+					const fps = Math.max(1, Math.round(result.fps))
+					const layers = project.compositeLayers(viewport.currentLayer)
+
+					const frames: ExportFrame[] = []
+					for (let f = from; f <= to; f++) {
+						frames.push({
+							layers: layers.map(layer => {
+								const shot = project.shot(f, layer)
+								const id = result.hiRes ? shot?.jpg : shot?.lv
+								return {
+									blob: () => resolveBlob(id),
+									...project.layerView(layer),
+								}
+							}),
+						})
+					}
+
+					// Output size: the project (lv) resolution, or the first hi-res
+					// picture's own size — stepped down to what H.264 can take
+					// (Chrome won't encode the camera's 6000×4000; and only H.264
+					// plays in QuickTime).
+					let [width, height] = project.resolution
+					if (result.hiRes) {
+						for (const fr of frames) {
+							const b = await fr.layers[fr.layers.length - 1]?.blob()
+							if (!b) continue
+							const bmp = await createImageBitmap(b)
+							;[width, height] = [bmp.width, bmp.height]
+							bmp.close()
+							break
+						}
+					}
+					const fit = await fitH264Size(width, height, fps)
+					if (fit) [width, height] = fit
+
+					const title = document.title
+					try {
+						let codec = ''
+						const blob = await exportFramesToMp4(frames, {
+							fps,
+							width,
+							height,
+							onProgress: (done, total) => {
+								document.title = `Encoding ${done}/${total}… – ${title}`
+							},
+							onCodec: c => (codec = c),
+						})
+						document.title = title
+						buzz('done')
+						await saveBlobAs(blob, exportVideoFilename(project.name, from, to, fps))
+						if (codec !== 'avc') {
+							alert(
+								`H.264 isn't available in this browser, so the file was written as ${codec.toUpperCase()}. Chrome plays it; QuickTime won't.`
+							)
+						}
+					} catch (e) {
+						document.title = title
+						if (e instanceof DOMException && e.name === 'AbortError') return
+						buzz('error')
+						alert(`Export failed: ${e instanceof Error ? e.message : String(e)}`)
+					}
 				},
 			},
 			{
@@ -1059,6 +1190,30 @@ Tq.actions.register([
 						sequence.recallRig(viewport.currentFrame, viewport.currentLayer)
 					),
 			},
+			// Desktop build only: the selected shot's file in Finder (the camera
+			// JPEG when there is one, else the preview).
+			...(isElectron
+				? [
+						{
+							id: 'reveal_shot_in_finder',
+							label: 'Reveal Shot in Finder',
+							icon: 'mdi:folder-eye-outline',
+							perform() {
+								const shot = project.shot(viewport.currentFrame, viewport.currentLayer)
+								if (!shot) return
+								const p = nativeAssetPath(shot.jpg) ?? nativeAssetPath(shot.lv)
+								if (!p) {
+									alert(
+										'This shot has no file in a folder on disk yet ' +
+											'(unsaved, or an in-app project).'
+									)
+									return
+								}
+								native!.revealInFinder(p)
+							},
+						},
+					]
+				: []),
 			{
 				id: 'aim_rig_at',
 				label: 'Aim Camera at Work Point…',
@@ -1440,7 +1595,13 @@ watchEffect(() => {
 									<Tq.ParameterGrid><HoudiniPanel /></Tq.ParameterGrid>
 								</Tq.PaneTab>
 								<Tq.PaneTab id="camera" label="Camera Control" icon="mdi:camera">
-									<Tq.ParameterGrid><CameraControl /></Tq.ParameterGrid>
+									<Tq.ParameterGrid>
+										<CameraControl
+											:readonly="lens.mode === 'normalized' ? [] : ['focusDistance']"
+											:overrides="lens.focalLength !== null ? {focalLength: lens.focalLength} : {}"
+										/>
+										<LensPanel />
+									</Tq.ParameterGrid>
 								</Tq.PaneTab>
 								<!-- DMX control hidden on the addsub branch (no DMX rig on this set). -->
 								<Tq.PaneTab id="retakes" label="Retakes" icon="mdi:history">

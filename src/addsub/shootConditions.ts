@@ -11,20 +11,29 @@
  * A frame with G-code (dropped on its cell, or planned by previz) is only
  * shot after that G-code has run to the end on the mill (cuts.ts) — unless
  * the project's `requireCut` is off for a dry run.
+ *
+ * With auto focus on (stores/lens.ts) the camera must have landed on the
+ * focus computed for the rig's pose.
  */
 
 import {useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
 
+import {useLensStore} from './stores/lens'
 import {useSequenceStore} from './stores/sequence'
 
 export function setupAddsubShootAlerts() {
 	const project = useProjectStore()
 	const sequence = useSequenceStore()
+	const lens = useLensStore()
 	const shootAlerts = useShootAlertsStore()
 
 	return shootAlerts.registerAlertProvider(() => {
 		const {frame, layer} = project.captureShot
-		return [...sequence.cutAlerts(frame, layer), ...sequence.planAlerts(frame, layer)]
+		return [
+			...sequence.cutAlerts(frame, layer),
+			...sequence.planAlerts(frame, layer),
+			...lens.alerts(),
+		]
 	})
 }

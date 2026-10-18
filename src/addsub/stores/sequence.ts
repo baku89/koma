@@ -346,7 +346,11 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 				problems.push('Camera is not connected')
 			} else {
 				try {
-					await tethr.importConfigs(planCameraConfigs(configs as Record<string, unknown>))
+					const toApply = planCameraConfigs(configs as Record<string, unknown>)
+					// Auto focus (stores/lens.ts) owns the focus; the plan's value
+					// would only fight it.
+					if (project.addsub.focus.mode === 'target') delete toApply.focusDistance
+					await tethr.importConfigs(toApply)
 				} catch (e) {
 					problems.push(`Camera settings: ${e instanceof Error ? e.message : String(e)}`)
 				}

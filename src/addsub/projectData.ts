@@ -12,6 +12,7 @@ import {
 	type LedFace,
 	RIG_LIMITS,
 } from './config'
+import {DEFAULT_LENS_CALIBRATION, type FocusMode, type LensCalibration} from './lens'
 import type {PlanTable} from './plan'
 
 /**
@@ -165,6 +166,17 @@ export interface AddsubProjectData {
 	/** Soft travel limits for the rig, checked before every move. */
 	rigLimits: Partial<Record<keyof AxesPosition, [number, number]>>
 	calibration: AddsubCalibration
+	/** The lens's focus ↔ distance ↔ field-of-view table (lens.ts). */
+	lens: LensCalibration
+	/**
+	 * How the focus is set (Camera Control › Lens):
+	 *   normalized  the camera's own 0–1 position, typed in Camera Control
+	 *   distance    millimetres from the head's rotation centre, through the
+	 *               lens table (lens.ts)
+	 *   target      kept on `target` (work coordinates, mm) from wherever the
+	 *               rig is, through the lens table — auto focus
+	 */
+	focus: {mode: FocusMode; target: [number, number, number]}
 	led: {
 		/** Multiplier on per-pixel colours pushed in (the live feed). */
 		gain: number
@@ -226,6 +238,8 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	rigFeed: 1500,
 	rigLimits: {x: [...RIG_LIMITS.x], y: [...RIG_LIMITS.y], z: [...RIG_LIMITS.z]},
 	calibration: DEFAULT_CALIBRATION,
+	lens: DEFAULT_LENS_CALIBRATION,
+	focus: {mode: 'normalized', target: [0, 0, 0]},
 	led: {
 		gain: 1,
 		brightnessCap: 0.8,

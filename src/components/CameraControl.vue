@@ -8,9 +8,35 @@ import {useProjectStore} from '@/stores/project'
 
 import TethrConfig from './TethrConfig.vue'
 
+const props = withDefaults(
+	defineProps<{
+		/**
+		 * Configs to show but not edit here — when something else owns them
+		 * (e.g. a lens table that sets the focus in millimetres).
+		 */
+		readonly?: ConfigName[]
+		/**
+		 * Values to show in place of the camera's own, read-only — for what
+		 * the app knows better than the camera (e.g. the focal length a
+		 * macro lens really has at its focus distance).
+		 */
+		overrides?: Partial<Record<ConfigName, unknown>>
+	}>(),
+	{readonly: () => [], overrides: () => ({})}
+)
+
 const Tq = useTweeq()
 const camera = useCameraStore()
 const project = useProjectStore()
+
+function configFor(name: ConfigName) {
+	const config = (camera as any)[name]
+	if (name in props.overrides && props.overrides[name] != null) {
+		return {...(config ?? {target: null}), value: props.overrides[name], writable: false}
+	}
+	if (!config || !props.readonly.includes(name)) return config
+	return {...config, writable: false}
+}
 
 const showAll = Tq.config.ref('cameraControl.showAll', true)
 
@@ -108,6 +134,7 @@ const isConnected = computed(() => !!camera.tethr)
 // camera to declare anything unsupported).
 function isConfigSupported(name: ConfigName) {
 	if (!isConnected.value) return true
+	if (props.overrides[name] != null) return true
 	const config = (camera as any)[name] as
 		| {writable?: boolean; value?: unknown; option?: unknown}
 		| undefined
@@ -185,7 +212,7 @@ function setConfigColor(name: ConfigName, value: string) {
 						</Tq.InputColorPad>
 						{{ configLabels[name].label }}
 					</template>
-					<TethrConfig :config="(camera as any)[name]" :name="name" />
+					<TethrConfig :config="configFor(name)" :name="name" />
 				</Tq.Parameter>
 			</template>
 		</template>

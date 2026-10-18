@@ -22,14 +22,17 @@ import {useViewportStore} from '@/stores/viewport'
 import {AXES, type AxesPosition,type Axis} from '@/utils/fluidnc'
 
 import {workAxesToCameraPose} from '../kinematics'
+import {FOCUS_MM_RANGE, lensAtFocus} from '../lens'
 import {type FramePlan, PLAN_CAMERA_CONFIG_NAMES, type PlanCameraConfigName} from '../plan'
 import {useLedStore} from '../stores/led'
+import {useLensStore} from '../stores/lens'
 import {useRigStore} from '../stores/machines'
 import {useRigWorkStore} from '../stores/rigWork'
 import {useSequenceStore} from '../stores/sequence'
 
 const project = useProjectStore()
 const led = useLedStore()
+const lens = useLensStore()
 const viewport = useViewportStore()
 const camera = useCameraStore()
 const rig = useRigStore()
@@ -167,13 +170,24 @@ function clearCameraConfig(name: PlanCameraConfigName) {
  */
 function planConfig(name: PlanCameraConfigName): TethrConfig<any> {
 	const live = (camera as unknown as Record<string, TethrConfig<any> | undefined>)[name]
-	const value = cameraValues.value[name] ?? null
+	let value = cameraValues.value[name] ?? null
+	// A range (number) input needs a number to render; while the plan has
+	// none, show the camera's current value dimmed (the `unset` class) and
+	// let the first edit write it into the plan.
+	if (value === null && live?.option?.type === 'range' && typeof live.value === 'number') {
+		value = live.value
+	}
+	const seeded = cameraValues.value[name] === undefined && value !== null
 	return {
 		writable: true,
 		value,
 		target: value,
 		option: live?.option,
-		set: v => setCameraConfig(name, v),
+		// A seeded value echoed back unchanged is not an edit.
+		set: v => {
+			if (seeded && v === value) return
+			setCameraConfig(name, v)
+		},
 	}
 }
 
@@ -191,6 +205,25 @@ function setCameraConfigText(name: PlanCameraConfigName, text: string) {
 	}
 	const n = Number(t)
 	setCameraConfig(name, /^-?\d+(\.\d+)?$/.test(t) && Number.isFinite(n) ? n : t)
+}
+
+/**
+ * Focus in millimetres (lens table, stores/lens.ts): the plan keeps the
+ * camera's normalised position; this converts both ways for display.
+ */
+const focusMmShown = computed(() => {
+	if (!lens.hasTable) return null
+	const n = cameraValues.value.focusDistance
+	// No planned focus: show the camera's current one dimmed (the `unset` class).
+	const v = typeof n === 'number' ? n : lens.focusNormalized
+	return v === null ? null : lensAtFocus(lens.table, v).distance
+})
+
+function setFocusMm(mm: number) {
+	// InputNumber echoes the displayed value back (quantised to its step);
+	// only a real change is an edit — otherwise selecting a frame would key it.
+	if (focusMmShown.value !== null && Math.abs(mm - focusMmShown.value) < 0.05) return
+	setCameraConfig('focusDistance', lens.normalizedFor(mm))
 }
 
 const cameraRows: {name: PlanCameraConfigName; label: string; icon: string}[] = [
@@ -358,8 +391,19 @@ void (PLAN_CAMERA_CONFIG_NAMES satisfies readonly ConfigName[])
 		<!-- Camera settings: the connected camera's choices; free text without one. -->
 		<Tq.Parameter v-for="row in cameraRows" :key="row.name" :label="row.label" :icon="row.icon">
 			<div class="row">
+				<Tq.InputNumber
+					v-if="row.name === 'focusDistance' && lens.hasTable"
+					:modelValue="focusMmShown ?? 0"
+					:min="FOCUS_MM_RANGE[0]"
+					:max="FOCUS_MM_RANGE[1]"
+					:step="0.1"
+					suffix=" mm"
+					:class="{unset: cameraValues[row.name] === undefined}"
+					:disabled="focusMmShown === null"
+					@update:modelValue="setFocusMm"
+				/>
 				<TethrConfigInput
-					v-if="hasOption(row.name)"
+					v-else-if="hasOption(row.name)"
 					:config="planConfig(row.name)"
 					:name="row.name"
 					:class="{unset: cameraValues[row.name] === undefined}"

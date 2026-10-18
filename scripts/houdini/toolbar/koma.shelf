@@ -8,6 +8,7 @@
     <memberTool name="koma_led_send"/>
     <memberTool name="koma_stop"/>
     <memberTool name="koma_export_set"/>
+    <memberTool name="koma_lens_setup"/>
     <memberTool name="koma_settings"/>
   </toolshelf>
 
@@ -36,7 +37,7 @@ koma_shelf.toggle_camera_live()
   </tool>
 
   <tool name="koma_send_plans" label="Send Plans" icon="SOP_timeshift">
-    <helpText><![CDATA[Write the camera pose and the LED wall of every koma frame between koma's in and out points into koma's plans on the layer selected in koma (Houdini evaluated at koma frame + previz offset). Replaces plans already there.]]></helpText>
+    <helpText><![CDATA[Write the camera pose (plus its focus, when the camera has the Koma Lens setup: the focus-target distance through the lens table) and the LED wall of every koma frame between koma's in and out points into koma's plans on the layer selected in koma (Houdini evaluated at koma frame + previz offset). Replaces plans already there.]]></helpText>
     <script scriptType="python"><![CDATA[import sys
 import hou
 p = hou.getenv('KOMA_HOUDINI')
@@ -80,6 +81,18 @@ if p and p not in sys.path:
     sys.path.append(p)
 import koma_shelf
 koma_shelf.export_set()
+]]></script>
+  </tool>
+
+  <tool name="koma_lens_setup" label="Lens Setup" icon="OBJ_camera_switch">
+    <helpText><![CDATA[Drive the camera's focal length, aperture and focus from the lens table koma measured (the project's calibration.json): adds a "Koma Lens" folder to the camera with a focus-target object (a null to put on the subject; /obj/focus_target is made if there is none) or a focus distance in mm. Moving the camera or the target refocuses the previz the way the rig would. A macro lens focused close is nothing like its nameplate.]]></helpText>
+    <script scriptType="python"><![CDATA[import sys
+import hou
+p = hou.getenv('KOMA_HOUDINI')
+if p and p not in sys.path:
+    sys.path.append(p)
+import koma_shelf
+koma_shelf.lens_setup()
 ]]></script>
   </tool>
 

@@ -16,6 +16,7 @@ import os
 import hou
 
 import koma_bridge as kb
+import koma_lens
 
 _SETTINGS_FILE = os.path.join(hou.homeHoudiniDirectory(), 'koma_bridge.json')
 _DEFAULTS = {
@@ -262,8 +263,9 @@ def toggle_camera_live():
 
 def send_plans():
     """
-    Write the camera pose and the LED wall of every koma frame between koma's
-    in and out points into koma's plans, on the layer selected in koma.
+    Write the camera pose (and its focus, when the camera has the Koma Lens
+    setup) and the LED wall of every koma frame between koma's in and out
+    points into koma's plans, on the layer selected in koma.
     Houdini is evaluated at koma frame + previz frame offset. Existing plans
     on those frames are replaced.
     """
@@ -297,7 +299,7 @@ def send_plans():
         pass
     try:
         cam = _camera_node(s)
-        what.append('camera (%s)' % cam.path())
+        what.append('camera%s (%s)' % (' + focus' if cam.parm('koma_project') is not None else '', cam.path()))
     except hou.Error:
         pass
     if led_node is None and cam is None:
@@ -376,3 +378,54 @@ def export_set():
     kb.export_set_json(geo, path, frame='rig', unit='m')
     _status('wrote %s' % path)
     return path
+
+
+def _project_folder(s):
+    """Ask for the koma project folder (remembered in the settings)."""
+    project = hou.ui.selectFile(
+        start_directory=s['project'] or None,
+        title='koma project folder',
+        file_type=hou.fileType.Directory,
+        chooser_mode=hou.fileChooserMode.Read,
+    )
+    if not project:
+        return None
+    project = hou.text.expandString(project).rstrip('/')
+    if not os.path.isfile(os.path.join(project, 'project.json')):
+        raise hou.Error('%s is not a koma project (no project.json).' % project)
+    s['project'] = project
+    save_settings(s)
+    return project
+
+
+def lens_setup():
+    """
+    Drive the camera's aperture / focal / focus from the lens table koma
+    measured (<project>/calibration.json, koma_lens.py): adds a "Koma Lens"
+    folder with the project folder and a focus distance (mm from the head's
+    rotation centre) to the camera, with Python expressions on the three
+    parameters. Dragging the distance updates the view; koma rewriting the
+    file updates it too.
+    """
+    s = settings()
+    cam = _camera_node(s)
+    project = s['project']
+    if not project or not os.path.isfile(os.path.join(project, koma_lens.CALIBRATION_FILE)):
+        project = _project_folder(s)
+        if not project:
+            return None
+    path = os.path.join(project, koma_lens.CALIBRATION_FILE)
+    if not os.path.isfile(path):
+        raise hou.Error('%s has no %s yet — import the lens measurements in koma (Camera Control > Lens).'
+                        % (project, koma_lens.CALIBRATION_FILE))
+    # A focus target to aim the lens table at: keep the camera's if it has
+    # one, else a null at the origin (the work's bottom centre) that the user
+    # moves onto the subject.
+    target = cam.evalParm('koma_focus_target') if cam.parm('koma_focus_target') else ''
+    if not target or cam.node(target) is None:
+        null = hou.node('/obj/focus_target') or hou.node('/obj').createNode('null', 'focus_target')
+        target = null.path()
+    v = koma_lens.setup(cam, project, target=target)
+    _status('%s: focus target %s, focal %.1f mm, aperture %.1f mm, focus %.3f (table %s)'
+            % (cam.path(), target, v['focal'], v['aperture'], v['focus'], path))
+    return v
