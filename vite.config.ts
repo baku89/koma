@@ -1,7 +1,7 @@
 import vue from '@vitejs/plugin-vue'
 import {cpSync, existsSync, readdirSync} from 'fs'
 import {fileURLToPath} from 'url'
-import {defineConfig, type Plugin} from 'vite'
+import {defineConfig, type Plugin, type UserConfig} from 'vite'
 import glsl from 'vite-plugin-glsl'
 import monacoEditorPlugin, {
 	type IMonacoEditorOpts,
@@ -38,10 +38,21 @@ function publicWithoutDevLinks(): Plugin {
 	}
 }
 
-export default defineConfig({
+export interface KomaConfigOptions {
+	/**
+	 * The desktop build (vite.electron.config.ts): only the main page, no PWA
+	 * service worker (the app is local; a worker would only serve stale code),
+	 * output under build/renderer, and its own dev port so it can run beside
+	 * `yarn dev`.
+	 */
+	electron?: boolean
+}
+
+export function createConfig({electron = false}: KomaConfigOptions = {}): UserConfig {
+	return {
 	base: './',
 	server: {
-		port: 5555,
+		port: electron ? 5556 : 5555,
 		// No HMR: this tab holds the camera (WebUSB) and every serial port, and
 		// a hot update or an automatic full reload mid-cut would tear those
 		// down under a running machine. Code changes apply on an explicit
@@ -55,7 +66,7 @@ export default defineConfig({
 		monacoEditorPluginDefault({
 			languageWorkers: ['editorWorkerService', 'typescript', 'json'],
 		}),
-		VitePWA({
+		...(electron ? [] : [VitePWA({
 			registerType: 'autoUpdate',
 			injectRegister: 'auto',
 			devOptions: {
@@ -88,7 +99,7 @@ export default defineConfig({
 				// paths, go to the network.
 				navigateFallbackDenylist: [/\/(exhibit|jog)\.html/, /\/api\//, /\/project\//, /\/ws/],
 			},
-		}),
+		})]),
 		// electron({
 		// 	main: {
 		// 		entry: 'src/electron-main.ts',
@@ -97,17 +108,27 @@ export default defineConfig({
 	],
 	build: {
 		sourcemap: true,
+		outDir: electron ? 'build/renderer' : 'dist',
 		rollupOptions: {
 			input: {
 				main: fileURLToPath(new URL('./index.html', import.meta.url)),
-				// Exhibition screens (ADDSUB.md §15): a separate page at /exhibit.html
-				exhibit: fileURLToPath(new URL('./exhibit.html', import.meta.url)),
-				// Phone jog pendant over koma-relay: /jog.html
-				jog: fileURLToPath(new URL('./jog.html', import.meta.url)),
+				...(electron
+					? {}
+					: {
+							// Exhibition screens (ADDSUB.md §15): a separate page at /exhibit.html
+							exhibit: fileURLToPath(new URL('./exhibit.html', import.meta.url)),
+							// Phone jog pendant over koma-relay: /jog.html
+							jog: fileURLToPath(new URL('./jog.html', import.meta.url)),
+						}),
 			},
 		},
 	},
 	resolve: {
+		// tweeq / tethr are vendored source with their own node_modules (tweeq
+		// pins pinia 3, tethr its own vue): without dedupe a production bundle
+		// carries two pinia / vue copies and tweeq's stores never see koma's
+		// pinia (`Cannot read properties of undefined (reading '_s')`).
+		dedupe: ['vue', 'pinia', '@vueuse/core'],
 		alias: [
 			{
 				find: '@',
@@ -143,4 +164,7 @@ export default defineConfig({
 		// This is needed to make the PromiseQueue class available in the browser.
 		'process.env.PROMISE_QUEUE_COVERAGE': false,
 	},
-})
+	}
+}
+
+export default defineConfig(createConfig())

@@ -1,0 +1,23 @@
+# yarn app:pack → build/release/Koma.app (+ .dmg). Unsigned.
+appId: com.baku89.koma
+productName: Koma
+copyright: Baku Hashimoto (GPL-3.0)
+directories:
+  output: build/release
+files:
+  - build/electron/**
+  - build/renderer/**
+  - package.json
+# Only osc-js (+ ws) is a real runtime dependency of the main process; nothing native.
+npmRebuild: false
+asar: true
+mac:
+  category: public.app-category.photography
+  icon: public/icon.png
+  identity: null
+  target:
+    - dir
+    - dmg
+  extendInfo:
+    NSCameraUsageDescription: Koma uses webcams as a camera source.
+    NSMicrophoneUsageDescription: Koma can record reference audio.

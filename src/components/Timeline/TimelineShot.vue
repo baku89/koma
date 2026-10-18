@@ -156,6 +156,7 @@ const shotContextActionIds = [
 	'plan_clear',
 	'recall_shot_led',
 	'move_rig_to_shot',
+	'reveal_shot_in_finder', // desktop build only (registered when running in Electron)
 ]
 
 const $root = useTemplateRef('$root')

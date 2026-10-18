@@ -52,6 +52,12 @@ import {
 	walkPath,
 	writeFileToDirectory,
 } from '@/utils'
+import {
+	adoptNativeDirPath,
+	nativeDirPath,
+	nativeRename,
+	registerNativeChildDir,
+} from '@/utils/nativePath'
 import type {AssetLayout} from '@/utils/projectLayout'
 
 import defaultCustomScript from './defaultCustomScript.js?raw'
@@ -441,6 +447,7 @@ async function loadProject(dir: FileSystemDirectoryHandle): Promise<Project> {
 		let trashDir: FileSystemDirectoryHandle | undefined
 		try {
 			trashDir = await dir.getDirectoryHandle(TRASH_DIR)
+			registerNativeChildDir(dir, trashDir, TRASH_DIR)
 		} catch {
 			trashDir = undefined
 		}
@@ -967,6 +974,9 @@ export const useProjectStore = defineStore('project', () => {
 			directoryHandle.value = handler ?? (await showReadwriteDirectoryPicker())
 
 			await queryPermission(directoryHandle.value)
+			// Desktop build: learn where the folder really is (byte-free renames,
+			// Reveal in Finder). No-op in a browser / for in-app (OPFS) projects.
+			await adoptNativeDirPath(directoryHandle.value)
 
 			if (!directoryHandle.value) {
 				throw new Error('No directory is selected')
@@ -1026,6 +1036,7 @@ export const useProjectStore = defineStore('project', () => {
 		await sleep(0) // Wait for the next tick to show the dialog
 
 		const handle = await showReadwriteDirectoryPicker()
+		await adoptNativeDirPath(handle)
 
 		if (project.name === emptyProject.name && handle.name !== '') {
 			project.name = handle.name
@@ -1405,7 +1416,9 @@ export const useProjectStore = defineStore('project', () => {
 		const src = await walkPath(root, from, false)
 		const handle = await src.dir.getFileHandle(src.name)
 		const dst = await walkPath(root, to, true)
-		try {
+		if (await nativeRename(root, from, root, to).catch(() => false)) {
+			// desktop build: renamed through the main process
+		} else try {
 			await (handle as any).move(dst.dir, dst.name)
 		} catch {
 			const blob = await handle.getFile()
@@ -1849,6 +1862,12 @@ export const useProjectStore = defineStore('project', () => {
 		 * tools). Writing project files stays inside this store.
 		 */
 		directoryHandle: computed(() => directoryHandle.value),
+		/**
+		 * The project folder's absolute path on disk — desktop build only, and
+		 * only for a folder picked from disk (not in-app / OPFS). Undefined
+		 * otherwise.
+		 */
+		nativeProjectPath: () => nativeDirPath(directoryHandle.value),
 		readProjectFile,
 		writeProjectFile,
 		removeProjectFile,

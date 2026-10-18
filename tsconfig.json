@@ -32,5 +32,6 @@
 			"@tethr/vue3": ["./dev_modules/tethr/integrations/vue3/src/index.ts"]
 		},
 		"types": ["w3c-web-serial", "wicg-file-system-access", "w3c-web-usb"]
-	}
+	},
+	"exclude": ["node_modules", "build", "dist", "electron"]
 }

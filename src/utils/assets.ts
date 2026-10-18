@@ -22,6 +22,8 @@
 // (`Main/<id>__0001.jpg`). Intermediate folders are created on the way in and
 // removed when a move leaves them empty.
 
+import {nativeFilePath, nativeRename, registerNativeChildDir} from './nativePath'
+
 interface AssetEntry {
 	/** Current on-disk path (`/`-separated) relative to `parentDir`. */
 	filename: string
@@ -176,6 +178,16 @@ export function setAssetFilename(id: string, filename: string) {
 	if (e) e.filename = filename
 }
 
+/**
+ * Where the asset's file is on disk, as an absolute path — desktop build only,
+ * and only once the project folder's path is known (see utils/nativePath).
+ */
+export function nativeAssetPath(id: string): string | undefined {
+	const e = entries.get(id)
+	if (!e?.filename) return undefined
+	return nativeFilePath(e.parentDir, e.filename)
+}
+
 export function isAssetTrashed(id: string): boolean {
 	return !!entries.get(id)?.trashed
 }
@@ -299,15 +311,21 @@ async function moveEntry(
 	if (handle && fromRoot) {
 		const from = await walkPath(fromRoot, fromPath, false).catch(() => undefined)
 		const {dir: toDir, name: toName} = await walkPath(toRoot, toPath, true)
-		try {
-			if (from && (await sameDir(from.dir, toDir))) {
-				await (handle as any).move(toName)
-			} else {
-				await (handle as any).move(toDir, toName)
-			}
+		// Desktop build: a real rename through the main process when both ends
+		// are in a folder whose path we know (instant, no byte copy).
+		if (from && (await nativeRename(fromRoot, fromPath, toRoot, toPath).catch(() => false))) {
 			e.handle = await toDir.getFileHandle(toName)
-		} catch {
-			await copyDelete(e, from?.dir, toDir, toName)
+		} else {
+			try {
+				if (from && (await sameDir(from.dir, toDir))) {
+					await (handle as any).move(toName)
+				} else {
+					await (handle as any).move(toDir, toName)
+				}
+				e.handle = await toDir.getFileHandle(toName)
+			} catch {
+				await copyDelete(e, from?.dir, toDir, toName)
+			}
 		}
 	} else if (e.blob) {
 		const {dir: toDir, name: toName} = await walkPath(toRoot, toPath, true)
@@ -416,8 +434,13 @@ export async function reconcileAssets(
 ) {
 	// Created lazily — only when there is actually something to trash.
 	let trashDir: FileSystemDirectoryHandle | undefined
-	const getTrashDir = async () =>
-		(trashDir ??= await dir.getDirectoryHandle(TRASH_DIR, {create: true}))
+	const getTrashDir = async () => {
+		if (!trashDir) {
+			trashDir = await dir.getDirectoryHandle(TRASH_DIR, {create: true})
+			registerNativeChildDir(dir, trashDir, TRASH_DIR)
+		}
+		return trashDir
+	}
 	const vacated: Vacated = []
 
 	// 1. Move files that live in the project folder but are no longer referenced

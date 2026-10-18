@@ -5,6 +5,9 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
+		"app": "vite -c vite.electron.config.ts",
+		"app:build": "vite build -c vite.electron.config.ts",
+		"app:pack": "yarn app:build && electron-builder --config electron-builder.yml",
 		"aux": "yarn workspace aux-manager run start",
 		"relay": "yarn workspace koma-relay run start",
 		"pack:exhibit": "sh scripts/pack-exhibit.sh",
@@ -21,7 +24,7 @@
 		"dev_modules/tethr/core",
 		"dev_modules/tethr/integrations/vue3"
 	],
-	"main": "dist-electron/electron-main.js",
+	"main": "build/electron/main.js",
 	"devDependencies": {
 		"@baku89/pave": "^0.4.1",
 		"@eslint/eslintrc": "^3.3.5",
@@ -43,7 +46,8 @@
 		"case": "^1.6.3",
 		"dateformat": "^5.0.3",
 		"defu": "^6.1.7",
-		"electron": "^34.5.8",
+		"electron": "^44.8.0",
+		"electron-builder": "^26.15.3",
 		"eslint": "^9.39.4",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-simple-import-sort": "^13.0.0",
@@ -56,7 +60,6 @@
 		"idb-keyval": "^6.2.2",
 		"linearly": "^0.32.0",
 		"lodash-es": "^4.17.21",
-		"osc-js": "^2.4.1",
 		"p-sleep": "^1.1.0",
 		"paper": "^0.12.18",
 		"pinia": "^2.3.1",
@@ -83,6 +86,7 @@
 	},
 	"dependencies": {
 		"bndr-js": "^0.18.7",
-		"mp4-muxer": "^5.2.2"
+		"mp4-muxer": "^5.2.2",
+		"osc-js": "^2.4.1"
 	}
 }
