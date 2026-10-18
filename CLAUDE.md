@@ -5,8 +5,27 @@
 koma（ストップモーション撮影アプリ）のプロジェクト知識。`~/.claude` のファイルメモリを集約したもの。マシンをまたいで引き継げるよう、リポジトリにコミットして共有する。
 
 ## コミュニケーション / 作業スタイル
+- **やることの一覧は `TODO.md`**（リポジトリ直下、優先順）。未実装の提案や「あとで」はそこに足し、終わったら消す。経緯はこのファイルに書く。
 - **返信は常に日本語**（ユーザーは英語で書くことが多いが日本語の回答を望む。2026-06-02 に明示要望）。散文・説明は日本語で書き、コード/コマンド/パス/識別子/技術固有名詞（API名など）はそのまま。
 - **tweeq / tethr は vendored submodule**（`dev_modules/` 配下）。vite alias + tsconfig `paths` で **src に解決**されるため編集は即反映（ビルド不要、`lib/` は存在しない）。ユーザーは submodule を直接編集する形を希望。
+
+---
+
+## Electron 版（2026-10-17）
+ブラウザ版（PWA）と同じ koma を Electron 44（Chromium 152 / Node 24。34 から上げた）で包んだもの。狙いは 3 つ: **aux の内蔵**（別ターミナルの `yarn aux` が要らない）、**Reveal in Finder**、**実フォルダでの byte-free rename**（Chrome の `move()` は実フォルダで throw して copy+delete になる。GOTCHA #2）。
+
+- **コマンド**: `yarn app`（dev: vite 5556 + Electron、`yarn dev` と同時に動かせる）/ `yarn app:build`（`build/renderer` + `build/electron`）/ `yarn app:pack`（electron-builder → `build/release/Koma.app` と .dmg、未署名）。ブラウザ版の `yarn dev` / `yarn build` は従来どおり。
+- **ファイル**: `electron/main.ts`（窓・`koma://` スキーム・IPC）、`preload.ts`（`window.koma`、sandbox なので **CJS = `preload.cjs`**。package.json が `type: module` なので main は ESM）、`devices.ts`（USB / Serial / FSA の許可）、`aux.ts`、`menu.ts`。`vite.electron.config.ts` は `vite.config.ts` の `createConfig({electron: true})`（PWA 無し・`index.html` だけ・outDir `build/renderer`）+ `vite-plugin-electron/simple`。`electron-builder.yml`。`osc-js` は main が実行時に require するので `dependencies`（main のバンドルでは external）。renderer 側の入口は `src/electron.ts`（`native` / `isElectron`、ブラウザでは undefined）。
+- **オリジン**: パッケージ版は `koma://app/index.html`（`registerSchemesAsPrivileged` で standard+secure。`file://` だと IndexedDB / FSA ハンドルの永続化が効かない）。dev は vite の URL なので、**最近のプロジェクト・保存したハンドルは dev とパッケージ版で別**。`KOMA_USER_DATA=<dir>` で userData（窓の位置、USB の記憶、IndexedDB）を分けられる（テスト用）。
+- **機器**: Electron には Chrome のピッカーが無いので `select-usb-device` / `select-serial-port` を main で受ける。**Serial は USB 由来のポート（vendorId あり）を全部自動許可** → `getPorts()` に全部出て、koma の discovery が `$I` / PING で識別する（Bluetooth / debug ポートは外す。入れると 1 つ 12 秒の probe で待たされる）。`requestPort()` は候補が 2 つ以上なら `dialog.showMessageBox` のボタンで選ぶ。**USB は Chrome と同じ「選んだものを記憶」**（`userData/usb-grants.json`、`setDevicePermissionHandler`）。候補 1 つなら無言で選ぶ。
+- **フォルダの実パス**: FSA の `setPermissionRequestHandler` / `setPermissionCheckHandler` の `details` に **`filePath` と `isDirectory`** が来る（Electron 44 でピッカー直後と `requestPermission` の両方で確認）。main が記録し、renderer は `window.koma.grantedDirectoryPath(handle.name)` で引く（`src/utils/nativePath.ts`。`project.open` / `saveAs` の `adoptNativeDirPath`、`_trash` は `registerNativeChildDir`）。`assets.ts moveEntry` と `project.moveProjectFile` はパスが分かるとき `koma.rename`（`fs.rename`、EXDEV は copy+unlink）→ 実測 7 ms。IPC の rename / reveal は許可済みフォルダの中だけ（`isGrantedPath`）。OPFS のプロジェクトはパス無し → 従来の `move()`。
+- **Reveal**: アクション `open_project_folder`（File グループ、アプリの File メニューからも `koma:command` IPC で）と `reveal_shot_in_finder`（ショットの右クリック。jpg が無ければ lv）。`isElectron` のときだけ登録するので、ブラウザではメニューに出ない。
+- **aux**: `pkill -9 -x ptpcamera` を 250 ms ごと（darwin）、OSC ブリッジ ws 8080 ↔ udp 5200 / 5201（osc-js の BridgePlugin、`src/stores/osc.ts` はそのまま）。8080 が取られていれば（`yarn aux` 併用）エラーをログに出すだけ。
+- **リロード / 終了の守り**: renderer の `beforeunload`（保存中・未保存）は Electron では無言でキャンセルされるので、`will-prevent-unload` で「Stay / Leave anyway」のダイアログにした（TODO の 3 を Electron 版で解消）。`backgroundThrottling: false`（裏に回ってもタイマーが 1 Hz に落ちない。ADDSUB の「koma タブは前面に」が不要になる）。
+- **WCO**: `titleBarStyle: 'hidden'` + `titleBarOverlay: {height: 38}` で `env(titlebar-area-*)` が PWA と同じに効く（信号機ぶん x = 84）。
+- **キー**: Edit メニューの role（Undo / Copy / Paste…）を残しているが、macOS でも**実キーはまずページの keydown に届く**（System Events の keystroke で Cmd+Z / Cmd+C を送って確認）。ページが preventDefault しなければそのあとメニューの role が走る。
+- **落とし穴**: (1) **pinia の二重化** — `yarn add -W` で `dev_modules/tweeq/node_modules/pinia`（3.x）が入り、本番バンドルで tweeq のストアが koma の pinia を見失って `Cannot read properties of undefined (reading '_s')` で起動しなかった（dev は無事）。`vite.config.ts` の `resolve.dedupe: ['vue', 'pinia', '@vueuse/core']` で解決。(2) Playwright の `_electron.launch`（scratchpad に `playwright-core`）で窓は操作できるが、フォルダピッカーは System Events の keystroke（Cmd+Shift+G → パス → Return ×2）で押す。`select-serial-port` のシグネチャは `(event, portList, webContents, callback)`。
+- **確認済（2026-10-17、Playwright `_electron`）**: パッケージ版 `Koma.app`（352 MB、dmg 145 MB）の起動、`koma://` での IndexedDB / FSA、ピッカー → パス取得 → `koma.rename`（7 ms）、許可外パスの拒否、WCO、aux。**未確認**: 実カメラ（ptpcamera との競合）、実機の FluidNC / LED、`showSaveFilePicker`（MP4 書き出し）。
 
 ---
 
@@ -114,6 +133,15 @@ koma はプロジェクトをメモリに持ち、autosave で `project.json` �
 - 確認済（Playwright、OPFS プロジェクト）: 適用 → 保存 → applied、conflict / ファイル無し / 可動域外 / 未知の op の拒否（何も適用されない）、skip。未実装: 保存時に「`project.json` が外で書き換えられていたら上書きしない」ガード。
 - 登録済みの op は addsub の `setCut` / `clearCut` / `setPlan` / `clearPlan`（`src/addsub/inboxOps.ts`、ADDSUB.md 参照）。
 - **relay 経由でも同じパッチを流せる（2026-10-16）**: `role=control` のクライアントが `{type:'control', topic:'inbox', data:{id, patch}}` を送ると、koma は `inbox.applyPatch`（ファイル経路と同じ検査・all-or-nothing）で即適用し、`inbox:result` state `{id, from, …outcome}` で返す（`src/addsub/stores/houdini.ts`）。ファイルは作らない（保存は通常の autosave）。Houdini の Send Plans がこれを使う。
+
+---
+
+## MP4 書き出し（2026-10-16）
+コマンド **`Export MP4 (Range)…`**（`export_mp4`、File グループ）。範囲は **Shift 選択が複数コマならそれ、なければ in → out**（`project.previewRange`）。ダイアログで From / To / Fps（既定 = プロジェクトの fps）/ Hi Res を直せる。合成は Preview と同じ（アクティブなプリセットのレイヤーを現在レイヤーまで = `compositeLayers(currentLayer)`、`layerView` の opacity / blend、cover-fit）。オニオンスキンは入れない。**何も無いコマは前のコマを保持**（最初のコマより前は黒）、尺を変えない。Hi Res はカメラの JPEG（`shot.jpg`）で最初の 1 枚のサイズ、オフは lv でプロジェクト解像度。出力名 `<プロジェクト名>_<from>-<to>_<fps>fps.mp4`、`showSaveFilePicker`（無ければ download）。進捗はウィンドウタイトル、終わりに `buzz`。
+- エンコーダは `src/utils/mp4.ts`（WebCodecs H.264 → VP9 / AV1 フォールバック + mp4-muxer、exhibit の `encode.ts` から移動。exhibit は re-export で従来どおり）。`EncodeSource.blob()` は Blob のほか ImageBitmap / OffscreenCanvas も返せる。合成は `src/utils/exportVideo.ts`（`exportFramesToMp4`）。
+- **H.264 の level の罠（2026-10-16、実プロジェクトで「開けないファイル」）**: 以前の候補 `avc1.64002a`（High 4.2）は上限 8192 マクロブロック = 1920×1080 までで、**3:2 の 1920×1280（9600 MB）は `isConfigSupported` が false** → VP9 に落ちて、Chrome では再生できるが QuickTime で開けない MP4 になっていた（exhibit の動画もずっと VP9 だった）。今は `avc1.640033`（5.1）→ `avc1.64003e`（6.2）→ 4.2 → 3.1 の順。Chrome の H.264 エンコーダは **6000×4000 をどの level でも受けない**ので、`fitH264Size(w, h)` が長辺 4096 / 3840 / 2560 / 1920 / 1280 の順に縮めて最初に通るサイズを返す（Chrome 155 / Apple Silicon では 6000×4000 → 2560×1706。4096×2731 / 3840×2560 も不可 = 高さ 2304 超が駄目らしい）。それでも H.264 にならなかったときは保存後に alert（`onCodec`）。確認は Playwright の Google Chrome（本物の H.264 あり）+ ffprobe: lv → h264 High 1920×1280、Hi Res → h264 High 2560×1706。
+- 確認はヘッドレス Chromium（メモリ上の偽ショット 12 コマ、1 コマ空き）: 0.8 s / 1920×1280 / 各コマの色 / 空コマの保持。**実プロジェクト（ディスクの lv、数千コマ）での時間とメモリは未確認**（コマごとに decode → 合成 → encode、encoder のキューは 8 で抑える）。
+- Tweeq の `InputComplex` は scheme の `label` を入力にも `v-bind` で渡すので、`type: 'boolean'` に `label` を付けるとスイッチの横にも出て 2 重になる。キー名からの自動ラベル（`Case.capital`）に任せる。
 
 ---
 
