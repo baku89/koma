@@ -191,6 +191,13 @@ submodule の tweeq を編集する形がユーザー希望。
 
 ---
 
+## bndr-js（入力ライブラリ、yarn link）
+koma の `node_modules/bndr-js` は `~/Sites/bndr-js` への yarn link（`vite.config.ts` の `fs.allow` コメント参照）。**origin/main は RxJS ベースの 1.0 に作り替え済みで、koma が使うローカル main（0.18.x 系 + 未コミットの Joy-Con WebHID 作業）とは別物** → `git pull` しないこと（ahead 2 / behind 6 は分岐、同期対象ではない）。`package.json` の `main` は `lib/index.js`（gitignore）なので、src を直したら `yarn build` が必要。
+
+**「時間が経つとショートカットが効かなくなる」の根本原因（2026-10-19 修正、bndr-js `8e9fed6`）:** `KeyboardEmitter` は押下中キーの Set を keydown/keyup で管理し、hotkey は Set との**完全一致**で判定する。keyup を1つ取りこぼすと（修飾キーを押したまま Cmd+Tab / Ctrl+←→ の Spaces 切替 / Cmd+Shift+4 / スリープ、ショートカットで input にフォーカスが移って keyup が無視される、macOS の CapsLock は ON で keydown・OFF で keyup のみ）そのキーが永久に残り、全ショートカットが死ぬ。修正 = Set を他の信号から照合: 全 key/pointer イベントの `metaKey/shiftKey/altKey/ctrlKey` で修飾キーを同期（旧実装は command のみ・pointermove のみ）、`window blur` / `visibilitychange(hidden)` で全解放、input 内の keyup でも Set から削除、CapsLock は瞬間扱い、`ControlLeft/Right` → Apple では `'control'`（旧 `'ctrl'` は `⌃` 名や SpecialKeys と不一致）。koma 側 `App.vue` の peek 用 `Bndr.keyboard()` も同クラスなので同時に直る。
+
+---
+
 ## ハードウェア: aux トラッカー取得（libsurvive）
 `yarn aux` の "Acquiring tracking…" 出っぱなし / 検出が運任せ問題。
 
