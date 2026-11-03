@@ -3,7 +3,7 @@
  * shell calls. Everything else koma does through web APIs as in the browser.
  * Typed for the renderer in `src/electron.ts`.
  */
-import {contextBridge, ipcRenderer} from 'electron'
+import {contextBridge, ipcRenderer, webUtils} from 'electron'
 
 contextBridge.exposeInMainWorld('koma', {
 	platform: process.platform,
@@ -26,4 +26,12 @@ contextBridge.exposeInMainWorld('koma', {
 	},
 	/** The built-in aux helper (ptpcamera killer, OSC bridge). */
 	auxStatus: () => ipcRenderer.invoke('koma:aux-status'),
+	/** The real path of a File the user dropped / picked (empty when unknown). */
+	pathForFile: (file: File) => {
+		try {
+			return webUtils.getPathForFile(file)
+		} catch {
+			return ''
+		}
+	},
 })

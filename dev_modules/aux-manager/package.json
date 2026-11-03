@@ -1,7 +1,7 @@
 {
 	"name": "aux-manager",
 	"version": "0.0.0",
-	"description": "A Node.js helper for the Koma app: keeps macOS ptpcamera from claiming the camera and bridges OSC (WebSocket <-> UDP)",
+	"description": "Koma's local helper: keeps macOS ptpcamera off the camera, bridges OSC (WebSocket <-> UDP), and hosts the MCP server that lets Claude Code and scripts edit the open project",
 	"author": "Baku Hashimoto <mail@baku89.com>",
 	"scripts": {
 		"start": "node index.js"
@@ -9,8 +9,15 @@
 	"license": "MIT",
 	"private": true,
 	"dependencies": {
-		"chalk": "4.1.2",
-		"osc-js": "^2.4.0"
+		"@modelcontextprotocol/sdk": "^1.32.1",
+		"htm": "^3.1.1",
+		"ink": "^8.0.0",
+		"osc-js": "^2.4.1",
+		"react": "^19.3.1",
+		"ws": "^8.18.1",
+		"zod": "^4.1.0"
 	},
-	"devDependencies": {}
+	"devDependencies": {},
+	"type": "module",
+	"main": "lib/aux.js"
 }

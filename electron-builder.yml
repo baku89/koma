@@ -8,7 +8,8 @@ files:
   - build/electron/**
   - build/renderer/**
   - package.json
-# Only osc-js (+ ws) is a real runtime dependency of the main process; nothing native.
+# Runtime dependencies of the main process (package.json "dependencies"): osc-js,
+# ws, zod and the MCP SDK for the bundled aux (electron/aux.ts); nothing native.
 npmRebuild: false
 asar: true
 mac:

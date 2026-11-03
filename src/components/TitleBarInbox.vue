@@ -1,8 +1,9 @@
 <script lang="ts" setup>
 /**
  * Title-bar indicator for the project inbox (stores/inbox.ts): appears once
- * a patch dropped into `_inbox/` has been handled this session, lit until
- * its popover is opened. Lists what was applied or rejected, and why.
+ * a patch — a tool call over the aux bridge, or Houdini over the relay — has
+ * been handled this session, lit until its popover is opened. Lists what was
+ * applied or rejected, and why.
  */
 import * as Tq from 'tweeq'
 import {computed, ref, watch} from 'vue'
@@ -75,7 +76,7 @@ function summary(e: (typeof inbox.entries)[number]) {
 		<div class="menu">
 			<div class="head">
 				<span class="name">Inbox</span>
-				<span class="state">patches from _inbox/</span>
+				<span class="state">patches from tools / relay</span>
 			</div>
 			<div
 				v-for="e in inbox.entries"

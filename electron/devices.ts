@@ -15,9 +15,10 @@
  *   requests are recorded so the renderer can learn where its project folder
  *   really is (`grantedDirectoryPath`).
  */
-import {app, type BrowserWindow, dialog, type Session} from 'electron'
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import path from 'node:path'
+
+import {app, type BrowserWindow, dialog, type Session} from 'electron'
 
 //------------------------------------------------------------------------------
 // Remembered USB grants

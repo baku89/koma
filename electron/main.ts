@@ -8,11 +8,16 @@
  * - The real path of every project folder the renderer gets access to, so
  *   renames (re-sequencing shots) are `fs.rename` instead of copy + delete,
  *   and "Reveal in Finder" works.
- * - The aux helper (ptpcamera killer + OSC bridge) runs in this process; no
- *   separate `yarn aux`.
+ * - The aux helper (ptpcamera killer + OSC bridge + the MCP tools bridge)
+ *   runs in this process; no separate `yarn aux`.
  * - Reload / close while a save is in flight asks first (the renderer's
  *   `beforeunload` lands in `will-prevent-unload` here).
  */
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {copyFile, mkdir, rename, unlink} from 'node:fs/promises'
+import path from 'node:path'
+import {fileURLToPath, pathToFileURL} from 'node:url'
+
 import {
 	app,
 	BrowserWindow,
@@ -25,12 +30,8 @@ import {
 	session,
 	shell,
 } from 'electron'
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
-import {copyFile, mkdir, rename, unlink} from 'node:fs/promises'
-import path from 'node:path'
-import {fileURLToPath, pathToFileURL} from 'node:url'
 
-import {auxStatus, startAux} from './aux'
+import {auxStatus, startAux, stopAux} from './aux'
 import {grantedDirectoryPath, installDeviceHandlers, isGrantedPath} from './devices'
 import {buildMenu} from './menu'
 
@@ -224,6 +225,7 @@ ipcMain.handle('koma:granted-dir', (_e, name: string) => grantedDirectoryPath(na
 
 ipcMain.handle('koma:aux-status', () => auxStatus())
 
+
 //------------------------------------------------------------------------------
 
 app.on('second-instance', () => {
@@ -237,13 +239,15 @@ app.whenReady().then(() => {
 	serveRenderer()
 	installDeviceHandlers(session.defaultSession, () => win)
 	buildMenu(() => win)
-	startAux()
+	startAux(app.getVersion())
 	createWindow()
 
 	app.on('activate', () => {
 		if (BrowserWindow.getAllWindows().length === 0) createWindow()
 	})
 })
+
+app.on('will-quit', () => stopAux())
 
 app.on('window-all-closed', () => {
 	if (process.platform !== 'darwin') app.quit()

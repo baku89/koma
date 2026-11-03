@@ -4,11 +4,11 @@
 	"version": "0.0.0",
 	"type": "module",
 	"scripts": {
-		"dev": "vite",
+		"dev": "node dev_modules/aux-manager/index.js --vite",
 		"app": "vite -c vite.electron.config.ts",
 		"app:build": "vite build -c vite.electron.config.ts",
 		"app:pack": "yarn app:build && electron-builder --config electron-builder.yml",
-		"aux": "yarn workspace aux-manager run start",
+		"aux": "node dev_modules/aux-manager/index.js",
 		"relay": "yarn workspace koma-relay run start",
 		"pack:exhibit": "sh scripts/pack-exhibit.sh",
 		"lint": "eslint \"src/**/*.{ts,vue}\"",
@@ -85,8 +85,11 @@
 		"wavesurfer.js": "^7.8.5"
 	},
 	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.32.1",
 		"bndr-js": "^0.18.7",
 		"mp4-muxer": "^5.2.2",
-		"osc-js": "^2.4.1"
+		"osc-js": "^2.4.1",
+		"ws": "^8.18.1",
+		"zod": "^4.1.0"
 	}
 }

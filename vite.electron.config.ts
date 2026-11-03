@@ -21,8 +21,10 @@ export default defineConfig(
 							rollupOptions: {
 								// Shipped as node_modules in the package (see
 								// electron-builder.yml) rather than bundled: osc-js
-								// requires ws / dgram at run time.
-								external: ['osc-js', 'ws'],
+								// requires ws / dgram at run time, the MCP SDK is
+								// a tree of CommonJS. The aux library itself
+								// (dev_modules/aux-manager/lib) is bundled.
+								external: ['osc-js', 'ws', 'zod', /^@modelcontextprotocol\/sdk/],
 							},
 						},
 					},

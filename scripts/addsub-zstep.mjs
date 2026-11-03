@@ -11,10 +11,9 @@
  *     [--write] [--direct] [--force]
  *
  * Without --write it only reports what it would do. With --write it writes
- * the G-code files to gcode/<layer>/ and a patch to the project's _inbox/
- * (src/stores/inbox.ts): koma applies it to the open project — or the next
- * time the project is opened — and files it under _inbox/applied/ or
- * _inbox/rejected/. project.json itself is never touched, so koma's
+ * the G-code files to gcode/<layer>/ and sends a patch to the open koma
+ * through the aux tools bridge (src/stores/inbox.ts; yarn dev / yarn aux or
+ * the app must be running). project.json itself is never touched, so koma's
  * autosave cannot undo it and it can be run at any time.
  *
  * --direct edits project.json instead (for a koma without the inbox). That
@@ -249,12 +248,16 @@ if (!flags.direct) {
 			...(it.plan ? [{op: 'setPlan', layer: layerId, frame: it.frame, plan: it.plan}] : []),
 		]),
 	}
-	const stamp = new Date(now).toISOString().replace(/[:.]/g, '-')
-	const rel = `_inbox/${stamp}-zstep-${start}-${end}.json`
-	await writeAtomic(join(projectDir, rel), JSON.stringify(patch, null, '\t'))
 	console.log('')
-	console.log(`Wrote ${items.length} G-code files and the patch ${rel}`)
-	console.log('koma applies it when the project is open (result: _inbox/applied/ or _inbox/rejected/).')
+	console.log(`Wrote ${items.length} G-code files; sending the patch to koma…`)
+	const {callTool, describeOutcome} = await import('./lib/komaTools.mjs')
+	try {
+		const outcome = await callTool('apply_patch', patch)
+		console.log(`koma: ${describeOutcome(outcome)}`)
+	} catch (e) {
+		console.error(`koma did not apply the patch: ${e.message} (the G-code files stay; re-run, or use --direct with koma closed)`)
+		process.exit(1)
+	}
 	process.exit(0)
 }
 

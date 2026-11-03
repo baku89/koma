@@ -1,69 +1,41 @@
 /**
- * The aux helper, in-process (what `yarn aux` / dev_modules/aux-manager does
- * from a terminal):
+ * The aux helper, in-process (what `yarn aux` / `yarn dev` run from a
+ * terminal, see dev_modules/aux-manager): the ptpcamera killer, the OSC
+ * bridge (ws :8080 ↔ udp 5200 / 5201) and the tools bridge — the MCP server
+ * Claude Code and scripts reach the open project through (:8090). The
+ * library reports through events; here they go to the console and to the
+ * renderer's `window.koma.auxStatus()`.
  *
- * - macOS: keep `ptpcamera` from claiming the camera's PTP interface. It is
- *   spawned by the system whenever a PTP device appears and holds the
- *   interface, so WebUSB's claimInterface fails ("Unable to claim interface").
- *   There is no API to detach it; it gets killed on a short interval.
- * - OSC bridge: WebSocket :8080 ↔ UDP (in 5200 / out 5201), for koma's
- *   `/shoot` and the like (`src/stores/osc.ts` connects to localhost:8080).
- *   If something else already listens there (a `yarn aux` still running), the
- *   bridge just reports the error and the renderer keeps retrying as usual.
+ * If a `yarn dev` / `yarn aux` is already running, its ports are taken: the
+ * library reports that and gives up on those, and the renderer simply
+ * connects to the other process's bridges instead.
  */
-import {exec} from 'node:child_process'
+import {type Aux, type AuxStatus, createAux} from '../dev_modules/aux-manager/lib/aux.js'
 
-import OSC from 'osc-js'
+export type {AuxStatus}
 
-const PTP_KILL_INTERVAL_MS = 250
-const OSC_WS_PORT = 8080
-const OSC_UDP_IN = 5200
-const OSC_UDP_OUT = 5201
+let aux: Aux | null = null
 
-export interface AuxStatus {
-	ptpKiller: boolean
-	osc: 'off' | 'open' | 'error'
-	oscError?: string
-}
-
-const status: AuxStatus = {ptpKiller: false, osc: 'off'}
-
-function startPtpKiller() {
-	if (process.platform !== 'darwin') return
-	status.ptpKiller = true
-	const tick = () => {
-		// pkill exits 1 when there is nothing to kill — not an error for us.
-		exec('pkill -9 -x ptpcamera', () => setTimeout(tick, PTP_KILL_INTERVAL_MS))
-	}
-	tick()
-}
-
-function startOscBridge() {
-	const osc = new OSC({
-		plugin: new OSC.BridgePlugin({
-			udpClient: {port: OSC_UDP_OUT},
-			udpServer: {port: OSC_UDP_IN},
-			wsServer: {port: OSC_WS_PORT},
-		}),
-	})
-	osc.on('open', () => {
-		status.osc = 'open'
-		status.oscError = undefined
-	})
-	osc.on('error', (err: unknown) => {
-		status.osc = 'error'
-		status.oscError = err instanceof Error ? err.message : String(err)
+export function startAux(version: string) {
+	if (aux) return aux
+	aux = createAux({version})
+	aux.on('log', e => {
+		const line = `[aux:${e.tag}] ${e.text}`
 		// eslint-disable-next-line no-console
-		console.warn('[aux] OSC bridge:', status.oscError)
+		if (e.level === 'error') console.error(line)
+		// eslint-disable-next-line no-console
+		else if (e.level === 'warn') console.warn(line)
+		// eslint-disable-next-line no-console
+		else if (e.tag !== 'osc') console.log(line)
 	})
-	osc.open()
+	return aux
 }
 
-export function startAux() {
-	startPtpKiller()
-	startOscBridge()
+export function stopAux() {
+	aux?.stop()
+	aux = null
 }
 
-export function auxStatus(): AuxStatus {
-	return {...status}
+export function auxStatus(): AuxStatus | null {
+	return aux ? JSON.parse(JSON.stringify(aux.status)) : null
 }

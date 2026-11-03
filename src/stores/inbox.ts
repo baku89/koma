@@ -3,15 +3,14 @@
  *
  * koma holds the project in memory and autosaves the whole of project.json,
  * so an outside edit of that file is lost on the next save (and never seen by
- * the running app). Instead, an outside writer — a script, Houdini, Claude —
- * drops a *patch* into the project's `_inbox/` folder. koma applies it to the
- * live project and the normal autosave persists it: koma stays the only
- * writer of project.json, and a patch dropped while koma is closed simply
- * waits for the next time the project is open.
- *
- *   _inbox/<name>.json            waiting (write to a temp name, then rename)
- *   _inbox/applied/<name>.json    the patch + `result`, once applied and saved
- *   _inbox/rejected/<name>.json   the patch + `result.error`, nothing applied
+ * the running app). Instead, an outside writer — Claude Code, a script,
+ * Houdini — sends a *patch*, which koma applies to the live project; the
+ * normal autosave persists it, and koma stays the only writer of
+ * project.json. Patches arrive over the aux tools bridge (stores/tools.ts:
+ * every op is an MCP tool, `apply_patch` takes a whole patch) or the relay's
+ * `inbox` control topic (addsub/stores/houdini.ts, Houdini's "Send Plans").
+ * The `_inbox/` folder of patch files that koma used to poll is gone
+ * (2026-10-23); a patch needs koma open.
  *
  * Patch:
  *   {
@@ -28,21 +27,17 @@
  * kept in the result (`before`), which is what a revert patch is written
  * from — inbox edits are not on the undo stack.
  *
- * The ops themselves are registered by whoever owns the data (`registerOp`).
+ * The ops themselves are registered by whoever owns the data
+ * (`registerInboxOp`), with a description and a JSON Schema that make them
+ * tools.
  */
 
+import {snake} from 'case'
 import {defineStore} from 'pinia'
 import {ref} from 'vue'
 
 import {useProjectStore} from './project'
-
-export const INBOX_DIR = '_inbox'
-const APPLIED_DIR = 'applied'
-const REJECTED_DIR = 'rejected'
-const POLL_MS = 2000
-/** A patch that still doesn't parse after this many polls is rejected. */
-const PARSE_ATTEMPTS = 5
-const SAVE_TIMEOUT_MS = 20000
+import {registerTool} from './tools'
 
 export type InboxConflictPolicy = 'reject' | 'skip' | 'overwrite'
 
@@ -86,6 +81,14 @@ export type InboxOpHandler = (
 	ctx: InboxOpContext
 ) => Promise<InboxPrepared> | InboxPrepared
 
+/** What makes an op a tool: how it is described to an MCP client. */
+export interface InboxOpInfo {
+	description: string
+	/** JSON Schema `properties` of the op's fields (`op` and `onConflict` are added). */
+	properties: Record<string, unknown>
+	required?: string[]
+}
+
 export interface InboxOpResult {
 	status: 'applied' | 'skipped'
 	message?: string
@@ -104,16 +107,65 @@ export interface InboxEntry {
 	messages: string[]
 }
 
-/** What became of a patch (the `result` written next to it, or sent back). */
+/** What became of a patch (sent back to whoever sent it). */
 export type InboxOutcome =
 	| {status: 'applied'; at: string; applied: number; skipped: number; total: number; ops: InboxOpResult[]}
 	| {status: 'rejected'; at: string; error: string; total: number}
 
 const handlers = new Map<string, InboxOpHandler>()
 
-/** Register the handler of an op name. Later registrations replace earlier. */
-export function registerInboxOp(name: string, handler: InboxOpHandler) {
+const ON_CONFLICT_SCHEMA = {
+	type: 'string',
+	enum: ['reject', 'skip', 'overwrite'],
+	description:
+		'What to do when the op would replace existing data: reject (default; the call fails and nothing changes), skip (leave that data alone), overwrite.',
+}
+
+/**
+ * Register the handler of an op name. Later registrations replace earlier.
+ * With `info`, the op is also a tool (the snake_case of its name) that
+ * applies it as a one-op patch.
+ */
+export function registerInboxOp(name: string, handler: InboxOpHandler, info?: InboxOpInfo) {
 	handlers.set(name, handler)
+	if (!info) return
+	registerTool({
+		name: snake(name),
+		description: info.description,
+		inputSchema: {
+			type: 'object',
+			properties: {...info.properties, onConflict: ON_CONFLICT_SCHEMA},
+			required: info.required ?? [],
+			additionalProperties: false,
+		},
+		execute: async args => {
+			const {onConflict, ...fields} = args
+			const outcome = await useInboxStore().applyPatch(
+				{version: 1, note: `${name} (tool)`, onConflict, ops: [{op: name, ...fields}]},
+				`tool:${snake(name)}`
+			)
+			return toolResult(outcome)
+		},
+	})
+}
+
+/** Names of the registered ops (for the patch tool's description). */
+export function inboxOpNames(): string[] {
+	return [...handlers.keys()]
+}
+
+/** A patch outcome as a tool result: throws when it was rejected. */
+function toolResult(outcome: InboxOutcome | null) {
+	if (!outcome) {
+		const project = useProjectStore()
+		throw new Error(
+			project.directoryHandle
+				? 'the project is being opened — try again in a moment'
+				: 'the project has no folder yet (save it first)'
+		)
+	}
+	if (outcome.status === 'rejected') throw new Error(outcome.error)
+	return outcome
 }
 
 export const useInboxStore = defineStore('inbox', () => {
@@ -124,100 +176,16 @@ export const useInboxStore = defineStore('inbox', () => {
 	/** Entries added since the list was last looked at. */
 	const unseen = ref(0)
 
-	// Names taken care of in this session — applied in memory even if the
-	// file is still waiting for the save before it is moved.
-	const handled = new Set<string>()
-	const parseFailures = new Map<string, number>()
-	let scanning = false
-
 	function record(entry: InboxEntry) {
 		entries.value = [entry, ...entries.value].slice(0, 30)
 		unseen.value += 1
 	}
 
-	async function inboxDir(root: FileSystemDirectoryHandle) {
-		try {
-			return await root.getDirectoryHandle(INBOX_DIR)
-		} catch {
-			return null
-		}
-	}
-
-	async function writeJson(dir: FileSystemDirectoryHandle, name: string, data: unknown) {
-		const handle = await dir.getFileHandle(name, {create: true})
-		const w = await handle.createWritable()
-		try {
-			await w.write(JSON.stringify(data, null, '\t'))
-		} finally {
-			await w.close()
-		}
-	}
-
-	/** Move a patch out of the inbox, with its result attached. */
-	async function file(
-		inbox: FileSystemDirectoryHandle,
-		name: string,
-		into: string,
-		patch: unknown,
-		result: unknown
-	) {
-		const dir = await inbox.getDirectoryHandle(into, {create: true})
-		const body =
-			patch && typeof patch === 'object' && !Array.isArray(patch)
-				? {...(patch as object), result}
-				: {patch, result}
-		await writeJson(dir, name, body)
-		await inbox.removeEntry(name)
-	}
-
-	/** Resolves once the project has been saved (or the wait times out). */
-	function nextSave(): Promise<boolean> {
-		return new Promise(resolve => {
-			const timer = setTimeout(() => {
-				off()
-				resolve(false)
-			}, SAVE_TIMEOUT_MS)
-			const {off} = project.onSaved(() => {
-				clearTimeout(timer)
-				off()
-				resolve(true)
-			})
-		})
-	}
-
-	async function reject(
-		inbox: FileSystemDirectoryHandle,
-		name: string,
-		patch: unknown,
-		error: string,
-		total = 0
-	) {
-		handled.add(name)
-		const at = Date.now()
-		await file(inbox, name, REJECTED_DIR, patch, {
-			status: 'rejected',
-			at: new Date(at).toISOString(),
-			error,
-		}).catch(() => {})
-		record({
-			name,
-			note: (patch as InboxPatch | null)?.note ?? '',
-			status: 'rejected',
-			at,
-			applied: 0,
-			skipped: 0,
-			total,
-			error,
-			messages: [],
-		})
-	}
-
 	/**
 	 * Check and apply one patch to the open project — the same all-or-nothing
-	 * rules whether it came from a file in `_inbox/` or over the relay
-	 * (`inbox` control topic, stores/houdini.ts). Records the outcome in this
-	 * session's list; writing the result next to the file is the caller's.
-	 * Null when the project went away while the ops were being checked.
+	 * rules whichever way it came. Records the outcome in this session's
+	 * list. Null when there is no project folder, or the project went away
+	 * while the ops were being checked.
 	 */
 	async function applyPatch(patch: unknown, name: string): Promise<InboxOutcome | null> {
 		const root = project.directoryHandle
@@ -271,82 +239,38 @@ export const useInboxStore = defineStore('inbox', () => {
 		return {status: 'applied', at, applied, skipped: ops.length - applied, total: ops.length, ops}
 	}
 
-	async function process(
-		root: FileSystemDirectoryHandle,
-		inbox: FileSystemDirectoryHandle,
-		name: string,
-		text: string
-	) {
-		let patch: unknown
-		try {
-			patch = JSON.parse(text)
-		} catch (e) {
-			// Probably half-written (Dropbox, or a writer that didn't rename):
-			// leave it for the next polls before giving up.
-			const n = (parseFailures.get(name) ?? 0) + 1
-			parseFailures.set(name, n)
-			if (n >= PARSE_ATTEMPTS) {
-				await reject(inbox, name, text, `Not valid JSON: ${e instanceof Error ? e.message : e}`)
-			}
-			return
-		}
-		parseFailures.delete(name)
-
-		const outcome = await applyPatch(patch, name)
-		if (!outcome) return
-		handled.add(name)
-		if (outcome.status === 'rejected') {
-			await file(inbox, name, REJECTED_DIR, patch, outcome).catch(() => {})
-			return
-		}
-		// Only file the patch as applied once project.json holds it: if koma
-		// goes away before the save, the patch is still waiting next time.
-		const saved = outcome.applied === 0 ? true : await nextSave()
-		if (project.directoryHandle !== root) return
-		await file(inbox, name, APPLIED_DIR, patch, {...outcome, saved}).catch(() => {})
-	}
-
-	async function scan() {
-		if (scanning || project.isOpening) return
-		const root = project.directoryHandle
-		if (!root) return
-		scanning = true
-		try {
-			const inbox = await inboxDir(root)
-			if (!inbox) return
-			const names: string[] = []
-			for await (const [name, handle] of (inbox as any).entries() as AsyncIterable<
-				[string, FileSystemHandle]
-			>) {
-				if (handle.kind === 'file' && name.endsWith('.json') && !name.startsWith('.')) {
-					names.push(name)
-				}
-			}
-			names.sort((a, b) => a.localeCompare(b, undefined, {numeric: true}))
-			for (const name of names) {
-				if (handled.has(name)) continue
-				if (project.directoryHandle !== root) return
-				let text: string
-				try {
-					text = await (await (await inbox.getFileHandle(name)).getFile()).text()
-				} catch {
-					continue
-				}
-				await process(root, inbox, name, text)
-			}
-		} catch (e) {
-			// eslint-disable-next-line no-console
-			console.error('[inbox]', e)
-		} finally {
-			scanning = false
-		}
-	}
-
-	setInterval(() => void scan(), POLL_MS)
-
 	function markSeen() {
 		unseen.value = 0
 	}
 
-	return {entries, unseen, markSeen, scan, applyPatch}
+	registerTool({
+		name: 'apply_patch',
+		description:
+			'Apply several ops to the open project at once, all-or-nothing: every op is checked first and if one cannot be applied nothing changes. ' +
+			'Each op is an object {"op": "<name>", …fields} with the same fields as that op\'s tool; ' +
+			'the ops are listed in `get_project`. "onConflict" (reject | skip | overwrite, default reject) applies to every op unless an op sets its own. ' +
+			'Returns per-op results with what each replaced ("before"), from which a revert patch can be written — these edits are not on the undo stack.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				note: {type: 'string', description: 'What this patch is, shown in koma\'s title bar.'},
+				onConflict: ON_CONFLICT_SCHEMA,
+				ops: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {op: {type: 'string'}, onConflict: ON_CONFLICT_SCHEMA},
+						required: ['op'],
+						additionalProperties: true,
+					},
+					minItems: 1,
+				},
+			},
+			required: ['ops'],
+			additionalProperties: false,
+		},
+		execute: async args => toolResult(await applyPatch({version: 1, ...args}, `tool:apply_patch`)),
+	})
+
+	return {entries, unseen, markSeen, applyPatch}
 })

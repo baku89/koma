@@ -1,5 +1,7 @@
 /**
- * The project's own inbox ops (stores/inbox.ts): layers and shots.
+ * The project's own inbox ops (stores/inbox.ts) — each one a tool over the
+ * aux bridge (stores/tools.ts: delete_layer, delete_shots, …) and an op of a
+ * patch: layers and shots.
  *
  *   {"op": "deleteLayer", "layer": "<id>"}
  *       Same as the Layers dialog's trash can: the slot is only marked, its
@@ -23,8 +25,43 @@
 import {cloneDeep} from 'lodash-es'
 import {nextTick, toRaw} from 'vue'
 
-import {InboxConflict, type InboxOp, registerInboxOp} from './inbox'
+import {InboxConflict, type InboxOp, type InboxOpInfo, registerInboxOp} from './inbox'
 import {useProjectStore} from './project'
+
+const OPS: Record<string, InboxOpInfo> = {
+	deleteLayer: {
+		description:
+			'Delete a layer: the slot is only marked deleted (its shots and files stay; the Layers dialog can restore it). The first layer cannot be deleted.',
+		properties: {layer: {type: 'string', description: 'Layer id (see get_project).'}},
+		required: ['layer'],
+	},
+	deleteShots: {
+		description:
+			'Take the shots of a layer in from…to (inclusive; `to` omitted = to the end) off the timeline. They go to the trash; the frames stay (nothing ripples shut). Drops the undo history.',
+		properties: {
+			layer: {type: 'string', description: 'Layer id (see get_project).'},
+			from: {type: 'integer', minimum: 0, description: 'First frame (default 0).'},
+			to: {type: 'integer', minimum: 0, description: 'Last frame, inclusive (default: the end).'},
+		},
+		required: ['layer'],
+	},
+	moveShots: {
+		description:
+			'Move the shots of a layer to the same frames of another layer (`from` / `until` inclusive, optional). Conflict: a target cell already has a shot. The files are renamed by the next save (slow on a real folder, RAW included). Drops the undo history.',
+		properties: {
+			layer: {type: 'string', description: 'Layer id (see get_project).'},
+			to: {type: 'string', description: 'Target layer id.'},
+			from: {type: 'integer', minimum: 0},
+			until: {type: 'integer', minimum: 0},
+		},
+		required: ['layer', 'to'],
+	},
+	setCapture: {
+		description: 'Move the capture slot (where the next shot lands) to a frame of a layer.',
+		properties: {layer: {type: 'string', description: 'Layer id (see get_project).'}, frame: {type: 'integer', minimum: 0, description: 'Timeline frame (0-based).'}},
+		required: ['layer', 'frame'],
+	},
+}
 
 export function setupProjectInbox() {
 	const project = useProjectStore()
@@ -71,7 +108,7 @@ export function setupProjectInbox() {
 				return {deleted: was}
 			},
 		}
-	})
+	}, OPS.deleteLayer)
 
 	registerInboxOp('deleteShots', op => {
 		const layer = layerIndex(op.layer)
@@ -85,7 +122,7 @@ export function setupProjectInbox() {
 				return {frames}
 			},
 		}
-	})
+	}, OPS.deleteShots)
 
 	registerInboxOp('moveShots', (op, ctx) => {
 		const source = layerIndex(op.layer)
@@ -111,7 +148,7 @@ export function setupProjectInbox() {
 				return {frames, replaced: taken}
 			},
 		}
-	})
+	}, OPS.moveShots)
 
 	registerInboxOp('setCapture', op => {
 		const layer = layerIndex(op.layer)
@@ -129,5 +166,5 @@ export function setupProjectInbox() {
 				return before
 			},
 		}
-	})
+	}, OPS.setCapture)
 }

@@ -13,14 +13,14 @@
  *
  * Layers are given by name or id; the target layer must already exist (make
  * it in koma: Layers › New Test Shot…). Without --write it only reports.
- * With --write it drops a patch into the project's _inbox/ (src/stores/inbox.ts)
+ * With --write it sends a patch to the open koma through the aux tools bridge (src/stores/inbox.ts)
  * — koma applies it to the open project within seconds, or when the project
- * is next opened, and files it under _inbox/applied/ or _inbox/rejected/.
+ * — koma must be open with the project (yarn dev / yarn aux / the app running).
  * project.json is never touched. Frames that already have a plan on the
  * target are refused unless --force (then replaced).
  */
-import {mkdir, readFile, rename, writeFile} from 'node:fs/promises'
-import {dirname, join} from 'node:path'
+import {readFile} from 'node:fs/promises'
+import {join} from 'node:path'
 
 const argv = process.argv.slice(2)
 const flags = {}
@@ -97,15 +97,8 @@ if (conflicts.length) {
 }
 
 if (!flags.write) {
-	console.log('dry run — add --write to drop the patch into _inbox/')
+	console.log('dry run — add --write to send the patch to koma')
 	process.exit(0)
-}
-
-async function writeAtomic(path, data) {
-	await mkdir(dirname(path), {recursive: true})
-	const tmp = `${path}.tmp-${process.pid}`
-	await writeFile(tmp, data)
-	await rename(tmp, path)
 }
 
 const patch = {
@@ -114,7 +107,11 @@ const patch = {
 	onConflict: flags.force ? 'overwrite' : 'reject',
 	ops,
 }
-const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-const rel = `_inbox/${stamp}-plan-copy-${to.id}.json`
-await writeAtomic(join(projectDir, rel), JSON.stringify(patch, null, '\t'))
-console.log(`Wrote ${rel} — koma applies it when the project is open (see _inbox/applied/ or _inbox/rejected/).`)
+const {callTool, describeOutcome} = await import('./lib/komaTools.mjs')
+try {
+	const outcome = await callTool('apply_patch', patch)
+	console.log(`Sent to koma: ${describeOutcome(outcome)}`)
+} catch (e) {
+	console.error(`koma did not apply the patch: ${e.message}`)
+	process.exit(1)
+}
