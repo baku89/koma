@@ -22,7 +22,7 @@
  *                Moves koma's preview to that frame (onion skin / previz
  *                render comparison). Gated by `followTimeline`.
  * - `inbox`      {id, patch}  An inbox patch (stores/inbox.ts, the same
- *                format as a file in `_inbox/`), applied to the open project
+ *                format the `apply_patch` tool takes), applied to the open project
  *                at once — all-or-nothing, same ops. The outcome goes back as
  *                the `inbox:result` state {id, from, …outcome}. Not gated: a
  *                patch changes data, never moves anything. Houdini's "Send
@@ -39,10 +39,11 @@ import {useProjectStore} from '@/stores/project'
 import {useRelayStore} from '@/stores/relay'
 import {useViewportStore} from '@/stores/viewport'
 
-import {cameraPoseToRigAxes, type RigTarget} from '../kinematics'
+import {cameraPoseToWorkAxes, type RigTarget} from '../kinematics'
 import {parseCameraPoseMessage} from '../poseMessage'
 import {useLedStore} from './led'
 import {useRigStore} from './machines'
+import {useRigWorkStore} from './rigWork'
 import {useSequenceStore} from './sequence'
 
 /** Minimum interval between rig jogs sent for `rig:pose` (ms). */
@@ -58,6 +59,7 @@ export const useHoudiniStore = defineStore('addsub:houdini', () => {
 	const viewport = useViewportStore()
 	const led = useLedStore()
 	const rig = useRigStore()
+	const rigWork = useRigWorkStore()
 	const sequence = useSequenceStore()
 	const inbox = useInboxStore()
 
@@ -145,7 +147,10 @@ export const useHoudiniStore = defineStore('addsub:houdini', () => {
 			}
 		}
 		const {calibration} = project.addsub
-		return cameraPoseToRigAxes(parseCameraPoseMessage(data, calibration), calibration)
+		// Where the camera should be → what to send (the distortion correction).
+		return rigWork.fromCalibrated(
+			cameraPoseToWorkAxes(parseCameraPoseMessage(data, calibration), calibration)
+		) as RigTarget
 	}
 
 	function num(v: unknown, name: string): number {

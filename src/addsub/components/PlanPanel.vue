@@ -65,10 +65,10 @@ function write(plan: FramePlan) {
 	sequence.setPlan(frame.value, plan, layer.value)
 }
 
-/** Where the rig is now, in work coordinates (0 while it isn't connected). */
+/** Where the camera really is now (the calibrated frame; 0 while the rig isn't connected). */
 function rigNow(axis: Axis) {
-	const machine = rig.connected ? rig.mpos[axis] : undefined
-	return machine === undefined ? 0 : rigWork.axisToWork(axis, machine)
+	const now = rig.connected ? rigWork.calibratedNow : null
+	return now ? now[axis] : 0
 }
 
 /** Start values for the axes when the plan has none: the rig now. */
@@ -113,7 +113,7 @@ const rigRows: {label: string; icon: string; axes: Axis[]; hint: string}[] = [
 		label: 'Position',
 		icon: 'mdi:axis-arrow',
 		axes: ['x', 'y', 'z'],
-		hint: 'X · Y · Z — work coordinates, mm',
+		hint: 'X · Y · Z — calibrated frame (work coordinates with the distortion taken out), mm',
 	},
 	{
 		label: 'Rotation',

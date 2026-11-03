@@ -56,9 +56,10 @@ export function anglesToRotation({tilt, pan, roll}: HeadAngles): quat {
 
 /**
  * Decompose a rotation into pan/roll/tilt in the head's order. Gimbal lock at
- * roll = ±90° (then pan and tilt share an axis; pan is chosen 0).
+ * roll = ±90° (then pan and tilt share an axis): the pan is taken as
+ * `lockPan` (default 0) and the rest goes into the tilt.
  */
-export function rotationToAngles(r: quat): HeadAngles {
+export function rotationToAngles(r: quat, lockPan = 0): HeadAngles {
 	const m = mat4.fromQuat(r) // column-major: m[col*4 + row]
 	const m10 = m[1] // row 1, col 0 = sin(roll)
 	const m11 = m[5] // row 1, col 1 = cos(roll)·cos(tilt)
@@ -70,12 +71,16 @@ export function rotationToAngles(r: quat): HeadAngles {
 	const roll = Math.asin(sinRoll) * RAD
 
 	if (Math.abs(sinRoll) > 0.999999) {
-		// Gimbal lock: R = Ry(pan)·Rz(±90)·Rx(tilt); only pan∓tilt is defined.
-		// Fold everything into tilt.
+		// Gimbal lock. At roll +90 the top row of R is [0, −cos(tilt + pan),
+		// sin(tilt + pan)]; at roll −90 it is [0, cos(tilt − pan), −sin(tilt − pan)].
+		// Only that sum / difference is defined: keep the pan asked for and put
+		// the rest in the tilt. (Until 2026-10-25 the +90 case had the sign of
+		// m01 wrong and handed back a tilt off by ~180°.)
 		const m01 = m[4] // row 0, col 1
 		const m02 = m[8] // row 0, col 2
-		const tilt = Math.atan2(m02 * Math.sign(sinRoll), m01 * Math.sign(sinRoll)) * RAD
-		return {tilt: wrap180(tilt), pan: 0, roll}
+		const sign = Math.sign(sinRoll)
+		const sum = Math.atan2(m02 * sign, -m01 * sign) * RAD // tilt + sign·pan
+		return {tilt: wrap180(sum - sign * lockPan), pan: lockPan, roll}
 	}
 
 	return {
@@ -115,6 +120,24 @@ export function workAxesToCameraPose(axes: AxesPosition, cal: WorkKinematics): C
 }
 
 export type RigTarget = Required<Pick<AxesPosition, 'x' | 'y' | 'z' | 'a' | 'b' | 'c'>>
+
+/**
+ * Inverse of workAxesToCameraPose: a camera pose in *world* → rig axes in
+ * *work* coordinates (the ideal pose, before any distortion correction —
+ * stores/rigWork.ts `fromCalibrated` turns it into what to send).
+ */
+export function cameraPoseToWorkAxes(pose: CameraPose, cal: WorkKinematics): RigTarget {
+	const centre = rotationCentre(pose, cal.pupilOffset)
+	const {tilt, pan, roll} = rotationToAngles(pose.rotation)
+	return {
+		x: centre[0],
+		y: centre[1],
+		z: centre[2],
+		a: tilt * cal.rotarySigns.a,
+		b: pan * cal.rotarySigns.b,
+		c: roll * cal.rotarySigns.c,
+	}
+}
 
 /**
  * Inverse kinematics: a camera pose in *world* coordinates → rig axis values

@@ -35,6 +35,9 @@ export const MILL_DEFINITION: MachineDefinition = {
 	// too.
 	panel: {
 		outputs: {flood: 'Dust collector'},
+		// What the Fusion posts use (`S5000 M3`).
+		// config.yaml: `speed_map: 0=0.000% 1000=100.000%`
+		spindle: {defaultSpeed: 1000, maxSpeed: 1000},
 	},
 }
 
@@ -54,13 +57,14 @@ export const RIG_DEFINITION: MachineDefinition = {
 	},
 	jogFeed: 1500,
 	// X Y Z / A B C in two rows; no feed input. Homing the linear axes lifts
-	// Y (the hanging column) first, then X and Z together.
+	// Y (the hanging column) first, then X and Z together; the rotary axes
+	// home all at once ($H=ABC).
 	panel: {
 		gridColumns: 3,
 		showFeed: false,
 		homeGroups: [
 			{label: 'XYZ', steps: ['y', ['x', 'z']]},
-			{label: 'ABC', steps: ['a', 'b', 'c']},
+			{label: 'ABC', steps: [['a', 'b', 'c']]},
 		],
 	},
 }

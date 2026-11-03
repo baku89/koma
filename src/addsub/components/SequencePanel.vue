@@ -294,18 +294,18 @@ function setParkFromRig() {
 			</Tq.Parameter>
 
 			<Tq.ParameterHeading>Rig</Tq.ParameterHeading>
-			<Tq.Parameter label="Feed" icon="mdi:speedometer" hint="Rig move feed (mm/min)">
-				<Tq.InputNumber v-model="project.addsub.rigFeed" :min="1" :max="20000" />
+			<Tq.Parameter label="Feed" icon="mdi:speedometer" hint="Rig move feed, mm/min">
+				<Tq.InputNumber v-model="project.addsub.rigFeed" :min="1" :max="20000" :step="10" :precision="0" suffix=" mm/min" />
 			</Tq.Parameter>
-			<Tq.Parameter label="Settle" icon="mdi:timer-sand" hint="Wait after the rig stops (ms), always in full">
-				<Tq.InputNumber v-model="project.addsub.settleMs" :min="0" :max="60000" :step="100" :precision="0" />
+			<Tq.Parameter label="Settle" icon="mdi:timer-sand" hint="Wait after the rig stops, always in full">
+				<Tq.InputNumber v-model="project.addsub.settleMs" :min="0" :max="60000" :step="100" :precision="0" suffix=" ms" />
 			</Tq.Parameter>
 			<Tq.Parameter
 				label="Until Still"
 				icon="mdi:vibrate-off"
 				:hint="{
 					title: 'Wait until the live view is still',
-					description: 'After the settle time, keep waiting while the live view moves more than it did before the rig moved — up to the limit (ms), then shoot anyway.',
+					description: 'After the settle time, keep waiting while the live view moves more than it did before the rig moved — up to the limit, then shoot anyway.',
 				}"
 			>
 				<div class="buttons">
@@ -316,6 +316,7 @@ function setParkFromRig() {
 						:max="120000"
 						:step="1000"
 						:precision="0"
+						suffix=" ms"
 						:disabled="!project.addsub.settleStill"
 					/>
 				</div>

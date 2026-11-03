@@ -105,6 +105,17 @@ describe('lens table fit', () => {
 		expect(table[1].focal).toBeCloseTo(140, 6)
 	})
 
+	it('shifts every in-focus distance by the focus trim, leaving focal and pupil alone', () => {
+		const rows = parseLensSheet('390\t0.448\t41.5\n440\t0.53\t49.3', 100)
+		const plain = fitLensTable({...DEFAULT_LENS_CALIBRATION, samples: rows}, 80)
+		const trimmed = fitLensTable({...DEFAULT_LENS_CALIBRATION, focusTrim: 15, samples: rows}, 80)
+		expect(trimmed.map(r => r.distance)).toEqual(plain.map(r => r.distance + 15))
+		expect(trimmed.map(r => r.focal)).toEqual(plain.map(r => r.focal))
+		expect(trimmed.map(r => r.pupil)).toEqual(plain.map(r => r.pupil))
+		// Aiming at the old in-focus distance now picks a nearer setting.
+		expect(focusForDistance(trimmed, plain[1].distance)).toBeLessThan(plain[1].focus)
+	})
+
 	it('sorts by focus and drops settings without an in-focus reading', () => {
 		const rows = [
 			{focus: 0.5, distance: 400, halfWidth: 40, inFocus: true},

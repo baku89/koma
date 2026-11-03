@@ -109,18 +109,24 @@ export function setupAddsubRelay() {
 		() => {
 			const cutting = sequence.cutting
 			const p = mill.streamProgress
-			return {
-				running: sequence.running,
-				continuous: sequence.continuous,
-				step: sequence.currentStep,
-				message: sequence.message,
-				progress: project.addsub.sequence,
-				captureFrame: project.captureShot.frame,
-				captureLayer: project.captureShot.layer,
-				gcode: cutting ? {frame: cutting.frame, path: cutting.path, index: p?.index ?? 0, total: p?.total ?? 0} : null,
-			}
+			return [
+				relay.projectShared,
+				{
+					running: sequence.running,
+					continuous: sequence.continuous,
+					step: sequence.currentStep,
+					message: sequence.message,
+					progress: project.addsub.sequence,
+					captureFrame: project.captureShot.frame,
+					captureLayer: project.captureShot.layer,
+					gcode: cutting ? {frame: cutting.frame, path: cutting.path, index: p?.index ?? 0, total: p?.total ?? 0} : null,
+				},
+			] as const
 		},
-		v => relay.publishThrottled('sequence', {...v, t: Date.now()}, MACHINE_RATE_MS),
+		// A project not shared with the screens shows nothing of its progress:
+		// with no fields they fall back to their display copy.
+		([shared, v]) =>
+			relay.publishThrottled('sequence', shared ? {...v, t: Date.now()} : {t: Date.now()}, MACHINE_RATE_MS),
 		{immediate: true, deep: true}
 	)
 

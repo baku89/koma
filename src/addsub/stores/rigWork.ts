@@ -1,17 +1,25 @@
 /**
- * The Box Rig in work coordinates.
+ * The Box Rig's three coordinate frames.
  *
- * People place and read the rig in the controller's work coordinates (G54:
- * the origin is the centre of the work's bottom face, the rotary zeros are
- * the head looking straight), and that is what the project stores: plans,
- * shot records, the park pose. The machine works in machine coordinates —
- * the status reports, the travel limits, the moves the sequence sends
- * (G53) — so those go through here.
+ *   Machine     the controller's MPos: the status reports, the travel
+ *               limits, every move koma sends (G53).
+ *   Work        MPos − WCO (G54: the origin is the centre of the work's
+ *               bottom face, the rotary zeros are the head looking straight).
+ *               What the controller calls the pose, and what shot records
+ *               and the park pose store — a record of what was sent.
+ *   Calibrated  where the camera really is, once the rig's distortion (sag,
+ *               twist — rigDistortion.ts, fitted from the multi-point
+ *               calibration) is taken out. Plans, previz, Houdini, the 3D
+ *               view and the LED wall live here; without a calibration it is
+ *               the work frame.
  *
  * The work origin is the world origin: the controller's work coordinate
  * offset (WCO) *is* the calibration's `rigOffset` (X/Y/Z) and `rotaryZero`
  * (A/B/C). While the rig is connected the project follows what the
  * controller reports; offline the last values seen keep the numbers the same.
+ *
+ * Moves koma computes go Calibrated → `fromCalibrated` → Machine, just before
+ * they are sent; the controller's position comes back through `toCalibrated`.
  */
 
 import {defineStore} from 'pinia'
@@ -21,6 +29,15 @@ import {useProjectStore} from '@/stores/project'
 import type {AxesPosition, Axis} from '@/utils/fluidnc'
 
 import {shiftStoredRigAxes} from '../projectData'
+import {
+	calibratedToWork,
+	completeAxes,
+	deltaAt,
+	type RigAxes,
+	solveDistortion,
+	workToCalibrated,
+	ZERO_AXES,
+} from '../rigDistortion'
 import {useRigStore} from './machines'
 
 /** Positions are reported to 3 decimals. */
@@ -98,5 +115,96 @@ export const useRigWorkStore = defineStore('addsub:rigWork', () => {
 		{immediate: true}
 	)
 
-	return {offset, axisToWork, axisToMachine, toWork, toMachine}
+	//--------------------------------------------------------------------------
+	// Calibrated frame (rigDistortion.ts)
+
+	/** The fitted error field; null with no samples or the correction off. */
+	const field = computed(() => {
+		const d = project.addsub.rigDistortion
+		if (!d?.enabled) return null
+		const samples = Object.values(d.samples ?? {}).filter(s => !!s)
+		if (samples.length === 0) return null
+		return solveDistortion(samples, project.addsub.calibration)
+	})
+
+	/** A correction is in force (Calibrated differs from Work). */
+	const corrected = computed(() => field.value !== null)
+
+	/** Work axes → calibrated. Axes left out count as 0 for the pose and are left out of the result. */
+	function workToCal(work: AxesPosition): AxesPosition {
+		if (!field.value) return work
+		const full = workToCalibrated(completeAxes(work, ZERO_AXES), field.value, project.addsub.calibration)
+		return pick(full, work)
+	}
+
+	/** Machine axes → calibrated (the given axes). */
+	const toCalibrated = (machine: AxesPosition) => workToCal(toWork(machine))
+
+	/** Where the rig really is now, all six axes; null while it reports nothing. */
+	const calibratedNow = computed<RigAxes | null>(() => {
+		const m = rig.mpos
+		if (m.x === undefined) return null
+		return completeAxes(toCalibrated(m), ZERO_AXES)
+	})
+
+	/**
+	 * Calibrated axes → machine axes to send. The correction depends on the
+	 * whole pose, so axes left out are taken from where the rig is now (its
+	 * calibrated pose) to compute it — and left out of the result, so a move
+	 * of some axes moves only those.
+	 */
+	function fromCalibrated(cal: AxesPosition): AxesPosition {
+		if (!field.value) return toMachine(cal)
+		const full = completeAxes(cal, calibratedNow.value ?? ZERO_AXES)
+		const work = calibratedToWork(full, field.value, project.addsub.calibration)
+		return pick(toMachine(work), cal)
+	}
+
+	/**
+	 * Run a machine-coordinate kinematics function (aimRigAxes,
+	 * rotateAboutPupil, orbitRigAxes…) on the rig's *true* pose: the current
+	 * axes are read in the calibrated frame, dressed as machine coordinates
+	 * for the function, and its result is corrected back to real machine
+	 * coordinates. Without a calibration it is `fn(rig.mpos)`. Null while the
+	 * rig reports no position.
+	 */
+	function onTruePose(fn: (axes: RigAxes) => AxesPosition): AxesPosition | null {
+		const now = calibratedNow.value
+		if (!now) return null
+		const result = fn(toMachine(now) as RigAxes)
+		return fromCalibrated(toWork(result))
+	}
+
+	/** The correction in force at the rig's position now (world mm / deg). */
+	const correctionNow = computed(() => {
+		const now = calibratedNow.value
+		if (!now || !field.value) return null
+		const signs = project.addsub.calibration.rotarySigns
+		return deltaAt(field.value, [now.x, now.y, now.z], now.b * signs.b, now.c * signs.c)
+	})
+
+	/** `full` restricted to the axes `like` has. */
+	function pick(full: AxesPosition, like: AxesPosition): AxesPosition {
+		const out: AxesPosition = {}
+		for (const axis of Object.keys(like) as Axis[]) {
+			if (like[axis] !== undefined) out[axis] = full[axis]
+		}
+		return out
+	}
+
+	return {
+		offset,
+		axisToWork,
+		axisToMachine,
+		toWork,
+		toMachine,
+		field,
+		corrected,
+		workToCalibrated: workToCal,
+		toCalibrated,
+		calibratedNow,
+		fromCalibrated,
+		onTruePose,
+		correctionNow,
+	}
 })

@@ -58,6 +58,27 @@ describe('kinematics', () => {
 		}
 	})
 
+	it('at roll ±90 (gimbal lock) the asked-for pan is kept and the rotation still matches', () => {
+		for (const roll of [90, -90]) {
+			for (const angles of [
+				{tilt: 0, pan: 0, roll},
+				{tilt: -20, pan: 35, roll},
+				{tilt: 15, pan: -120, roll},
+			]) {
+				const r = anglesToRotation(angles)
+				// Default: pan 0, everything in the tilt — but the same rotation.
+				const folded = rotationToAngles(r)
+				expect(folded.pan).toBe(0)
+				expect(quat.angle(anglesToRotation(folded), r)).toBeLessThan(1e-4)
+				// With the pan given back, the original split.
+				const kept = rotationToAngles(r, angles.pan)
+				expect(near(kept.pan, angles.pan, 1e-4)).toBe(true)
+				expect(near(kept.tilt, angles.tilt, 1e-4)).toBe(true)
+				expect(quat.angle(anglesToRotation(kept), r)).toBeLessThan(1e-4)
+			}
+		}
+	})
+
 	it('pan is about world Y and tilt about the camera X', () => {
 		// Pan 90° turns the −Z view axis toward −X.
 		const q = anglesToRotation({tilt: 0, pan: 90, roll: 0})

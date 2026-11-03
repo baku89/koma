@@ -34,10 +34,10 @@ import type {CompactToolpath} from '@/utils/fluidnc/toolpath.worker'
 import {millToWorld} from '../coords'
 import {
 	orbitRigAxes,
-	rigAxesToCameraPose,
 	rotateAboutPupil,
 	rotationCentre,
 	type RotationDelta,
+	workAxesToCameraPose,
 } from '../kinematics'
 import {LED_WALL} from '../led/layout'
 import {effectivePlanFor, type FramePlan, interpolatedFrames, planFor, plannedFrames} from '../plan'
@@ -76,8 +76,15 @@ const shownRigAxes = computed<AxesPosition>(() =>
 	rig.mpos.x !== undefined ? rig.mpos : rigWork.toMachine(STANDBY_RIG_WORK)
 )
 
+/** The rig's axes as the info block shows them: the calibrated frame (what the view draws). */
+const rigShown = computed<AxesPosition>(() =>
+	rig.connected && rigWork.calibratedNow ? rigWork.calibratedNow : rig.wpos
+)
+
 /** Current camera pose (world) from the rig's axes (standby pose when it reports none). */
-const cameraPoseWorld = computed(() => rigAxesToCameraPose(shownRigAxes.value, cal.value))
+const cameraPoseWorld = computed(() =>
+	workAxesToCameraPose(rigWork.toCalibrated(shownRigAxes.value), cal.value)
+)
 
 /** The head's rotation centre (world): the pupil pulled back by the offset. */
 const headCentreWorld = computed(() =>
@@ -463,7 +470,7 @@ const shotPositions = computed(() => {
 	project.komas.forEach(koma => {
 		const shot = koma?.shots[0]
 		if (!shot?.rig) return
-		const pose = rigAxesToCameraPose(rigWork.toMachine(shot.rig), cal.value)
+		const pose = workAxesToCameraPose(rigWork.workToCalibrated(shot.rig), cal.value)
 		pts.push(new THREE.Vector3(...vec3.scale(pose.position, S)))
 	})
 	return pts
@@ -502,7 +509,7 @@ function planWorldPoint(plan: FramePlan): THREE.Vector3 | null {
 	let pose: {position: vec3} | null = null
 	if (plan.rig) {
 		// Axes the plan leaves out stay where the rig is now.
-		pose = rigAxesToCameraPose({...rig.mpos, ...rigWork.toMachine(plan.rig)}, cal.value)
+		pose = workAxesToCameraPose({...(rigWork.calibratedNow ?? {}), ...plan.rig}, cal.value)
 	} else if (plan.camera) {
 		pose = plan.camera
 	}
@@ -730,8 +737,9 @@ function onRotArrowClick(a: RotArrow) {
 	}
 	const name = ROTATION_NAMES[a.axis]
 	if (!name || rig.mpos.x === undefined) return
-	const target = rotateAboutPupil(rig.mpos, {[name]: a.sign * rig.jogStep}, cal.value)
-	jogToMachineTarget(target, `${AXIS_LABELS[a.axis]} about the pupil`)
+	// On the camera's true pose, corrected back to what to send (rigWork.ts).
+	const target = rigWork.onTruePose(axes => rotateAboutPupil(axes, {[name]: a.sign * rig.jogStep}, cal.value))
+	if (target) jogToMachineTarget(target, `${AXIS_LABELS[a.axis]} about the pupil`)
 }
 
 /**
@@ -831,7 +839,8 @@ function showNotice(text: string) {
 
 function onOrbitArrowClick(a: OrbitArrow) {
 	if (!rig.connected || sequence.running) return
-	jogToMachineTarget(orbitRigAxes(rig.mpos, a.sign * rig.jogStep, cal.value), 'Orbit')
+	const target = rigWork.onTruePose(axes => orbitRigAxes(axes, a.sign * rig.jogStep, cal.value))
+	if (target) jogToMachineTarget(target, 'Orbit')
 }
 
 const showArrows = computed(() => !viewport.isPlaying)
@@ -1021,15 +1030,16 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 		<div class="info tq-font-numeric">
 			<div class="block">
 				<div class="head">
-					<span class="name">Box Rig</span>
+					<span class="name">Box Rig<span v-if="rigWork.corrected" class="frame-tag" title="Calibrated frame: work coordinates with the distortion taken out (what the view draws)"> cal</span></span>
 					<span class="state" :class="{off: !rig.connected}">{{ rig.state ?? 'offline' }}</span>
 				</div>
+				<!-- The calibrated pose (the frame the view is drawn in); WPos until there is a correction. -->
 				<div class="axes">
 					<span v-for="ax in ['x', 'y', 'z'] as const" :key="ax" class="axis">
-						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rig.wpos[ax]) }}
+						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rigShown[ax]) }}
 					</span>
 					<span v-for="ax in ['a', 'b', 'c'] as const" :key="ax" class="axis">
-						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rig.wpos[ax], 2) }}°
+						<span class="label">{{ ax.toUpperCase() }}</span>{{ fmt(rigShown[ax], 2) }}°
 					</span>
 				</div>
 				<div v-if="notice" class="notice">{{ notice }}</div>
@@ -1305,4 +1315,8 @@ const fmt = (v: number | undefined, d = 1) => (v === undefined ? '—' : v.toFix
 	overflow hidden
 	text-overflow ellipsis
 	max-width 22em
+
+.frame-tag
+	font-size 0.8em
+	color var(--tq-color-text-mute)
 </style>

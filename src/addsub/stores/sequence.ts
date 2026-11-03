@@ -52,7 +52,7 @@ import {
 	readProjectText,
 	setCut,
 } from '../cuts'
-import {aimRigAxes, cameraPoseToRigAxes} from '../kinematics'
+import {aimRigAxes, type CameraPose, cameraPoseToWorkAxes} from '../kinematics'
 import {createMotionMeter, median} from '../motion'
 import {
 	type EffectivePlan,
@@ -194,14 +194,11 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	function resolveSource(frame: number): FrameSource {
-		const {calibration} = project.addsub
 		// The koma-side plan for this frame (plan.ts) overrides previz field by
 		// field: explicit rig axes first, else a camera pose to solve, else previz.
 		const pf = previz.frameFor(frame)
 		const plan = effectivePlan(frame)?.plan
-		const rigTarget =
-			planRigTarget(plan) ??
-			(pf?.pose ? cameraPoseToRigAxes(pf.pose, calibration) : null)
+		const rigTarget = planRigTarget(plan) ?? (pf?.pose ? poseTarget(pf.pose) : null)
 		return {
 			rigTarget,
 			cameraConfigs: (plan?.cameraConfigs ?? pf?.cameraConfigs) as
@@ -232,15 +229,20 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 
 	/**
 	 * Rig axes a plan asks for, in machine coordinates (its explicit axes —
-	 * stored in work coordinates — else its camera pose solved).
+	 * stored in the calibrated frame — else its camera pose solved). This is
+	 * where the distortion correction goes in: a plan says where the camera
+	 * should *be*, the result is what to send for it to get there.
 	 */
 	function planRigTarget(plan: FramePlan | undefined): AxesPosition | null {
 		if (!plan) return null
-		if (plan.rig) return rigWork.toMachine(plan.rig)
-		if (plan.camera) {
-			return cameraPoseToRigAxes(plan.camera, project.addsub.calibration)
-		}
+		if (plan.rig) return rigWork.fromCalibrated(plan.rig)
+		if (plan.camera) return poseTarget(plan.camera)
 		return null
+	}
+
+	/** Machine axes that put the camera at a world pose (previz, a plan's camera). */
+	function poseTarget(pose: CameraPose): AxesPosition {
+		return rigWork.fromCalibrated(cameraPoseToWorkAxes(pose, project.addsub.calibration))
 	}
 
 	/** The subset of a config export a plan keeps (plan.ts). */
@@ -268,7 +270,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		if (what.rig) {
 			const m = rig.mpos
 			if (rig.connected && m.x !== undefined) {
-				plan.rig = rigWork.toWork({x: m.x, y: m.y, z: m.z, a: m.a, b: m.b, c: m.c})
+				plan.rig = rigWork.toCalibrated({x: m.x, y: m.y, z: m.z, a: m.a, b: m.b, c: m.c})
 				delete plan.camera
 			} else {
 				problems.push('Box Rig is not connected — rig pose not recorded')
@@ -377,6 +379,10 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 			} else {
 				const tol = project.addsub.planTolerance
 				const m = rig.mpos
+				// Said in the calibrated frame, as the Plan panel shows it.
+				const haveCal = rigWork.toCalibrated(m)
+				const wantCal = eff.plan.rig ?? rigWork.toCalibrated(target)
+				const show = (v: number | undefined) => (v === undefined ? '?' : v.toFixed(2))
 				for (const axis of AXES) {
 					const want = target[axis]
 					if (want === undefined) continue
@@ -384,9 +390,8 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 					const rotary = axis === 'a' || axis === 'b' || axis === 'c'
 					const limit = rotary ? tol.rotary : tol.linear
 					if (have === undefined || Math.abs(have - want) > limit) {
-						const work = (m: number) => rigWork.axisToWork(axis, m).toFixed(2)
 						out.push(
-							`Rig ${axis.toUpperCase()} is ${have === undefined ? '?' : work(have)}, ${where} wants ${work(want)}`
+							`Rig ${axis.toUpperCase()} is ${show(haveCal[axis])}, ${where} wants ${show(wantCal[axis])}`
 						)
 					}
 				}
@@ -417,17 +422,22 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	//--------------------------------------------------------------------------
 	// Recall what a shot was taken with (timeline context menu / commands)
 
+	/** Where a recalled value came from: the shot's record, or the frame's plan / previz. */
+	type RecallSource = 'shot' | 'plan' | 'previz'
+
 	/**
 	 * Rig axes (machine) to reproduce a shot's camera position: the axes
 	 * recorded at capture. Falls back to the frame's plan / previz pose when
 	 * the shot recorded no axes (or there is no shot on that cell yet).
 	 */
-	function rigTargetForShot(frame: number, layer: number): AxesPosition | null {
-		const {calibration} = project.addsub
+	function rigTargetForShot(
+		frame: number,
+		layer: number
+	): {target: AxesPosition; source: RecallSource} | null {
 		const shot = project.shot(frame, layer)
 		if (shot?.rig && shot.rig.x !== undefined) {
 			const r = shot.rig
-			return rigWork.toMachine({
+			const target = rigWork.toMachine({
 				x: r.x ?? 0,
 				y: r.y ?? 0,
 				z: r.z ?? 0,
@@ -435,23 +445,27 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 				b: r.b ?? 0,
 				c: r.c ?? 0,
 			})
+			return {target, source: 'shot'}
 		}
+		const planned = planRigTarget(effectivePlan(frame, layer)?.plan)
+		if (planned) return {target: planned, source: 'plan'}
 		const pf = previz.frameFor(frame)
-		return (
-			planRigTarget(effectivePlan(frame, layer)?.plan) ??
-			(pf?.pose ? cameraPoseToRigAxes(pf.pose, calibration) : null)
-		)
+		if (pf?.pose) return {target: poseTarget(pf.pose), source: 'previz'}
+		return null
 	}
 
 	/**
-	 * Move the rig to where the camera was for this shot, now. Same checks as
-	 * the sequence's rig step; refuses while the sequence runs. With `axes`,
-	 * only those axes move (the others stay where they are).
+	 * Move the rig to where the camera was for this shot — or, with no shot
+	 * (or no axes recorded on it), to where the frame's plan / previz puts
+	 * it — now. Same checks as the sequence's rig step; refuses while the
+	 * sequence runs. With `axes`, only those axes move (the others stay
+	 * where they are).
 	 */
 	async function recallRig(frame: number, layer: number, axes?: readonly Axis[]) {
 		if (running.value) throw new SequenceError('rig', 'Sequence is running')
-		const full = rigTargetForShot(frame, layer)
-		if (!full) throw new SequenceError('rig', `Frame ${frame}: no camera position recorded`)
+		const found = rigTargetForShot(frame, layer)
+		if (!found) throw new SequenceError('rig', `Frame ${frame}: no camera position recorded, and no plan`)
+		const {target: full, source} = found
 		let target = full
 		if (axes) {
 			target = {}
@@ -464,9 +478,9 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		}
 		if (!rig.connected) throw new SequenceError('rig', 'Box Rig is not connected')
 		rigLimitsCheck(target)
-		message.value = axes
-			? `Moving rig ${axes.join('').toUpperCase()} to the camera position of frame ${frame}`
-			: `Moving rig to the camera position of frame ${frame}`
+		const where =
+			source === 'shot' ? `the camera position of frame ${frame}` : `the ${source} of frame ${frame} (no shot there)`
+		message.value = axes ? `Moving rig ${axes.join('').toUpperCase()} to ${where}` : `Moving rig to ${where}`
 		try {
 			await rig.moveTo(target, {feed: project.addsub.rigFeed})
 			message.value = null
@@ -486,8 +500,17 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		if (!rig.connected) throw new SequenceError('rig', 'Box Rig is not connected')
 		if (rig.mpos.x === undefined) throw new SequenceError('rig', 'Box Rig has not reported its position')
 		const point = target.map(v => Number(v.toFixed(3))).join(', ')
-		const aim = aimRigAxes(rig.mpos, [...target], project.addsub.calibration)
-		if (!aim) throw new SequenceError('rig', `The camera can't be aimed at (${point}) from here`)
+		// Aimed from where the camera really is (the calibrated pose), then
+		// corrected back to what to send.
+		let impossible = false
+		const aim = rigWork.onTruePose(axes => {
+			const r = aimRigAxes(axes, [...target], project.addsub.calibration)
+			if (!r) impossible = true
+			return r ?? {}
+		})
+		if (impossible || !aim || aim.a === undefined) {
+			throw new SequenceError('rig', `The camera can't be aimed at (${point}) from here`)
+		}
 		rigLimitsCheck(aim)
 		message.value = `Aiming the camera at (${point})`
 		try {
@@ -500,17 +523,36 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 	}
 
 	/**
-	 * Put the lighting this shot was taken with on the LED wall: the pixels
-	 * recorded at capture, verbatim. Turns the work light off; the wall keeps
-	 * showing it until a lighting mode changes.
+	 * The wall to put back for a cell: the pixels its shot was taken with
+	 * (recorded at capture, verbatim), else the wall its plan asks for
+	 * (Houdini's Send Plans; held from the previous key between planned
+	 * frames). Null when neither exists.
+	 */
+	function wallForShot(frame: number, layer: number): {file: string; source: RecallSource} | null {
+		const recorded = project.shot(frame, layer)?.led?.wall
+		if (recorded) return {file: recorded, source: 'shot'}
+		const planned = effectivePlan(frame, layer)?.plan.led?.file
+		if (planned) return {file: planned, source: 'plan'}
+		return null
+	}
+
+	/**
+	 * Put the lighting this shot was taken with on the LED wall — or, with no
+	 * shot (or none recorded on it), the lighting its plan asks for. Turns
+	 * the work light off; the wall keeps showing it until a lighting mode
+	 * changes.
 	 */
 	async function recallLed(frame: number, layer: number) {
-		const wall = project.shot(frame, layer)?.led?.wall
-		if (!wall) throw new SequenceError('led', `Frame ${frame}: no lighting recorded`)
+		const found = wallForShot(frame, layer)
+		if (!found) throw new SequenceError('led', `Frame ${frame}: no lighting recorded, and none planned`)
 		if (!led.connected) throw new SequenceError('led', 'LED wall is not connected')
 		led.leaveWorkLight()
 		try {
-			await led.showWallRecord(wall)
+			await led.showWallRecord(found.file)
+			message.value =
+				found.source === 'shot'
+					? `LED: lighting of frame ${frame}`
+					: `LED: planned lighting of frame ${frame} (no shot there)`
 		} catch (e) {
 			throw new SequenceError('led', e instanceof Error ? e.message : String(e))
 		}
@@ -1472,6 +1514,7 @@ export const useSequenceStore = defineStore('addsub:sequence', () => {
 		recallRig,
 		aimRigAt,
 		recallLed,
+		wallForShot,
 		rigTargetForShot,
 		steps: SEQUENCE_STEPS,
 	}

@@ -1,6 +1,7 @@
 /**
- * addsub's inbox ops (stores/inbox.ts): how a patch dropped into the
- * project's `_inbox/` attaches cuts and sets plans.
+ * addsub's inbox ops (stores/inbox.ts) — each one a tool over the aux
+ * bridge (stores/tools.ts: set_cut, set_plan, …) and an op of a patch:
+ * how Claude Code, scripts and Houdini attach cuts and set plans.
  *
  *   {"op": "setCut", "layer": "main", "frame": 41,
  *    "file": "gcode/main/0041_face Z-0.5.nc", "name": "face Z-0.5.nc"}
@@ -10,7 +11,8 @@
  *       Forgets the record; the file stays.
  *   {"op": "setPlan", "layer": "main", "frame": 41,
  *    "plan": {"rig": {"x": 0, "y": -542.5}, "cameraConfigs": {"iso": 100}}}
- *       `rig` is in the rig's work coordinates. Conflict: the frame already
+ *       `rig` is in the rig's calibrated frame (= work coordinates with the
+ *       distortion taken out). Conflict: the frame already
  *       has a plan of its own. Two more fields, for Houdini (koma_bridge.py
  *       "Send Plans"):
  *         "camera": {"position": [x, y, z], "rotation": [x, y, z, w] |
@@ -34,13 +36,13 @@
 
 import {cloneDeep} from 'lodash-es'
 
-import {InboxConflict, type InboxOp, registerInboxOp} from '@/stores/inbox'
+import {InboxConflict, type InboxOp, type InboxOpInfo, registerInboxOp} from '@/stores/inbox'
 import {useProjectStore} from '@/stores/project'
 import {AXES, type Axis, prepareGCode} from '@/utils/fluidnc'
 import {parseToolpathCached} from '@/utils/fluidnc/toolpathParser'
 
 import {cutFor, isGcodeFilename, readProjectText, setCut} from './cuts'
-import {cameraPoseToRigAxes} from './kinematics'
+import {cameraPoseToWorkAxes} from './kinematics'
 import {encodeWall, wallRecordPath} from './led/wallRecord'
 import {type FramePlan, planFor, type PlanLed, setPlan} from './plan'
 import {parseCameraPoseMessage} from './poseMessage'
@@ -48,6 +50,88 @@ import type {FrameCut} from './projectData'
 import {useLedStore} from './stores/led'
 import {useRigWorkStore} from './stores/rigWork'
 import {useSequenceStore} from './stores/sequence'
+
+const OPS: Record<string, InboxOpInfo> = {
+	setCut: {
+		description:
+			'Attach a G-code file (already in the project folder) to a frame as the cut to run before it is shot. Conflict: the frame already has an attached file. Refused while that frame is being cut.',
+		properties: {
+			layer: {type: 'string', description: 'Layer id (see get_project).'},
+			frame: {type: 'integer', minimum: 0, description: 'Timeline frame (0-based).'},
+			file: {type: 'string', description: 'Path in the project folder (.nc / .gcode / .ngc / .tap), e.g. "Main/gcode/0041_face.nc".'},
+			name: {type: 'string', description: 'Display name (default: the file name).'},
+		},
+		required: ['layer', 'frame', 'file'],
+	},
+	clearCut: {
+		description: 'Forget the cut attached to a frame (the file stays).',
+		properties: {layer: {type: 'string', description: 'Layer id (see get_project).'}, frame: {type: 'integer', minimum: 0, description: 'Timeline frame (0-based).'}},
+		required: ['layer', 'frame'],
+	},
+	setPlan: {
+		description:
+			'Set the plan of a frame: where the rig goes and what the camera is set to before the shot. Conflict: the frame already has a plan of its own (interpolated frames do not count). ' +
+			'`plan.rig` is in the rig\'s calibrated frame — work coordinates of where the camera really is, the distortion correction is applied when it moves — (mm / degrees, checked against the travel limits); `plan.camera` is a camera pose (position + rotation quaternion or angles) that is stored in world mm and, unless `solveRig` is false, solved to rig axes too; ' +
+			'`plan.cameraConfigs` holds aperture / shutterSpeed / iso / focusDistance (normalized 0–1); `plan.led` is the LED wall for the frame.',
+		properties: {
+			layer: {type: 'string', description: 'Layer id (see get_project).'},
+			frame: {type: 'integer', minimum: 0, description: 'Timeline frame (0-based).'},
+			plan: {
+				type: 'object',
+				properties: {
+					rig: {
+						type: 'object',
+						description: 'Rig axes, calibrated frame (work coordinates, corrected): x / y / z in mm, a (tilt) / b (pan) / c (roll) in degrees. Axes left out keep their position.',
+						properties: {x: {type: 'number'}, y: {type: 'number'}, z: {type: 'number'}, a: {type: 'number'}, b: {type: 'number'}, c: {type: 'number'}},
+						additionalProperties: false,
+					},
+					camera: {
+						type: 'object',
+						description: 'Camera pose: {position: [x, y, z], rotation: [x, y, z, w]} or {position, angles: {tilt, pan, roll}}, with "frame": "world" | "rig" and "unit": "m" | "mm" (defaults world, mm).',
+						properties: {
+							position: {type: 'array', items: {type: 'number'}, minItems: 3, maxItems: 3},
+							rotation: {type: 'array', items: {type: 'number'}, minItems: 4, maxItems: 4},
+							angles: {type: 'object', properties: {tilt: {type: 'number'}, pan: {type: 'number'}, roll: {type: 'number'}}},
+							frame: {type: 'string', enum: ['world', 'rig', 'film']},
+							unit: {type: 'string', enum: ['m', 'mm']},
+						},
+						required: ['position'],
+					},
+					solveRig: {type: 'boolean', description: 'With `camera`: also solve and store the rig axes (default true).'},
+					cameraConfigs: {
+						type: 'object',
+						properties: {
+							aperture: {type: 'number'},
+							shutterSpeed: {type: 'string', description: 'e.g. "1/60"'},
+							iso: {type: 'number'},
+							focusDistance: {type: 'number', description: 'Normalized 0–1 (Sigma fp).'},
+						},
+						additionalProperties: true,
+					},
+					led: {
+						type: 'object',
+						description: 'The wall: {rgb: <base64, 3 bytes per pixel, all lines in order>} written as a led-wall record, or {file: "led-wall/….ledwall"} for a record in the project.',
+						properties: {rgb: {type: 'string'}, file: {type: 'string'}},
+					},
+					note: {type: 'string'},
+				},
+				additionalProperties: false,
+			},
+		},
+		required: ['layer', 'frame', 'plan'],
+	},
+	clearPlan: {
+		description: 'Remove the plan of a frame.',
+		properties: {layer: {type: 'string', description: 'Layer id (see get_project).'}, frame: {type: 'integer', minimum: 0, description: 'Timeline frame (0-based).'}},
+		required: ['layer', 'frame'],
+	},
+	moveLayerData: {
+		description:
+			'Move every plan and cut record of a layer to the same frames of another layer (G-code files stay where they are). Conflict: the target layer already has a plan or cut at one of those frames.',
+		properties: {layer: {type: 'string', description: 'Layer id (see get_project).'}, to: {type: 'string', description: 'Target layer id.'}},
+		required: ['layer', 'to'],
+	},
+}
 
 export function setupAddsubInbox() {
 	const project = useProjectStore()
@@ -179,7 +263,7 @@ export function setupAddsubInbox() {
 				return cloneDeep(previous) ?? null
 			},
 		}
-	})
+	}, OPS.setCut)
 
 	registerInboxOp('clearCut', op => {
 		const {layer, frame} = cell(op)
@@ -191,7 +275,7 @@ export function setupAddsubInbox() {
 				return cloneDeep(previous) ?? null
 			},
 		}
-	})
+	}, OPS.clearCut)
 
 	registerInboxOp('setPlan', async (op, ctx) => {
 		const {layer, frame} = cell(op)
@@ -216,8 +300,7 @@ export function setupAddsubInbox() {
 				throw new Error(`plan.camera: ${e instanceof Error ? e.message : String(e)}`)
 			}
 			if (input.rig === undefined && input.solveRig !== false) {
-				const machine = cameraPoseToRigAxes(plan.camera, project.addsub.calibration)
-				plan.rig = rigWork.toWork(machine)
+				plan.rig = cameraPoseToWorkAxes(plan.camera, project.addsub.calibration)
 			}
 		}
 		if (input.rig) {
@@ -241,7 +324,7 @@ export function setupAddsubInbox() {
 				return cloneDeep(previous) ?? null
 			},
 		}
-	})
+	}, OPS.setPlan)
 
 	registerInboxOp('clearPlan', op => {
 		const {layer, frame} = cell(op)
@@ -252,7 +335,7 @@ export function setupAddsubInbox() {
 				return cloneDeep(previous) ?? null
 			},
 		}
-	})
+	}, OPS.clearPlan)
 
 	registerInboxOp('moveLayerData', (op, ctx) => {
 		const ids = [op.layer, op.to].map((id, i) => {
@@ -287,5 +370,5 @@ export function setupAddsubInbox() {
 				return {plans: moved[0], cuts: moved[1]}
 			},
 		}
-	})
+	}, OPS.moveLayerData)
 }

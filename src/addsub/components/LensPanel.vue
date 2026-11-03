@@ -229,6 +229,13 @@ const tableLines = computed(() =>
 			<Tq.InputNumber v-model="project.addsub.lens.farStep" :step="10" suffix=" mm" />
 		</Tq.Parameter>
 		<Tq.Parameter
+			label="Focus trim"
+			icon="mdi:image-filter-center-focus"
+			hint="mm added to where every focus setting is sharp. If the picture is sharp 15 mm beyond the point koma aims at, enter 15 (negative when it falls short). Focal lengths and the pupil are not changed."
+		>
+			<Tq.InputNumber v-model="project.addsub.lens.focusTrim" :step="1" suffix=" mm" />
+		</Tq.Parameter>
+		<Tq.Parameter
 			label="Sensor width"
 			icon="mdi:crop-landscape"
 			hint="mm. Sigma fp: 35.9."

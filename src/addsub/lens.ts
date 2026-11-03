@@ -75,6 +75,14 @@ export interface LensCalibration {
 	 * is than the first (mm) — the Y move made between the two readings.
 	 */
 	farStep: number
+	/**
+	 * Focus trim (mm), added to the in-focus distance of every fitted row:
+	 * where the lens really is sharp, relative to the sheet's target. When
+	 * the picture turns out sharp 15 mm beyond the point koma aims at, the
+	 * trim is +15. It leaves the focal lengths and the pupil alone (the
+	 * frame width at the target doesn't depend on where the focus landed).
+	 */
+	focusTrim: number
 	samples: LensSample[]
 }
 
@@ -83,6 +91,7 @@ export const DEFAULT_LENS_CALIBRATION: LensCalibration = {
 	originIsPupil: true,
 	originOffset: 0,
 	farStep: 100,
+	focusTrim: 0,
 	samples: [],
 }
 
@@ -111,12 +120,14 @@ export type LensTable = LensRow[]
  * target per setting is enough. Otherwise a setting with two or more targets
  * fits its own pupil, and one with a single target borrows the pupil
  * interpolated (by focus) from the fitted settings, or `pupilOffset` when
- * none was fitted. Settings without an in-focus reading are skipped.
+ * none was fitted. Settings without an in-focus reading are skipped. Every
+ * row's in-focus distance carries the calibration's `focusTrim`.
  */
 export function fitLensTable(cal: LensCalibration, pupilOffset = 0): LensTable {
 	const half = cal.sensorWidth / 2
 	// Where the sheet's distances start, mm in front of the rotation centre.
 	const origin = cal.originIsPupil ? pupilOffset : cal.originOffset
+	const trim = Number.isFinite(cal.focusTrim) ? cal.focusTrim : 0
 	const groups = new Map<number, LensSample[]>()
 	for (const s of cal.samples) {
 		if (![s.focus, s.distance, s.halfWidth].every(Number.isFinite)) continue
@@ -153,7 +164,7 @@ export function fitLensTable(cal: LensCalibration, pupilOffset = 0): LensTable {
 			if (!(focal > 0) || !Number.isFinite(pupil)) continue
 			fitted.push({
 				focus,
-				distance: inFocus.distance + origin,
+				distance: inFocus.distance + origin + trim,
 				focal,
 				pupil,
 				pupilSource: 'fitted',
@@ -173,7 +184,7 @@ export function fitLensTable(cal: LensCalibration, pupilOffset = 0): LensTable {
 		if (!(focal > 0)) continue
 		rows.push({
 			focus,
-			distance: inFocus.distance + origin,
+			distance: inFocus.distance + origin + trim,
 			focal,
 			pupil,
 			pupilSource: cal.originIsPupil ? 'pupil' : 'assumed',

@@ -14,6 +14,7 @@ import {
 } from './config'
 import {DEFAULT_LENS_CALIBRATION, type FocusMode, type LensCalibration} from './lens'
 import type {PlanTable} from './plan'
+import {DEFAULT_RIG_DISTORTION, type RigDistortion} from './rigDistortion'
 
 /**
  * One step of the per-frame sequence, in order. §2. The rig and the wall go
@@ -166,6 +167,13 @@ export interface AddsubProjectData {
 	/** Soft travel limits for the rig, checked before every move. */
 	rigLimits: Partial<Record<keyof AxesPosition, [number, number]>>
 	calibration: AddsubCalibration
+	/**
+	 * The rig's distortion: the poses trued up by eye against the marker and
+	 * the correction fitted to them (rigDistortion.ts). Plans and every pose
+	 * koma computes are in the corrected ("Calibrated") frame; shot records
+	 * and the park pose stay in the controller's work coordinates.
+	 */
+	rigDistortion: RigDistortion
 	/** The lens's focus ↔ distance ↔ field-of-view table (lens.ts). */
 	lens: LensCalibration
 	/**
@@ -238,6 +246,7 @@ export const DEFAULT_ADDSUB_DATA: AddsubProjectData = {
 	rigFeed: 1500,
 	rigLimits: {x: [...RIG_LIMITS.x], y: [...RIG_LIMITS.y], z: [...RIG_LIMITS.z]},
 	calibration: DEFAULT_CALIBRATION,
+	rigDistortion: DEFAULT_RIG_DISTORTION,
 	lens: DEFAULT_LENS_CALIBRATION,
 	focus: {mode: 'normalized', target: [0, 0, 0]},
 	led: {
@@ -301,6 +310,23 @@ export function migrateAddsubData(
 	} = {}
 ) {
 	const a = project.addsub
+	// 2026-10-25: the distortion calibration went from one `radius` to
+	// `radii` × `directions`; samples are keyed `<direction>@<radius>`.
+	const dist = a.rigDistortion as unknown as
+		| (Partial<RigDistortion> & {radius?: number; samples?: Record<string, unknown>})
+		| undefined
+	if (dist && typeof dist.radius === 'number') {
+		const radius = dist.radius
+		dist.radii = [radius]
+		dist.directions = dist.directions ?? [...DEFAULT_RIG_DISTORTION.directions]
+		const samples: Record<string, unknown> = {}
+		for (const [id, sample] of Object.entries(dist.samples ?? {})) {
+			if (!sample) continue
+			samples[id.includes('@') ? id : `${id}@${radius}`] = sample
+		}
+		dist.samples = samples as RigDistortion['samples']
+		delete dist.radius
+	}
 	// 2026-09-29: the rig's travel was re-measured (X/Z ±550 about the centre,
 	// not 0…1200). Projects still carrying the old placeholder defaults get
 	// the new ones; anything the user edited is left alone.

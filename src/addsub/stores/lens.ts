@@ -119,11 +119,12 @@ export const useLensStore = defineStore('addsub:lens', () => {
 	 */
 	const targetDistance = computed(() => {
 		if (!rig.connected) return null
-		// Work coordinates from the machine position: `rig.wpos` is only the
-		// controller's own WPos when it reports one, and falls back to MPos.
+		// Where the camera really is (the calibrated frame, rigWork.ts), from
+		// the machine position: `rig.wpos` is empty until the controller
+		// reports a WCO.
 		const m = rig.mpos
 		if (m.x === undefined) return null
-		const w = rigWork.toWork(m)
+		const w = rigWork.toCalibrated(m)
 		const cal = project.addsub.calibration
 		const pose = workAxesToCameraPose(w, cal)
 		const forward = vec3.transformQuat([0, 0, -1], pose.rotation as quat)

@@ -57,7 +57,7 @@ Message formats (JSON, {"type": "control", "topic": …, "data": …}):
                    "unit": "mm"|"m"}   or   {"axes": {"x","y","z","a","b","c"}}
   timeline:frame  {"frame": n}     (previz frame numbering)
   inbox           {"id": …, "patch": {"version": 1, "onConflict": …, "ops": […]}}
-                  an inbox patch (koma's _inbox/ format); the outcome comes
+                  an inbox patch (koma's patch format, stores/inbox.ts); the outcome comes
                   back as the `inbox:result` state with the same id.
 """
 
@@ -395,7 +395,7 @@ class KomaBridge:
     def send_frame(self, frame):
         self.send('timeline:frame', {'frame': int(round(frame))})
 
-    # -- inbox patches (koma's _inbox/ format, applied at once over the relay)
+    # -- inbox patches (koma's patch format, applied at once over the relay)
 
     def send_patch(self, ops, on_conflict='overwrite', note='', wait=10.0):
         """
