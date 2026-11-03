@@ -5,9 +5,10 @@ import {computed, reactive, ref, useTemplateRef,watch} from 'vue'
 import {
 	homingLines,
 	type HomingSteps,
+	type MachineFrame,
 	type MachineStore,
 } from '@/stores/machine'
-import {type AxesPosition, type Axis, PIN_LABELS} from '@/utils/fluidnc'
+import {type AxesPosition, type Axis, PIN_LABELS, rewriteMoveLine} from '@/utils/fluidnc'
 
 const props = withDefaults(
 	defineProps<{
@@ -23,6 +24,12 @@ const props = withDefaults(
 		 * Vue casts an absent boolean prop to `false`, hence the explicit default.
 		 */
 		console?: boolean
+		/**
+		 * Further coordinate frames to offer next to Machine / Work (the
+		 * "Frame" radio): the position fields, "go", the ± jogs and typed moves
+		 * then read and send in the chosen one.
+		 */
+		frames?: readonly MachineFrame[]
 	}>(),
 	{console: true}
 )
@@ -36,6 +43,11 @@ const jogStep = computed({
 	get: () => props.machine.jogStep,
 	set: v => props.machine.$patch({jogStep: v}),
 })
+const spindleTestSpeed = computed({
+	get: () => props.machine.spindleTestSpeed,
+	set: v => props.machine.$patch({spindleTestSpeed: v}),
+})
+
 const jogFeed = computed({
 	get: () => props.machine.jogFeed,
 	set: v => props.machine.$patch({jogFeed: v}),
@@ -83,10 +95,72 @@ function fmt(v: number | undefined, axis: Axis) {
 
 const stepPresets = [0.01, 0.1, 1, 10, 100]
 
+//------------------------------------------------------------------------------
+// Coordinate frames: Machine (MPos), Work (MPos − WCO) and whatever the
+// machine's owner adds (`frames`). The chosen one is what the position
+// fields show and what "go", the ± jogs and typed moves are in; the dimmed
+// machine position and the zero / set buttons (G10 L20, work by definition)
+// don't change.
+
+const MACHINE_FRAME: MachineFrame = {
+	id: 'machine',
+	label: 'MPos',
+	hint: 'MPos, from the homing origin.',
+	fromMachine: m => ({...m}),
+	toMachine: a => ({...a}),
+}
+
+const workFrame: MachineFrame = {
+	id: 'work',
+	label: 'WPos',
+	hint: 'WPos, relative to the G54 origin (the buttons above zero / set it here).',
+	fromMachine: m => {
+		const wco = props.machine.wco
+		const out: AxesPosition = {}
+		if (!wco) return out
+		for (const [axis, v] of Object.entries(m) as [Axis, number | undefined][]) {
+			if (v !== undefined) out[axis] = v - (wco[axis] ?? 0)
+		}
+		return out
+	},
+	toMachine: w => {
+		const wco = props.machine.wco
+		const out: AxesPosition = {}
+		for (const [axis, v] of Object.entries(w) as [Axis, number | undefined][]) {
+			if (v !== undefined) out[axis] = v + (wco?.[axis] ?? 0)
+		}
+		return out
+	},
+}
+
+const frames = computed<MachineFrame[]>(() => [MACHINE_FRAME, workFrame, ...(props.frames ?? [])])
+const frameId = Tq.config.ref(`machine.${props.machine.def.id}.frame`, 'work')
+const frame = computed(() => frames.value.find(f => f.id === frameId.value) ?? workFrame)
+/** The machine's position in the chosen frame (an axis is missing until it can be told). */
+const framePos = computed<AxesPosition>(() =>
+	props.machine.connected ? frame.value.fromMachine(props.machine.mpos) : {}
+)
+const builtInFrame = computed(() => frame.value === MACHINE_FRAME || frame.value === workFrame)
+
+/** Absolute move to `axes` in the chosen frame (an abortable jog at the jog feed). */
+function sendAbsolute(axes: AxesPosition) {
+	const m = props.machine
+	if (frame.value === workFrame) return m.jog(axes, {relative: false})
+	return m.jog(frame.value.toMachine(axes), {relative: false, machineCoords: true})
+}
+
 function jog(axis: Axis, sign: 1 | -1) {
 	// Jogging says "not that target after all": the field follows the axis again.
 	delete target[axis]
-	props.machine.jogStepAxis(axis, sign).catch(() => {})
+	if (builtInFrame.value) {
+		props.machine.jogStepAxis(axis, sign).catch(() => {})
+		return
+	}
+	// A step along one axis *of the frame*: the other axes keep their frame
+	// values, which (the correction being coupled) may move them a hair.
+	const now = framePos.value[axis]
+	if (now === undefined) return
+	sendAbsolute({...framePos.value, [axis]: now + sign * props.machine.jogStep}).catch(() => {})
 }
 
 //------------------------------------------------------------------------------
@@ -103,10 +177,11 @@ const target = reactive<AxesPosition>({})
 function targetRange(axis: Axis) {
 	const lim = props.limits?.[axis]
 	if (lim) {
-		// Machine → work: subtract the work coordinate offset.
-		const wco =
-			(props.machine.mpos[axis] ?? 0) - (props.machine.wpos[axis] ?? 0)
-		return {min: lim[0] - wco, max: lim[1] - wco, clamp: true}
+		// Machine → the frame: shift by how far the frame's value sits from
+		// MPos here. Exact for Machine / Work; a frame with a coupled
+		// correction is only about right, so it isn't clamped to.
+		const shift = (props.machine.mpos[axis] ?? 0) - (framePos.value[axis] ?? 0)
+		return {min: lim[0] - shift, max: lim[1] - shift, clamp: builtInFrame.value}
 	}
 	if (axisInfo(axis).unit === 'deg') return {min: -180, max: 180, clamp: false}
 	return {min: undefined, max: undefined, clamp: false}
@@ -114,7 +189,7 @@ function targetRange(axis: Axis) {
 
 function isTargetDirty(axis: Axis) {
 	const t = target[axis]
-	const current = props.machine.wpos[axis]
+	const current = framePos.value[axis]
 	return (
 		t !== undefined &&
 		current !== undefined &&
@@ -123,7 +198,7 @@ function isTargetDirty(axis: Axis) {
 }
 
 function setTarget(axis: Axis, value: number) {
-	const current = props.machine.wpos[axis]
+	const current = framePos.value[axis]
 	if (current === undefined) return
 	if (target[axis] === undefined) {
 		// An axis outside the slider's range makes the input emit the clamped
@@ -151,12 +226,13 @@ function releaseFocus() {
 function goToTarget(axis: Axis) {
 	const value = target[axis]
 	if (value === undefined) return
-	props.machine.jog({[axis]: value}, {relative: false}).catch(() => {})
+	const axes = builtInFrame.value ? {[axis]: value} : {...framePos.value, [axis]: value}
+	sendAbsolute(axes).catch(() => {})
 }
 
-// Arrived (or disconnected): the field follows the axis again.
+// Arrived (or disconnected, or the frame changed): the field follows the axis again.
 watch(
-	() => [props.machine.wpos, props.machine.connected] as const,
+	() => [framePos.value, props.machine.connected, frameId.value] as const,
 	([, connected]) => {
 		for (const axis of Object.keys(target) as Axis[]) {
 			if (!connected || !isTargetDirty(axis)) delete target[axis]
@@ -169,12 +245,11 @@ function goTooltip(axis: Axis) {
 	return isTargetDirty(axis)
 		? {
 				title: `Move ${name} to ${fmt(target[axis], axis)}`,
-				description: `Now at ${fmt(props.machine.wpos[axis], axis)}. Moves at the jog feed; right-click the value to drop the target.`,
+				description: `Now at ${fmt(framePos.value[axis], axis)} (${frame.value.label.toLowerCase()}). Moves at the jog feed; right-click the value to drop the target.`,
 			}
 		: {
 				title: `Move ${name}`,
-				description:
-					'Edit the work position on the left, then press this to move there.',
+				description: `Edit the ${frame.value.label.toLowerCase()} position on the left, then press this to move there.`,
 			}
 }
 
@@ -207,7 +282,16 @@ async function sendConsole() {
 	// next line.
 	$console.value?.blur()
 	$console.value?.select()
-	await props.machine.send(line).catch(() => {})
+	// A typed move is in the chosen frame: Work goes as typed (the
+	// controller's own), anything else is re-expressed in machine
+	// coordinates with a G53. In an owner frame the axes the line leaves
+	// out are filled in from where the machine is, like the ± jog: the
+	// correction couples the axes, so "Z0" means the other five stay put
+	// *in that frame*, which is a hair's move in machine coordinates.
+	const toMachine = (axes: AxesPosition) =>
+		frame.value.toMachine(builtInFrame.value ? axes : {...framePos.value, ...axes})
+	const out = frame.value === workFrame ? line : rewriteMoveLine(line, toMachine)
+	await props.machine.send(out).catch(() => {})
 }
 
 const recentLog = computed(() => props.machine.log.slice(-12))
@@ -284,6 +368,12 @@ function homeTooltip(label: string, steps: HomingSteps) {
 const panel = computed(() => props.machine.def.panel ?? {})
 const gridColumns = computed(() => panel.value.gridColumns ?? 3)
 const showFeed = computed(() => panel.value.showFeed !== false)
+// M3 / M5 are ordinary lines: a held controller wouldn't run them, and a
+// streaming program owns the spindle.
+const canSwitchSpindle = computed(() => {
+	const m = props.machine
+	return m.connected && !m.unidentified && !m.busy && m.state !== 'Hold' && m.state !== 'Door'
+})
 const outputs = computed(() =>
 	(['flood', 'mist'] as const).flatMap(which => {
 		const label = panel.value.outputs?.[which]
@@ -339,7 +429,11 @@ const outputs = computed(() =>
 		>
 			<div class="held">
 				<span class="held-text">
-					The controller can't say which machine it is until it is released.
+					{{
+						machine.state === 'Alarm'
+							? 'A limit alarm: the controller answers nothing but a reset (Ctrl-X). It can say which machine it is after that.'
+							: "The controller can't say which machine it is until it is released."
+					}}
 				</span>
 				<div class="controls">
 					<Tq.InputButton
@@ -375,32 +469,35 @@ const outputs = computed(() =>
 		</Tq.Parameter>
 
 		<!-- Alarm / error -->
-		<Tq.Parameter v-if="machine.alarm" label="Alarm" icon="mdi:alert">
-			<div class="alarm">
-				ALARM:{{ machine.alarm.code }} {{ machine.alarm.message }}
-				<Tq.InputButton
-					label="Unlock ($X)"
-					icon="mdi:lock-open-variant"
-					@click="machine.unlock()"
-				/>
-			</div>
-		</Tq.Parameter>
-		<Tq.Parameter
-			v-else-if="machine.lastError"
-			label="Error"
-			icon="mdi:alert-circle-outline"
-		>
-			<div class="error">
-				<span v-tooltip="machine.lastError" class="error-text">
-					{{ machine.lastError }}
-				</span>
-				<Tq.InputButton
-					icon="mdi:close"
-					subtle
-					narrow
-					tooltip="Dismiss"
-					@click="dismissError"
-				/>
+		<!-- Always there, one line high and empty when all is well: nothing below
+		     it moves when an error comes and goes. -->
+		<Tq.Parameter label="Error" icon="mdi:alert-circle-outline">
+			<div class="error" :class="{alarm: machine.alarm}">
+				<template v-if="machine.alarm">
+					<span
+						v-tooltip="`ALARM:${machine.alarm.code} ${machine.alarm.message}`"
+						class="error-text"
+					>
+						ALARM:{{ machine.alarm.code }} {{ machine.alarm.message }}
+					</span>
+					<Tq.InputButton
+						label="Unlock ($X)"
+						icon="mdi:lock-open-variant"
+						@click="machine.unlock()"
+					/>
+				</template>
+				<template v-else-if="machine.lastError">
+					<span v-tooltip="machine.lastError" class="error-text">
+						{{ machine.lastError }}
+					</span>
+					<Tq.InputButton
+						icon="mdi:close"
+						subtle
+						narrow
+						tooltip="Dismiss"
+						@click="dismissError"
+					/>
+				</template>
 			</div>
 		</Tq.Parameter>
 
@@ -438,7 +535,7 @@ const outputs = computed(() =>
 				:hint="{
 					title: 'Send a line',
 					description:
-						'G-code or $-command, sent as typed with Enter or the Send button (not on blur). The chevron shows the last lines of the serial log (status reports from the ? poll are left out); the copy button puts the whole log on the clipboard.',
+						'G-code or $-command, sent with Enter or the Send button (not on blur). An absolute move (G0 / G1 / $J=, or bare axis words like Z0) is taken in the chosen frame: Work goes as typed, Machine and other frames are rewritten with G53 — and in a frame of its own the axes left out are filled in from where the machine is, so all axes go. The chevron shows the last lines of the serial log (status reports from the ? poll are left out); the copy button puts the whole log on the clipboard.',
 				}"
 			>
 				<!--
@@ -515,53 +612,69 @@ const outputs = computed(() =>
 		     the running program at once, echoed back in Ov: -->
 		<Tq.Parameter
 			v-if="showFeed"
-			label="Override"
+			label="Feed rate"
 			icon="mdi:tune-variant"
 			:hint="{
-				title: 'Feed / rapid override',
+				title: 'Feed override',
 				description:
-					'Real-time multiplier on the running program (10–200 % feed; 25/50/100 % rapids). Applies immediately, also while streaming G-code.',
+					'Real-time multiplier on the feed of the running program, 10–200 %. Applies immediately, also while streaming G-code. A reset puts it back to 100 %.',
 			}"
 		>
-			<div class="override">
-				<Tq.InputGroup>
-					<Tq.InputButton
-						label="−10"
-						narrow
-						:disabled="!machine.connected"
-						@click="machine.feedOverride(-10)"
-					/>
-					<Tq.InputButton
-						label="−1"
-						narrow
-						:disabled="!machine.connected"
-						@click="machine.feedOverride(-1)"
-					/>
-					<Tq.InputButton
-						:label="machine.override ? `${machine.override.feed}%` : '—'"
-						tooltip="Back to 100 %"
-						:disabled="!machine.connected"
-						@click="machine.feedOverride(0)"
-					/>
-					<Tq.InputButton
-						label="+1"
-						narrow
-						:disabled="!machine.connected"
-						@click="machine.feedOverride(1)"
-					/>
-					<Tq.InputButton
-						label="+10"
-						narrow
-						:disabled="!machine.connected"
-						@click="machine.feedOverride(10)"
-					/>
-				</Tq.InputGroup>
-				<Tq.InputRadio
-					:modelValue="machine.override?.rapid ?? 100"
-					:options="[25, 50, 100]"
-					:labels="['25%', '50%', '100%']"
-					:disabled="!machine.connected"
-					@update:modelValue="machine.rapidOverride($event as 25 | 50 | 100)"
+			<Tq.InputNumber
+				:modelValue="machine.override?.feed ?? 100"
+				:min="10"
+				:max="200"
+				:step="1"
+				:precision="0"
+				:default="100"
+				suffix="%"
+				:disabled="!machine.connected || machine.unidentified"
+				@update:modelValue="machine.setFeedOverride($event)"
+			/>
+		</Tq.Parameter>
+		<Tq.Parameter
+			v-if="showFeed"
+			label="Rapid rate"
+			icon="mdi:fast-forward"
+			:hint="{
+				title: 'Rapid override',
+				description: 'Real-time multiplier on rapid (G0) moves. A reset puts it back to 100 %.',
+			}"
+		>
+			<Tq.InputRadio
+				:modelValue="machine.override?.rapid ?? 100"
+				:options="[25, 50, 100]"
+				:labels="['25%', '50%', '100%']"
+				:disabled="!machine.connected"
+				@update:modelValue="machine.rapidOverride($event as 25 | 50 | 100)"
+			/>
+		</Tq.Parameter>
+
+		<!-- Run the spindle by hand, to try it. The G-code of a cut switches it
+		     too, and the switch follows. -->
+		<Tq.Parameter
+			v-if="panel.spindle"
+			label="Spindle"
+			icon="mdi:rotate-right"
+			:hint="{
+				title: 'Spindle',
+				description: 'M3 S… on / M5 off, sent like any G-code line. It really turns: keep clear of the tool. Changing the speed applies when confirmed.',
+			}"
+		>
+			<div class="spindle">
+				<Tq.InputSwitch
+					:modelValue="machine.spindleOn"
+					:disabled="!canSwitchSpindle"
+					@update:modelValue="machine.setSpindle($event)"
+				/>
+				<Tq.InputNumber
+					v-model="spindleTestSpeed"
+					:min="0"
+					:max="panel.spindle.maxSpeed"
+					:step="10"
+					:precision="0"
+					prefix="S"
+					@confirm="machine.applySpindleSpeed()"
 				/>
 			</div>
 		</Tq.Parameter>
@@ -586,11 +699,31 @@ const outputs = computed(() =>
 			/>
 		</Tq.Parameter>
 
+		<!-- Which frame the position fields, "go", the ± jogs and typed moves
+		     are in. Only shown when there is more than Machine / Work to pick
+		     from. -->
+		<Tq.Parameter
+			v-if="frames.length > 2"
+			label="Frame"
+			icon="mdi:axis-arrow"
+			:hint="{
+				title: 'Coordinate frame',
+				description:
+					'What the position fields show and what go / ± / typed moves are in: the machine position, the work position (MPos − WCO, G54), or a frame of the owner\'s (hover the position).',
+			}"
+		>
+			<Tq.InputRadio
+				v-model="frameId"
+				:options="frames.map(f => f.id)"
+				:labels="frames.map(f => f.label)"
+			/>
+		</Tq.Parameter>
+
 		<!-- Axes: one cell per axis, `gridColumns` per row (e.g. X Y Z over
 		     A B C for the rig). Head: name + limit switch lamp, the machine
-		     position (dimmed, read-only), zero / set (G10 L20). Then the work
-		     position (editable: a target for "go"), and jog ± with home set
-		     apart. -->
+		     position (dimmed, read-only), zero / set (G10 L20). Then the
+		     position in the chosen frame (editable: a target for "go"), and
+		     jog ± with home set apart. -->
 		<li
 			class="axes-cells"
 			:style="{gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`}"
@@ -642,21 +775,20 @@ const outputs = computed(() =>
 				</div>
 				<div class="cell-target">
 					<Tq.InputNumber
-						v-if="machine.wpos[axis] !== undefined"
+						v-if="framePos[axis] !== undefined"
 						v-tooltip="{
-							title: 'Work position',
-							description:
-								'WPos, relative to the G54 origin. Edit it, then press the button on the right to move there; the buttons above zero / set it here.',
+							title: `${frame.label} position`,
+							description: `${frame.hint ?? ''} Edit it, then press the button on the right to move there.`,
 						}"
 						class="position-input cell-pos"
 						:class="{dirty: isTargetDirty(axis)}"
-						:modelValue="target[axis] ?? machine.wpos[axis]!"
+						:modelValue="target[axis] ?? framePos[axis]!"
 						:min="targetRange(axis).min"
 						:max="targetRange(axis).max"
 						:clampMin="targetRange(axis).clamp"
 						:clampMax="targetRange(axis).clamp"
 						:step="0.001"
-						:default="machine.wpos[axis]"
+						:default="framePos[axis]"
 						@update:modelValue="setTarget(axis, $event)"
 						@confirm="releaseFocus"
 					/>
@@ -795,12 +927,6 @@ const outputs = computed(() =>
 	text-overflow ellipsis
 	white-space nowrap
 
-.alarm
-	display flex
-	flex-direction column
-	gap var(--tq-gap-control)
-	color var(--tq-color-error, #e5484d)
-
 .held
 	display flex
 	flex-direction column
@@ -814,7 +940,13 @@ const outputs = computed(() =>
 	display flex
 	align-items center
 	gap var(--tq-gap-control)
+	min-height var(--tq-input-height)
 	color var(--tq-color-text-mute)
+	// However long the message, it must not widen the panel.
+	contain inline-size
+
+	&.alarm
+		color var(--tq-color-error, #e5484d)
 
 .error-text
 	flex 1 1 0
@@ -941,6 +1073,14 @@ const outputs = computed(() =>
 	display flex
 	flex-wrap wrap
 	gap var(--tq-gap-group)
+
+.spindle
+	display flex
+	align-items center
+	gap var(--tq-gap-control)
+
+	> .TqInputNumber
+		flex 1 1 0
 
 .override
 	display flex

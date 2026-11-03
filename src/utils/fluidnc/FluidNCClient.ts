@@ -100,6 +100,8 @@ type Events = {
 	status: [MachineStatus]
 	message: [string]
 	alarm: [{code: number; message: string}]
+	/** A non-fatal serial read error (framing / break / overrun) was ridden out; the port stays open. */
+	readError: []
 	/** Board banner seen: it (re)booted. */
 	reset: []
 	disconnect: []
@@ -254,27 +256,60 @@ export class FluidNCClient extends EventEmitter<Events> {
 		await p
 	}
 
+	/** Pause before reading again after a read error, so a noisy line can't spin. */
+	static readonly READ_RETRY_MS = 20
+
+	/**
+	 * Read lines until the port is closed. A rejected `read()` is not always
+	 * the device going away: Web Serial also rejects it for a *non-fatal*
+	 * line error (framing / parity / break / buffer overrun — electrical
+	 * noise, e.g. when every stepper driver and the Y brake drop out at once
+	 * on a limit alarm, or a board's ROM boot text at another baud rate)
+	 * and then offers a fresh `readable`. Those keep the connection; only a
+	 * port with no `readable` left is gone. (Before 2026-10-25 any read
+	 * error closed the port — the Box Rig "disconnected" on a soft limit.)
+	 */
 	async #readLoop() {
-		const reader = this.#reader
-		if (!reader) return
 		const decoder = new TextDecoder()
 		let buf = ''
 		try {
 			for (;;) {
-				const {value, done} = await reader.read()
-				if (done) break
-				buf += decoder.decode(value, {stream: true})
-				let nl: number
-				while ((nl = buf.indexOf('\n')) !== -1) {
-					const line = buf.slice(0, nl).replace(/\r$/, '')
-					buf = buf.slice(nl + 1)
-					if (line.length) this.#onLine(line)
+				const reader = this.#reader
+				if (!reader) return
+				try {
+					for (;;) {
+						const {value, done} = await reader.read()
+						if (done) return
+						buf += decoder.decode(value, {stream: true})
+						let nl: number
+						while ((nl = buf.indexOf('\n')) !== -1) {
+							const line = buf.slice(0, nl).replace(/\r$/, '')
+							buf = buf.slice(nl + 1)
+							if (line.length) this.#onLine(line)
+						}
+					}
+				} catch {
+					// Device gone, or a non-fatal read error: see which below.
+				} finally {
+					try {
+						reader.releaseLock()
+					} catch {
+						// ignore
+					}
 				}
+				if (this.#closed) return
+				await new Promise(r => setTimeout(r, FluidNCClient.READ_RETRY_MS))
+				if (this.#closed || !this.port.readable) return
+				// A new stream; a fragment cut by the error is not a line.
+				buf = ''
+				this.#reader = this.port.readable.getReader()
+				this.emit('readError')
 			}
 		} catch {
-			// Reader error → the device went away.
+			// Could not take a new reader: treat as gone.
+		} finally {
+			if (!this.#closed) void this.close()
 		}
-		if (!this.#closed) void this.close()
 	}
 
 	#onLine(line: string) {
@@ -626,8 +661,8 @@ export class FluidNCClient extends EventEmitter<Events> {
 	}
 
 	/** `$I` → build info incl. the FluidNC `name:` from config.yaml. */
-	async getBuildInfo(): Promise<BuildInfo> {
-		const lines = await this.send('$I', {timeout: 3000})
+	async getBuildInfo(timeout = 3000): Promise<BuildInfo> {
+		const lines = await this.send('$I', {timeout})
 		return parseBuildInfo(lines)
 	}
 

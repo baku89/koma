@@ -35,9 +35,17 @@ import {
 	parsePins,
 	type RapidOverride,
 	type SendOptions,
+	spindleAfterLine,
 	type StreamOptions,
 	type WaitOptions,
 } from '@/utils/fluidnc'
+import {
+	identifyController,
+	inAlarm,
+	isSuspended,
+	likelyOwner,
+	serialPortId,
+} from '@/utils/fluidnc/identify'
 import {
 	claimSerialPort,
 	describeSerialPort,
@@ -106,6 +114,29 @@ export interface MachinePanelOptions {
 	 * to them (e.g. `{flood: 'Dust collector'}` for M8/M9). None = no row.
 	 */
 	outputs?: {flood?: string; mist?: string}
+	/**
+	 * Offer a switch to run the spindle by hand (M3 / M5), at `defaultSpeed` at
+	 * first. `maxSpeed` is the S at 100% in the controller's `speed_map`.
+	 */
+	spindle?: {defaultSpeed: number; maxSpeed: number}
+}
+
+/**
+ * A coordinate frame the machine's panel can show and move in, besides the
+ * controller's own Machine (MPos) and Work (MPos − WCO): e.g. a frame with a
+ * measured distortion taken out. Both conversions take the axes given and
+ * answer for those; a frame whose correction couples the axes fills the
+ * missing ones in from where the machine is.
+ */
+export interface MachineFrame {
+	id: string
+	label: string
+	/** Shown with the position field. */
+	hint?: string
+	/** Machine → this frame. */
+	fromMachine: (machine: AxesPosition) => AxesPosition
+	/** This frame → machine, for a move. */
+	toMachine: (axes: AxesPosition) => AxesPosition
 }
 
 /**
@@ -143,6 +174,10 @@ interface Registration {
 	port: () => SerialPort | undefined
 	/** Show `message` on this machine's panel. */
 	notify: (message: string) => void
+	/** Take back what `notify` showed, if it is still showing. */
+	clearNotice: () => void
+	/** The USB chip it was last identified on (`serialPortId`), '' if never. */
+	lastPortId: () => string
 }
 
 const registrations = new Map<string, Registration>()
@@ -175,34 +210,6 @@ function findOwner(
 	return fallback ? {owner: fallback, fallback: true} : null
 }
 
-/**
- * Feed hold / safety door: the controller still answers real-time characters
- * (`?`, `~`, Ctrl-X) but runs no line — `$I` included — until it is released.
- */
-function isSuspended(status: MachineStatus | null) {
-	return status?.state === 'Hold' || status?.state === 'Door'
-}
-
-/** `info` null: the controller is suspended, so it can't be asked yet. */
-async function identify(
-	port: SerialPort,
-	options: {baudRate?: number; statusInterval?: number}
-): Promise<{client: FluidNCClient; info: BuildInfo | null}> {
-	const client = new FluidNCClient(port, options)
-	await client.open()
-	// Don't leave a `$I` waiting in a held controller: it would run after the
-	// release, and its late `ok` would answer whatever line is in flight then.
-	if (isSuspended(client.status)) return {client, info: null}
-	try {
-		const info = await client.getBuildInfo()
-		return {client, info}
-	} catch (e) {
-		if (client.isOpen && isSuspended(client.status)) return {client, info: null}
-		await client.close()
-		throw e
-	}
-}
-
 const FAMILY_ID = 'fluidnc'
 
 /**
@@ -225,7 +232,7 @@ async function probe(
 	let client: FluidNCClient
 	let info: BuildInfo | null
 	try {
-		;({client, info} = await identify(port, {
+		;({client, info} = await identifyController(port, {
 			baudRate: first.def.baudRate,
 			statusInterval: first.def.statusInterval,
 		}))
@@ -233,8 +240,10 @@ async function probe(
 		return false
 	}
 	if (!info) {
-		const picked = wanting.find(r => r.def.id === preferred)
+		const picked =
+			wanting.find(r => r.def.id === preferred) ?? likelyOwner(wanting, serialPortId(port))
 		if (picked) {
+			for (const r of registrations.values()) r.clearNotice()
 			picked.adopt(client, null, false)
 			lastProbe = {name: undefined, ownerId: picked.def.id}
 			return true
@@ -242,17 +251,19 @@ async function probe(
 		const state = client.status?.state ?? 'Hold'
 		await client.close()
 		const where = describeSerialPort(port)
+		const how = state === 'Alarm' ? 'reset it (Ctrl-X)' : 'resume or reset it'
 		for (const r of wanting) {
 			r.notify(
-				`A controller in ${state} is waiting on a port (${where}) and can't say which machine it is. If it is the ${r.def.label}, press Connect… and pick it, then resume or reset it`
+				`A controller in ${state} is waiting on a port (${where}) and can't say which machine it is. If it is the ${r.def.label}, press Connect… and pick it, then ${how}`
 			)
 		}
 		return {
-			undecided: `The controller on that port is in ${state}, so it can't say which machine it is — press Connect… on that machine's panel and pick it, then resume or reset it`,
+			undecided: `The controller on that port is in ${state}, so it can't say which machine it is — press Connect… on that machine's panel and pick it, then ${how}`,
 		}
 	}
 	const found = findOwner(info, preferred)
 	if (found && !found.owner.hasClient()) {
+		for (const r of registrations.values()) r.clearNotice()
 		found.owner.adopt(client, info, found.fallback)
 		lastProbe = {name: info.machineName, ownerId: found.owner.def.id}
 		return true
@@ -295,6 +306,8 @@ export function defineMachineStore(def: MachineDefinition) {
 		const fluidncName = config.ref<string>('fluidncName', def.fluidncName ?? '')
 		const jogFeed = config.ref('jogFeed', def.jogFeed ?? 1000)
 		const jogStep = config.ref('jogStep', 1)
+		/** The USB chip of the last controller identified as this machine. */
+		const lastPortId = config.ref<string>('lastPortId', '')
 
 		const client = shallowRef<FluidNCClient | null>(null)
 		const connecting = ref(false)
@@ -320,6 +333,13 @@ export function defineMachineStore(def: MachineDefinition) {
 		 * commanded state — so their absence never switches anything off here.
 		 */
 		const coolant = ref<CoolantState>({flood: false, mist: false})
+		/**
+		 * Spindle on, as koma believes: tracked from every line it sends like
+		 * `coolant`, off after a reset or an alarm (both stop it).
+		 */
+		const spindleOn = ref(false)
+		/** The S the spindle switch runs at. */
+		const spindleTestSpeed = config.ref('spindleTestSpeed', def.panel?.spindle?.defaultSpeed ?? 0)
 		/**
 		 * Connected to a controller that was suspended (Hold / Door) when its
 		 * port was picked, so it has not said which machine it is. Only the
@@ -367,16 +387,30 @@ export function defineMachineStore(def: MachineDefinition) {
 			}
 		}
 
+		/**
+		 * The unidentified controller is in a critical alarm: `$I` went
+		 * unanswered and will until it is reset. Don't ask again before the
+		 * banner (the 'reset' event) — or the state leaving Alarm.
+		 */
+		let identityWaitsForReset = false
+
 		function adopt(c: FluidNCClient, info: BuildInfo | null, fallback: boolean) {
 			claimSerialPort(c.port, FAMILY_ID)
 			client.value = c
 			buildInfo.value = info
 			unidentified.value = info === null
+			identityWaitsForReset = info === null && inAlarm(c.status)
 			status.value = c.status
 			alarm.value = null
 			lastError.value = null
 			if (info) {
 				logIdentity(info, fallback)
+				lastPortId.value = serialPortId(c.port)
+			} else if (identityWaitsForReset) {
+				pushLog(
+					'sys',
+					'Connected to a controller in Alarm that answers nothing but a reset (a hard / soft limit alarm): reset it (Ctrl-X) and it will say which machine it is'
+				)
 			} else {
 				pushLog(
 					'sys',
@@ -397,7 +431,9 @@ export function defineMachineStore(def: MachineDefinition) {
 					}
 				}
 				if (s.state !== 'Alarm') alarm.value = null
-				if (unidentified.value && !isSuspended(s)) void confirmIdentity(c)
+				if (unidentified.value && !isSuspended(s) && !(identityWaitsForReset && inAlarm(s))) {
+					void confirmIdentity(c)
+				}
 			})
 			// Status reports (`<Idle|MPos:…>`, the answer to koma's `?` poll every
 			// 200 ms) would drown everything else; they are shown as the axis
@@ -409,13 +445,22 @@ export function defineMachineStore(def: MachineDefinition) {
 				pushLog('tx', l)
 				const next = coolantAfterLine(l, coolant.value)
 				if (next !== coolant.value) coolant.value = next
+				spindleOn.value = spindleAfterLine(l, spindleOn.value)
 			})
 			c.on('alarm', a => {
 				alarm.value = a
+				spindleOn.value = false
+			})
+			c.on('readError', () => {
+				pushLog('sys', 'Serial read error (noise on the line) — still connected')
 			})
 			c.on('reset', () => {
 				override.value = null
 				coolant.value = {flood: false, mist: false}
+				spindleOn.value = false
+				// Out of a critical alarm now (the state may still read Alarm,
+				// but line commands run again): ask who it is on the next report.
+				identityWaitsForReset = false
 				pushLog('sys', 'Controller reset')
 			})
 			c.on('disconnect', () => {
@@ -425,6 +470,7 @@ export function defineMachineStore(def: MachineDefinition) {
 				status.value = null
 				override.value = null
 				coolant.value = {flood: false, mist: false}
+				spindleOn.value = false
 				unidentified.value = false
 				busy.value = false
 				streamProgress.value = null
@@ -433,6 +479,8 @@ export function defineMachineStore(def: MachineDefinition) {
 		}
 
 		let confirming = false
+		/** What `notify` last put in `lastError`. */
+		let notice: string | null = null
 
 		/**
 		 * The controller taken on while suspended has been released: ask `$I`
@@ -464,6 +512,15 @@ export function defineMachineStore(def: MachineDefinition) {
 				if (client.value !== c) return
 				if (!info) {
 					if (isSuspended(c.status)) return
+					if (inAlarm(c.status)) {
+						// A critical alarm: nothing but a reset gets through. Keep
+						// the connection (that is what the Reset button needs).
+						identityWaitsForReset = true
+						lastError.value =
+							'The controller is in an alarm that answers nothing but a reset — press Reset (Ctrl-X), then it can say which machine it is'
+						pushLog('sys', lastError.value)
+						return
+					}
 					await c.close()
 					lastError.value =
 						'The controller did not answer $I after it was released — disconnected'
@@ -474,6 +531,7 @@ export function defineMachineStore(def: MachineDefinition) {
 					buildInfo.value = info
 					unidentified.value = false
 					logIdentity(info, found.fallback)
+					lastPortId.value = serialPortId(c.port)
 					return
 				}
 				await c.close()
@@ -500,8 +558,13 @@ export function defineMachineStore(def: MachineDefinition) {
 			hasClient: () => client.value !== null,
 			port: () => client.value?.port,
 			notify: message => {
-				lastError.value = message
+				lastError.value = notice = message
 			},
+			clearNotice: () => {
+				if (notice !== null && lastError.value === notice) lastError.value = null
+				notice = null
+			},
+			lastPortId: () => lastPortId.value,
 		})
 
 		// Silent reconnect on startup (no user gesture needed for paired ports).
@@ -574,7 +637,7 @@ export function defineMachineStore(def: MachineDefinition) {
 				throw new FluidNCError(
 					'disconnected',
 					undefined,
-					`${def.label} is in ${state.value ?? 'Hold'} and not identified yet — resume or reset it first`
+					`${def.label} is in ${state.value ?? 'Hold'} and not identified yet — ${state.value === 'Alarm' ? 'reset it (Ctrl-X)' : 'resume or reset it'} first`
 				)
 			}
 			return c
@@ -744,6 +807,48 @@ export function defineMachineStore(def: MachineDefinition) {
 		}
 
 		/**
+		 * Feed override to `percent` (10–200): the real-time ±10 / ±1 steps from
+		 * the value last reported, or from 100 after a reset to it if none has
+		 * been. Applies to the running program at once, like `feedOverride`.
+		 */
+		async function setFeedOverride(percent: number) {
+			const c = requireClient()
+			const target = Math.round(Math.min(200, Math.max(10, percent)))
+			let from = override.value?.feed
+			if (from === undefined) {
+				await c.feedOverride(0)
+				from = 100
+			}
+			let delta = target - from
+			if (delta === 0) return
+			// Ahead of the echo, so the next step of a drag starts from here.
+			if (override.value) override.value = {...override.value, feed: target}
+			const sign = Math.sign(delta) as 1 | -1
+			for (; Math.abs(delta) >= 10; delta -= sign * 10) await c.feedOverride((sign * 10) as 10 | -10)
+			for (; delta !== 0; delta -= sign) await c.feedOverride(sign)
+			await c.requestStatus()
+		}
+
+		/**
+		 * Run the spindle by hand at `spindleTestSpeed` (M3 S…), or stop it (M5).
+		 * A refused line (`error:N`) leaves it as it was.
+		 */
+		async function setSpindle(on: boolean) {
+			const before = spindleOn.value
+			try {
+				await send(on ? `M3 S${Math.round(spindleTestSpeed.value)}` : 'M5')
+			} catch (e) {
+				spindleOn.value = before
+				throw e
+			}
+		}
+
+		/** Apply a new speed to the running spindle. */
+		async function applySpindleSpeed() {
+			if (spindleOn.value) await setSpindle(true)
+		}
+
+		/**
 		 * Switch a coolant output: M8 (flood) / M7 (mist) on, M9 off. M9 turns
 		 * both off — Grbl has no per-output off — so the other one is re-sent
 		 * if it was on. Goes through the line queue, like any G-code; the
@@ -802,6 +907,11 @@ export function defineMachineStore(def: MachineDefinition) {
 			streamProgress: readonly(streamProgress),
 			override: readonly(override),
 			coolant: readonly(coolant),
+			spindleOn: readonly(spindleOn),
+			spindleTestSpeed,
+			setSpindle,
+			applySpindleSpeed,
+			setFeedOverride,
 			connect,
 			disconnect,
 			send,

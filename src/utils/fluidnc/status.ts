@@ -172,6 +172,18 @@ export function coolantAfterLine(line: string, state: CoolantState): CoolantStat
 	return next
 }
 
+/**
+ * Apply the spindle M-codes of a G-code line (M3 / M4 on; M5, and the program
+ * ends M2 / M30, off) to a state. Lines without any return it unchanged.
+ */
+export function spindleAfterLine(line: string, on: boolean): boolean {
+	let next = on
+	for (const m of line.toUpperCase().matchAll(/(?:^|[^A-Z0-9.])M0*(2|3|4|5|30)(?![0-9.])/g)) {
+		next = m[1] === '3' || m[1] === '4'
+	}
+	return next
+}
+
 //------------------------------------------------------------------------------
 // Input pins (`Pn:`)
 

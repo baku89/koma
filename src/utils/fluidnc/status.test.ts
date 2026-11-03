@@ -16,6 +16,7 @@ import {
 	parseCoolant,
 	parsePins,
 	parseStatusReport,
+	spindleAfterLine,
 } from './status'
 
 describe('parseStatusReport', () => {
@@ -170,5 +171,22 @@ describe('gcode builders', () => {
 			{line: 'G0 X1  Y2', sourceLine: 5},
 			{line: 'M30', sourceLine: 6},
 		])
+	})
+})
+
+describe('spindleAfterLine', () => {
+	it('follows M3 / M4 / M5 and the program ends', () => {
+		expect(spindleAfterLine('S5000 M3', false)).toBe(true)
+		expect(spindleAfterLine('M03 S100', false)).toBe(true)
+		expect(spindleAfterLine('M4', false)).toBe(true)
+		expect(spindleAfterLine('M5', true)).toBe(false)
+		expect(spindleAfterLine('M30', true)).toBe(false)
+		expect(spindleAfterLine('M2', true)).toBe(false)
+	})
+	it('leaves other lines alone', () => {
+		for (const line of ['G1 X3 F300', 'S2000', 'M8', 'M98', 'X3 Y5']) {
+			expect(spindleAfterLine(line, true)).toBe(true)
+			expect(spindleAfterLine(line, false)).toBe(false)
+		}
 	})
 })

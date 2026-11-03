@@ -82,3 +82,52 @@ export function prepareGCode(
 export function isAxis(s: string): s is Axis {
 	return (AXES as readonly string[]).includes(s)
 }
+
+/**
+ * Re-express the axis words of a typed move in another coordinate frame.
+ * For an absolute move with axis words — a `G0` / `G1` / `$J=` line, or a
+ * bare `Z0` / `X10 Y20 F500` that rides on the modal motion mode — `convert`
+ * maps the words (the axes given, in the frame they were typed in) to
+ * machine coordinates, and the line comes back with those words and a G53.
+ * Lines that are relative (G91), already machine (G53), or carry any other
+ * G / M command (G10, G28, G92, M3…) are returned as typed.
+ */
+export function rewriteMoveLine(
+	line: string,
+	convert: (axes: AxesPosition) => AxesPosition
+): string {
+	const upper = line.trim().toUpperCase()
+	if (!upper || /\bG53\b|\bG91\b/.test(upper)) return line
+	const jog = upper.startsWith('$J=')
+	let body = jog ? upper.slice(3) : upper
+	if (!jog && !isMotionLine(body)) return line
+	const axes: AxesPosition = {}
+	body = body.replace(/(^|\s)([XYZABC])(-?\d*\.?\d+)(?=\s|$)/g, (_m, pre, letter, value) => {
+		axes[letter.toLowerCase() as Axis] = Number(value)
+		return pre
+	})
+	if (Object.keys(axes).length === 0) return line
+	const words = axesWords(convert(axes))
+	if (!words) return line
+	body = body.replace(/\s+/g, ' ').trim()
+	if (jog) {
+		// `$J=G90 G53 G21 … F…` — G90 is required for a G53 jog.
+		if (!/\bG90\b/.test(body)) body = `G90 ${body}`
+		return `$J=${body.replace(/\bG90\b/, 'G90 G53')} ${words}`.replace(/\s+/g, ' ')
+	}
+	// `G53 G0 …`: G53 is non-modal and must come before the G0 / G1 of the
+	// line (or stand alone with the modal G0 / G1 for a bare `Z0`).
+	return `G53 ${body} ${words}`.replace(/\s+/g, ' ')
+}
+
+/**
+ * A line that moves along G0 / G1: either names one, or is only axis words
+ * (plus F / S and the harmless G90 / G20 / G21 / G94) so the modal motion
+ * mode applies. Any other G or M word (G10, G28, G92, M3…) means something
+ * else is going on and the axis words are not a destination.
+ */
+function isMotionLine(body: string): boolean {
+	if (/(^|\s)G0?[01](\s|$)/.test(body)) return true
+	const others = body.match(/(^|\s)[GM]\d+(\.\d+)?(?=\s|$)/g) ?? []
+	return others.every(w => /^\s?G(90|20|21|94)$/.test(w))
+}

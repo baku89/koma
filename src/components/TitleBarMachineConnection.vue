@@ -117,7 +117,11 @@ const stateClass = computed(() => {
 			     controller is released and can say which machine it is. -->
 			<template v-if="machine.unidentified">
 				<div class="held-row">
-					The controller can't say which machine it is until it is released.
+					{{
+						machine.state === 'Alarm'
+							? 'A limit alarm: the controller answers nothing but a reset (Ctrl-X).'
+							: "The controller can't say which machine it is until it is released."
+					}}
 				</div>
 				<Tq.InputGroup>
 					<Tq.InputButton
