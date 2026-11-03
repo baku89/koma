@@ -5,6 +5,8 @@ import {usePreviewCastStore} from '@/stores/previewCast'
 import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 import {resolveBlob} from '@/utils'
+import {fitContain} from '@/utils/fit'
+import {applyLayerTransform} from '@/utils/layerTransform'
 
 const project = useProjectStore()
 const viewport = useViewportStore()
@@ -19,8 +21,8 @@ const canvas = shallowRef<HTMLCanvasElement | null>(null)
 // main thread, downscaled to the canvas backing size) and just blit it while
 // playing. No per-frame decode, so it works on existing projects too.
 //
-// Only the layer-0 `lv` aspect matches the project resolution, so this path
-// always uses `lv` (never the Hi-Res jpg, whose native aspect would distort).
+// This path always uses `lv` (never the Hi-Res jpg, which would be too much
+// to decode for every frame); every bitmap is contain-fitted like the Preview.
 // Hi-Res is for crisp inspection while paused, which the DOM path still serves.
 //
 // The bitmaps are keyed by the `lv` asset id (stable for an image, whatever
@@ -63,10 +65,10 @@ function clearCache() {
 // The composited layers of a frame (visible, in display order, up to the
 // current one) that have something to decode (a shot with an `lv`).
 function lvLayersAt(frame: number): {layer: number; id: string}[] {
-	const shots = project.allKomas[frame]?.shots ?? []
 	const out: {layer: number; id: string}[] = []
 	for (const layer of project.compositeLayers(viewport.currentLayer)) {
-		const id = shots[layer]?.lv
+		// project.shot() resolves holds (a shot kept on screen for several frames).
+		const id = project.shot(frame, layer)?.lv
 		if (id) out.push({layer, id})
 	}
 	return out
@@ -109,10 +111,14 @@ function draw() {
 		const bmp = cache.get(id)
 		if (!bmp) continue
 
-		const {opacity, mixBlendMode} = project.layerView(layer)
+		const {opacity, mixBlendMode, transform} = project.layerView(layer)
 		ctx.globalAlpha = opacity
 		ctx.globalCompositeOperation = blendMode[mixBlendMode] ?? 'source-over'
-		ctx.drawImage(bmp, 0, 0, c.width, c.height)
+		ctx.save()
+		applyLayerTransform(ctx, transform, c.width, c.height)
+		const r = fitContain(bmp.width, bmp.height, c.width, c.height)
+		ctx.drawImage(bmp, r.x, r.y, r.width, r.height)
+		ctx.restore()
 	}
 
 	ctx.globalAlpha = 1

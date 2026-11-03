@@ -14,8 +14,9 @@ import {useRigStore} from '@/addsub/stores/machines'
 import {useSequenceStore} from '@/addsub/stores/sequence'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useTimelineStore} from '@/stores/timeline'
+import {isVideoFilename, useVideoImportStore} from '@/stores/videoImport'
 import {useViewportStore} from '@/stores/viewport'
-import {resolveAssetUrl, shotsAtOrAfter,toTime} from '@/utils'
+import {holdEnd, resolveAssetUrl, shotsAtOrAfter, toTime} from '@/utils'
 import type {Axis} from '@/utils/fluidnc'
 
 interface Props {
@@ -29,9 +30,20 @@ const project = useProjectStore()
 const viewport = useViewportStore()
 const timeline = useTimelineStore()
 const sequence = useSequenceStore()
+const videoImport = useVideoImportStore()
 const rig = useRigStore()
 
-const shot = computed(() => project.shot(props.frame, props.layer))
+// The shot shown here: the cell's own, or one held over from an earlier
+// frame on this layer (hold). Held continuation cells draw it dimmer.
+const origin = computed(() => project.shotOrigin(props.frame, props.layer))
+const shot = computed(() => origin.value?.shot ?? null)
+const held = computed(() => origin.value?.held ?? false)
+// Frames the shot stays on screen for (its hold, clipped by the next shot).
+const holdSpan = computed(() => {
+	const o = origin.value
+	if (!o) return 1
+	return holdEnd(project.komas, o.frame, props.layer) - o.frame + 1
+})
 
 // addsub: the G-code this frame runs before it is shot (cuts.ts) — a file
 // dropped on the cell, else previz's cut — and whether it has run.
@@ -71,16 +83,23 @@ async function onDrop(e: DragEvent) {
 	dropping.value = false
 	if (!hasFiles(e)) return
 	e.preventDefault()
-	const files = Array.from(e.dataTransfer!.files)
-		.filter(f => isGcodeFilename(f.name))
-		.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}))
-	if (files.length === 0) {
-		alert('Drop G-code files (.nc, .gcode, .ngc, .tap)')
+	const byName = (a: File, b: File) => a.name.localeCompare(b.name, undefined, {numeric: true})
+	const all = Array.from(e.dataTransfer!.files)
+	const files = all.filter(f => isGcodeFilename(f.name)).sort(byName)
+	// A video becomes guide images: one shot per frame of the clip, from this
+	// cell on (stores/videoImport.ts). Several clips follow one another.
+	const videos = all.filter(f => isVideoFilename(f.name)).sort(byName)
+	if (files.length === 0 && videos.length === 0) {
+		alert('Drop G-code files (.nc, .gcode, .ngc, .tap) or a video (.mov, .mp4, …)')
 		return
 	}
 	try {
 		for (const [i, file] of files.entries()) {
 			await sequence.attachCutFile(props.frame + i, props.layer, file)
+		}
+		let at = props.frame
+		for (const video of videos) {
+			at += await videoImport.importVideo(video, at, props.layer)
 		}
 	} catch (err) {
 		alert(err instanceof Error ? err.message : String(err))
@@ -151,6 +170,11 @@ function selectShot(e?: MouseEvent) {
 const {actions} = Tq.useTweeq()
 
 const shotContextActionIds = [
+	'apply_exposure_from_koma',
+	'apply_camera_from_koma',
+	'hold_increase',
+	'hold_decrease',
+	'hold_set',
 	'plan_set_from_current',
 	'go_to_plan_selected',
 	'plan_clear',
@@ -307,6 +331,15 @@ function printShotInfo(shot: Shot, rigInfo = '') {
 				: '-',
 		],
 		['Time to Shoot', shot.shootTime ? toTime(shot.shootTime) : '-'],
+		...(holdSpan.value > 1
+			? [
+					[
+						'Hold',
+						`${holdSpan.value} frames (#${origin.value!.frame}–#${origin.value!.frame + holdSpan.value - 1})`,
+					] as [string, string],
+				]
+			: []),
+		...(shot.source ? [['Source', `${escapeHtml(shot.source.file)} #${shot.source.frame}`] as [string, string]] : []),
 		...printCutInfo(shot),
 		['Jpeg Filename', shot.jpgFilename ?? '-'],
 		['', ''],
@@ -362,6 +395,7 @@ function printShotInfo(shot: Shot, rigInfo = '') {
 			v-else-if="shot"
 			v-tooltip="shotTooltip"
 			class="captured"
+			:class="{held}"
 		>
 			<img v-if="lvUrl" :src="lvUrl" />
 		</div>
@@ -452,6 +486,25 @@ function printShotInfo(shot: Shot, rigInfo = '') {
 	img
 		height 100%
 		object-fit contain
+
+	// A frame held over from an earlier shot: the same picture, dimmer, with a
+	// bar across the top linking it to its origin.
+	&.held
+		box-shadow none
+		border-radius 0
+
+		img
+			opacity 0.4
+
+		&:before
+			content ''
+			position absolute
+			top 2px
+			left -2px
+			right 0
+			height 3px
+			background var(--tq-color-text-mute)
+			opacity 0.6
 
 .liveview
 	background var(--tq-color-rec)

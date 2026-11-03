@@ -9,10 +9,12 @@ import QRCode from 'qrcode'
 import * as Tq from 'tweeq'
 import {computed, ref, watch} from 'vue'
 
+import {useProjectStore} from '@/stores/project'
 import {RELAY_DEFAULT_PORT, useRelayStore} from '@/stores/relay'
 import {useRemoteJogStore} from '@/stores/remoteJog'
 
 const relay = useRelayStore()
+const project = useProjectStore()
 const remoteJog = useRemoteJogStore()
 
 const open = ref(false)
@@ -36,6 +38,7 @@ watch(open, isOpen => {
 const stateText = computed(() => {
 	if (!relay.enabled) return 'Off'
 	if (relay.connected) {
+		if (!relay.projectShared) return 'Connected · not shared'
 		return relay.syncing ? `Syncing… ${relay.pending} left` : 'Connected'
 	}
 	return relay.connecting ? 'Connecting…' : (relay.error ?? 'Disconnected')
@@ -137,11 +140,16 @@ watch(
 				font="monospace"
 				placeholder="token (optional)"
 			/>
+			<Tq.InputCheckbox
+				v-model="project.exhibitSync"
+				v-tooltip="'Send this project to the exhibit machine: its previews, project.json and the live view. Saved with the project; off by default. The copy already on the machine stays when you turn it off.'"
+				label="Share this project"
+			/>
 			<Tq.InputGroup>
 				<Tq.InputButton
 					label="Sync now"
 					icon="mdi:cloud-upload-outline"
-					:disabled="!relay.connected"
+					:disabled="!relay.connected || !relay.projectShared"
 					@click="relay.syncNow()"
 				/>
 				<Tq.InputButton

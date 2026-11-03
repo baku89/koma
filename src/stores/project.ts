@@ -2,6 +2,7 @@ import {
 	asyncComputed,
 	createEventHook,
 	pausableWatch,
+	until,
 	useRefHistory,
 	whenever,
 } from '@vueuse/core'
@@ -30,6 +31,8 @@ import {
 	getAssetFilename,
 	hasLayerFolders,
 	healAssetBlob,
+	holdEnd,
+	holdOf,
 	insertFramesOnLayer,
 	layerDirName,
 	liveAssetPaths,
@@ -45,6 +48,7 @@ import {
 	removeDirIfEmpty,
 	resizeBlobImage,
 	resolveBlob,
+	resolveShotAt,
 	sameDirName,
 	saveJson,
 	showReadwriteDirectoryPicker,
@@ -53,11 +57,17 @@ import {
 	writeFileToDirectory,
 } from '@/utils'
 import {
+	isIdentityTransform,
+	type LayerTransform,
+	layerTransformOf,
+} from '@/utils/layerTransform'
+import {
 	adoptNativeDirPath,
 	nativeDirPath,
 	nativeRename,
 	registerNativeChildDir,
 } from '@/utils/nativePath'
+import type {PreviewStroke} from '@/utils/previewDrawing'
 import type {AssetLayout} from '@/utils/projectLayout'
 
 import defaultCustomScript from './defaultCustomScript.js?raw'
@@ -106,10 +116,25 @@ export interface LayerView {
 	layerId: string
 	opacity: number
 	mixBlendMode: MixBlendMode
+	/** Scale / shift / rotation on the frame (utils/layerTransform); absent = as is. */
+	transform?: LayerTransform
 }
 
 /** A layer's place in a preset's list, shown or not. */
-export type LayerStackEntry = LayerView & {hidden?: boolean}
+export type LayerStackEntry = LayerView & {
+	/** The eye: left out of what is composited (Preview, cast, playback, export). */
+	hidden?: boolean
+	/**
+	 * Whether the layer has a row in the timeline, independent of the eye. Absent
+	 * (files from before this, layers added hidden) = a row only if not hidden.
+	 */
+	timeline?: boolean
+}
+
+/** Whether a stack entry has a row in the timeline. */
+export function isOnTimeline(entry: LayerStackEntry) {
+	return entry.timeline ?? !entry.hidden
+}
 
 export interface LayerPreset {
 	id: string
@@ -152,7 +177,9 @@ export function fullLayerStack(
 function shownLayers(stack: readonly LayerStackEntry[]): LayerView[] {
 	return stack
 		.filter(v => !v.hidden)
-		.map(({layerId, opacity, mixBlendMode}) => ({layerId, opacity, mixBlendMode}))
+		.map(({layerId, opacity, mixBlendMode, transform}) =>
+			transform ? {layerId, opacity, mixBlendMode, transform} : {layerId, opacity, mixBlendMode}
+		)
 }
 
 export function newLayerId() {
@@ -172,6 +199,12 @@ export type CameraIdentity = TethrIdentifier
 
 export interface Project {
 	name: string
+	/**
+	 * Send this project to the exhibit machine (display copy and live view).
+	 * Off unless turned on for this project, so opening something private on
+	 * the shooting machine never reaches the screens.
+	 */
+	exhibitSync: boolean
 	fps: number
 	captureShot: {frame: number; layer: number}
 	previewRange: [number, number]
@@ -203,6 +236,8 @@ export interface Project {
 		transform: mat2d | 'fit'
 		overlay: SVGString
 		zoom: number
+		/** Pencil strokes over the preview, on top of everything at every frame. */
+		drawing?: PreviewStroke[]
 	}
 	layers: Layer[]
 	/**
@@ -236,6 +271,7 @@ export interface Project {
 
 type UndoableData = Pick<Project, 'komas' | 'captureShot' | 'markers'> & {
 	drawing?: PaperJSData
+	previewDrawing?: PreviewStroke[]
 }
 
 type SVGString = string
@@ -280,6 +316,15 @@ export interface Shot extends ShotMachineData {
 	dmx?: number[]
 	shootTime?: number
 	captureDate?: number
+	/**
+	 * How many frames the shot stays on screen for (Dragonframe's hold):
+	 * absent / 1 = its own frame only. The continuation cells stay empty in
+	 * `komas` (see utils/frames.ts resolveShotAt); a shot placed inside the
+	 * span ends the hold there.
+	 */
+	hold?: number
+	/** Where an imported guide image came from (a video dropped on the cell). */
+	source?: {file: string; frame: number}
 }
 
 /** A shot kept in the project's trash, with where it used to live and when it was
@@ -297,6 +342,7 @@ export interface TrashedShot {
 
 const emptyProject: Project = {
 	name: 'Untitled',
+	exhibitSync: false,
 	fps: 15,
 	previewRange: [0, 0],
 	onionskin: 0,
@@ -867,6 +913,7 @@ export const useProjectStore = defineStore('project', () => {
 				komas: project.komas,
 				markers: project.markers,
 				drawing: project.timeline.drawing,
+				previewDrawing: project.viewport.drawing,
 			}
 		},
 		set(data) {
@@ -875,6 +922,7 @@ export const useProjectStore = defineStore('project', () => {
 			project.komas = data.komas
 			project.markers = data.markers
 			project.timeline.drawing = data.drawing
+			project.viewport.drawing = data.previewDrawing
 		},
 	})
 
@@ -957,6 +1005,7 @@ export const useProjectStore = defineStore('project', () => {
 		}
 		if (p.markers.length > 0) return true
 		if (p.timeline.drawing) return true
+		if (p.viewport.drawing?.length) return true
 		if (p.audio?.src) return true
 		// addsub: G-code attached to frames (its files live in the folder).
 		if (Object.keys(p.addsub.cuts ?? {}).length > 0) return true
@@ -1104,6 +1153,17 @@ export const useProjectStore = defineStore('project', () => {
 		save()
 	}, 500)
 
+	/**
+	 * Save now if anything is pending and wait for it: a bulk import (video
+	 * frames) calls this between batches so the bytes reach the disk — and
+	 * leave RAM (transient assets) — instead of piling up behind the debounce
+	 * that its continuous edits keep postponing.
+	 */
+	async function flushSave() {
+		await requestAutoSave.flush()
+		await until(isSaving).toBe(false)
+	}
+
 	// Same trick as undoableData: while a burst is in progress the source
 	// collapses to a constant so this watcher stops deep-traversing the whole
 	// project on every change. (pausableWatch's pause would only skip the save
@@ -1212,8 +1272,23 @@ export const useProjectStore = defineStore('project', () => {
 		}
 	}
 
+	/**
+	 * What is shown at `frame` on `layer`: the cell's own shot, or the earlier
+	 * shot whose hold reaches it. Storage-level code (save, reconcile, the trash
+	 * ledger) reads `komas[frame].shots[layer]` directly instead.
+	 */
 	function shot(frame: number, layer: number): Shot | null {
-		return project.komas[frame]?.shots?.at(layer) ?? null
+		return resolveShotAt<Shot>(project.komas, frame, layer)?.shot ?? null
+	}
+
+	/** Like shot(), with where the shot is stored and whether `frame` is a held continuation. */
+	function shotOrigin(frame: number, layer: number) {
+		return resolveShotAt<Shot>(project.komas, frame, layer)
+	}
+
+	/** The shot stored in the cell itself (no hold resolution). */
+	function cellShot(frame: number, layer: number): Shot | null {
+		return project.komas[frame]?.shots?.[layer] ?? null
 	}
 
 	// Self-heal a live-view preview whose on-disk file is gone (e.g. an older
@@ -1242,7 +1317,7 @@ export const useProjectStore = defineStore('project', () => {
 			}
 			const jpgBlob = await resolveBlob(jpgId)
 			if (!jpgBlob) return // can't heal yet; leave unmarked to retry later
-			const lvBlob = await resizeBlobImage(jpgBlob, project.resolution, 'cover')
+			const lvBlob = await resizeBlobImage(jpgBlob, project.resolution, 'contain')
 			healAssetBlob(lvId, lvBlob)
 			lvHealed.add(lvId)
 		})().finally(() => lvHealing.delete(lvId))
@@ -1268,7 +1343,62 @@ export const useProjectStore = defineStore('project', () => {
 			koma.shots.push(null)
 		}
 
+		// A shot inside an earlier shot's hold ends that hold here, explicitly,
+		// so the span doesn't spring back when this cell is cleared again.
+		if (!koma.shots[layer]) {
+			const prev = resolveShotAt<Shot>(project.komas, frame, layer)
+			if (prev?.held) prev.shot.hold = frame - prev.frame
+		}
+
 		koma.shots[layer] = shot
+	}
+
+	/**
+	 * Hold the shot shown at `frame` (its origin if `frame` is a continuation)
+	 * for `hold` frames. Growing the hold opens frames after its current span
+	 * on that layer (later shots move, like Insert); shrinking it closes them
+	 * (like Delete). Returns how many shots moved, or null when there is no
+	 * shot there.
+	 */
+	function setHold(frame: number, layer: number, hold: number): number | null {
+		const origin = resolveShotAt<Shot>(project.komas, frame, layer)
+		if (!origin) return null
+		hold = Math.max(1, Math.floor(hold))
+		const current = holdEnd(project.komas, origin.frame, layer) - origin.frame + 1
+		if (hold === current) {
+			if (holdOf(origin.shot) !== hold) origin.shot.hold = hold > 1 ? hold : undefined
+			return 0
+		}
+		beginInteraction()
+		try {
+			let moved = 0
+			if (hold > current) {
+				moved = insertFramesOnLayer<Shot, Koma>(
+					project.komas,
+					origin.frame + current,
+					layer,
+					() => ({shots: []}),
+					hold - current
+				)
+				const c = project.captureShot
+				if (c.layer === layer && c.frame >= origin.frame + current) c.frame += hold - current
+			} else {
+				deleteFramesOnLayer<Shot, Koma>(project.komas, origin.frame + hold, layer, current - hold)
+				const c = project.captureShot
+				if (c.layer === layer && c.frame >= origin.frame + hold) {
+					c.frame = Math.max(origin.frame + hold, c.frame - (current - hold))
+				}
+			}
+			origin.shot.hold = hold > 1 ? hold : undefined
+			// Keep a selectable frame after the span.
+			while (project.komas.length < origin.frame + hold) project.komas.push({shots: []})
+			if (project.previewRange[1] > project.komas.length) {
+				project.previewRange[1] = project.komas.length
+			}
+			return moved
+		} finally {
+			endInteraction()
+		}
 	}
 
 	/**
@@ -1284,6 +1414,10 @@ export const useProjectStore = defineStore('project', () => {
 	function insertFrames(frame: number, layer: number, count = 1): number {
 		beginInteraction()
 		try {
+			// Opening frames inside a held span keeps the span whole: the hold
+			// grows by as many frames.
+			const held = resolveShotAt<Shot>(project.komas, frame, layer)
+			if (held?.held) held.shot.hold = holdOf(held.shot) + count
 			const moved = insertFramesOnLayer<Shot, Koma>(
 				project.komas,
 				frame,
@@ -1307,6 +1441,15 @@ export const useProjectStore = defineStore('project', () => {
 	function deleteFrames(frame: number, layer: number, count = 1): (Shot | null)[] {
 		beginInteraction()
 		try {
+			// Continuation frames of a hold that start before `frame` shorten
+			// that hold; a removed origin takes its whole hold with it.
+			for (let f = frame; f < frame + count; f++) {
+				const r = resolveShotAt<Shot>(project.komas, f, layer)
+				if (r?.held && r.frame < frame) {
+					const h = holdOf(r.shot) - 1
+					r.shot.hold = h > 1 ? h : undefined
+				}
+			}
 			const removed = deleteFramesOnLayer<Shot, Koma>(project.komas, frame, layer, count)
 			const c = project.captureShot
 			if (c.layer === layer && c.frame > frame) c.frame = Math.max(frame, c.frame - count)
@@ -1592,6 +1735,26 @@ export const useProjectStore = defineStore('project', () => {
 		}
 	}
 
+	/** Storage indices of every layer in the active preset's list (hidden ones included), in display order. */
+	const stackLayerIndices = computed<number[]>(() =>
+		layerStack.value.map(v => layerIndexOf(v.layerId)).filter(i => i !== -1)
+	)
+
+	/**
+	 * The timeline's rows, in display order: the layers on the timeline in the
+	 * active preset (separate from the eye, so hiding a layer keeps its row), plus
+	 * the capture layer whatever its setting, so the slot being shot into can't be
+	 * lost. A row is removed from its balloon, and comes back from the button
+	 * under the layer names.
+	 */
+	const timelineLayerIndices = computed<number[]>(() => {
+		const capture = project.captureShot.layer
+		return layerStack.value.flatMap(v => {
+			const i = layerIndexOf(v.layerId)
+			return i !== -1 && (isOnTimeline(v) || i === capture) ? [i] : []
+		})
+	})
+
 	/** Storage indices of the visible layers, in display order. */
 	const visibleLayerIndices = computed<number[]>(() =>
 		layerStack.value
@@ -1603,7 +1766,11 @@ export const useProjectStore = defineStore('project', () => {
 	const DEFAULT_VIEW = {opacity: 1, mixBlendMode: 'normal' as MixBlendMode}
 
 	/** How a layer (by storage index) is shown in the active preset. */
-	function layerView(index: number): {opacity: number; mixBlendMode: MixBlendMode} {
+	function layerView(index: number): {
+		opacity: number
+		mixBlendMode: MixBlendMode
+		transform?: LayerTransform
+	} {
 		const id = project.layers[index]?.id
 		return layerStack.value.find(v => v.layerId === id) ?? DEFAULT_VIEW
 	}
@@ -1613,7 +1780,14 @@ export const useProjectStore = defineStore('project', () => {
 		const view = stackOf(activePreset.value).find(v => v.layerId === id)
 		if (!view) return
 		Object.assign(view, patch)
+		// An identity transform is the same as none: keep the file as it was.
+		if ('transform' in patch && isIdentityTransform(view.transform)) delete view.transform
 		syncShown(activePreset.value)
+	}
+
+	/** Change part of a layer's transform in the active preset. */
+	function setLayerTransform(index: number, patch: Partial<LayerTransform>) {
+		setLayerView(index, {transform: {...layerTransformOf(layerView(index).transform), ...patch}})
 	}
 
 	function isLayerVisible(index: number) {
@@ -1621,7 +1795,10 @@ export const useProjectStore = defineStore('project', () => {
 		return id !== undefined && layerStack.value.some(v => v.layerId === id && !v.hidden)
 	}
 
-	/** Show / hide a layer in the active preset; its place in the list stays. */
+	/**
+	 * Show / hide a layer in the active preset; its place in the list stays, and
+	 * so does whether it has a row in the timeline.
+	 */
 	function setLayerVisible(index: number, visible: boolean) {
 		const layer = project.layers[index]
 		if (!layer || layer.deleted) return
@@ -1629,35 +1806,76 @@ export const useProjectStore = defineStore('project', () => {
 		const entry = stack.find(v => v.layerId === layer.id)
 		if (!entry) {
 			stack.push({layerId: layer.id, opacity: 1, mixBlendMode: 'normal', hidden: !visible})
-		} else if (visible) {
-			delete entry.hidden
 		} else {
-			entry.hidden = true
+			// Pin the row before `hidden` changes: an absent `timeline` follows it.
+			entry.timeline = isOnTimeline(entry)
+			if (visible) delete entry.hidden
+			else entry.hidden = true
 		}
 		syncShown(activePreset.value)
 	}
 
-	/** Move a layer by `delta` positions in the active preset's list. */
-	function moveLayer(index: number, delta: number) {
+	function isLayerOnTimeline(index: number) {
 		const id = project.layers[index]?.id
+		const entry = layerStack.value.find(v => v.layerId === id)
+		return entry !== undefined && isOnTimeline(entry)
+	}
+
+	/** Give a layer a row in the timeline or take it away; the eye stays as it is. */
+	function setLayerOnTimeline(index: number, onTimeline: boolean) {
+		const id = project.layers[index]?.id
+		const entry = stackOf(activePreset.value).find(v => v.layerId === id)
+		if (entry) entry.timeline = onTimeline
+	}
+
+	/** Put the active preset's list in this order (layer ids, bottom → top). */
+	function setLayerOrder(ids: readonly string[]) {
+		const rank = new Map(ids.map((id, i) => [id, i]))
 		const stack = stackOf(activePreset.value)
-		const from = stack.findIndex(v => v.layerId === id)
-		if (from === -1) return
-		const to = clamp(from + delta, 0, stack.length - 1)
-		const [v] = stack.splice(from, 1)
-		stack.splice(to, 0, v)
+		const last = stack.length
+		stack.sort((a, b) => (rank.get(a.layerId) ?? last) - (rank.get(b.layerId) ?? last))
 		syncShown(activePreset.value)
 	}
 
 	/**
-	 * Which layers to composite when `current` is the active layer: the visible
-	 * layers in display order, up to and including it (or just `current` when
-	 * it is hidden).
+	 * Which layers to composite: every shown layer of the active preset in
+	 * display order — what is shown is the eye in the timeline / the Layers
+	 * dialog, nothing else. A hidden layer stays out even when it is the
+	 * current or the capture layer (so hiding Main leaves just the guide, with
+	 * no live view). Until 2026-10-27 the layers above the current one were
+	 * left out, and a hidden current layer was shown alone.
 	 */
-	function compositeLayers(current: number): number[] {
-		const vis = visibleLayerIndices.value
-		const pos = vis.indexOf(current)
-		return pos === -1 ? [current] : vis.slice(0, pos + 1)
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	function compositeLayers(_current: number): number[] {
+		const solo = soloLayerIndex.value
+		if (solo !== null) return [solo]
+		return visibleLayerIndices.value
+	}
+
+	/**
+	 * Solo: show the capture layer alone (Preview, cast, playback, export),
+	 * whatever the preset says — like a mixer's solo button overriding mutes.
+	 * A view toggle for the session, not saved with the project; it follows
+	 * the capture slot when that moves to another layer.
+	 */
+	const solo = ref(false)
+
+	/** Storage index of the layer shown alone while solo is on, else null. */
+	const soloLayerIndex = computed<number | null>(() => {
+		if (!solo.value) return null
+		const index = project.captureShot.layer
+		const layer = project.layers[index]
+		if (!layer || layer.deleted) return null
+		return index
+	})
+
+	/**
+	 * Whether a layer (by storage index) takes part in what is shown right
+	 * now: the preset's eye, or — while solo is on — being the capture layer.
+	 */
+	function isLayerShown(index: number) {
+		const s = soloLayerIndex.value
+		return s !== null ? index === s : isLayerVisible(index)
 	}
 
 	/**
@@ -1891,6 +2109,7 @@ export const useProjectStore = defineStore('project', () => {
 		isOpening,
 		isSaving,
 		dirty,
+		flushSave,
 		onSaved: savedHook.on,
 		isSavedToDisk,
 		beginInteraction,
@@ -1900,6 +2119,9 @@ export const useProjectStore = defineStore('project', () => {
 		shot,
 		ensureLv,
 		setShot,
+		shotOrigin,
+		cellShot,
+		setHold,
 		insertFrames,
 		deleteFrames,
 		layer,
@@ -1917,13 +2139,21 @@ export const useProjectStore = defineStore('project', () => {
 		setActivePreset,
 		addPreset,
 		removePreset,
+		stackLayerIndices,
+		timelineLayerIndices,
 		visibleLayerIndices,
 		layerView,
 		setLayerView,
+		setLayerTransform,
 		isLayerVisible,
 		setLayerVisible,
-		moveLayer,
+		isLayerOnTimeline,
+		setLayerOnTimeline,
+		setLayerOrder,
 		compositeLayers,
+		solo,
+		soloLayerIndex,
+		isLayerShown,
 		restoreTrashed,
 		layerCount,
 		duration,

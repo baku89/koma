@@ -115,7 +115,7 @@ function cameraIcon(type: string) {
 		:class="{flashing}"
 		:icon="icon"
 		:label="label"
-		right-icon="mdi:chevron-down"
+		chevron
 		subtle
 		@click="onTriggerClick"
 	/>

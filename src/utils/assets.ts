@@ -35,6 +35,9 @@ interface AssetEntry {
 	/** In-memory bytes (freshly captured this session; kept so a re-shoot that
 	 *  overwrites the on-disk file can't corrupt an undo-reachable id). */
 	blob?: Blob
+	/** Drop `blob` once it has been written to disk (bulk imports: thousands
+	 *  of frames must not stay in RAM for the session). */
+	transient?: boolean
 	/** Cached object URL; once created it is detached from disk. */
 	url?: string
 	/** True while the file lives under `_trash/` (deleted but recoverable). */
@@ -151,10 +154,18 @@ export function registerDiskAsset(
 	return id
 }
 
-/** Register a freshly captured asset (bytes in memory, not yet written). */
-export function registerCapturedAsset(blob: Blob, filename: string): string {
+/**
+ * Register a freshly captured asset (bytes in memory, not yet written).
+ * `transient` releases the bytes once the next save has written them, for
+ * imports of many frames; a captured shot keeps them for the session.
+ */
+export function registerCapturedAsset(
+	blob: Blob,
+	filename: string,
+	opts: {transient?: boolean} = {}
+): string {
 	const id = newId()
-	entries.set(id, {filename, blob})
+	entries.set(id, {filename, blob, transient: opts.transient})
 	return id
 }
 
@@ -334,6 +345,7 @@ async function moveEntry(
 		await writable.write(e.blob)
 		await writable.close()
 		e.handle = h
+		if (e.transient) e.blob = undefined
 	} else {
 		return // no bytes anywhere — nothing to persist
 	}

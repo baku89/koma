@@ -10,9 +10,8 @@
 import {useTweeq} from 'tweeq'
 import {computed, ref} from 'vue'
 
-import {MixBlendModeValues, useProjectStore} from '@/stores/project'
+import {useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
-import {hasLayerFolders} from '@/utils/projectLayout'
 
 const Tq = useTweeq()
 const project = useProjectStore()
@@ -34,12 +33,6 @@ function commitName(index: number) {
 		console.error('[layers] rename failed', e)
 		alert(`Could not move the layer's folder: ${(e as Error).message}`)
 	})
-}
-
-/** Where a layer's files are, for the Folder column. */
-function folderOf(layer: {dir?: string}, index: number) {
-	if (hasLayerFolders(project.assetLayout)) return layer.dir ? `${layer.dir}/` : ''
-	return `…_layer=${index}_`
 }
 
 async function migrate() {
@@ -90,7 +83,7 @@ const rows = computed(() => {
 		if (layer.deleted) return []
 		const pos = stack.findIndex(v => v.layerId === layer.id)
 		const visible = pos !== -1 && !stack[pos].hidden
-		return [{index, layer, visible, pos, view: project.layerView(index), shots: shotCount(index)}]
+		return [{index, layer, visible, pos, shots: shotCount(index)}]
 	})
 })
 
@@ -105,6 +98,11 @@ const deleted = computed(() =>
 		layer.deleted ? [{index, layer, shots: shotCount(index)}] : []
 	)
 )
+
+/** The list is top of the stack first; the stack is bottom → top. */
+function reorder(list: typeof sorted.value) {
+	project.setLayerOrder(list.map(row => row.layer.id).reverse())
+}
 
 function remove(index: number) {
 	project.deleteLayer(index)
@@ -143,94 +141,60 @@ function setCapture(index: number) {
 		</div>
 
 		<div class="grid">
-			<div class="head">Show</div>
-			<div class="head">Name</div>
-			<div class="head">Folder</div>
-			<div class="head">Blend</div>
-			<div class="head">Opacity</div>
-			<div class="head">Slot</div>
-			<div class="head">Shots</div>
-			<div class="head">Order</div>
-			<div class="head"></div>
-			<div class="head"></div>
-			<template v-for="row in sorted" :key="row.layer.id">
-				<Tq.InputCheckbox
-					:modelValue="row.visible"
-					@update:modelValue="project.setLayerVisible(row.index, $event)"
-				/>
-				<Tq.InputString
-					:modelValue="draftNames[row.layer.id] ?? row.layer.name"
-					@update:modelValue="draftNames[row.layer.id] = $event"
-					@confirm="commitName(row.index)"
-				/>
-				<span
-					class="mono folder"
-					v-tooltip="
-						hasLayerFolders(project.assetLayout)
-							? 'The folder this layer\'s images and G-code are in. It follows the name when the name is confirmed.'
-							: 'Images are loose in the project folder, named by layer slot.'
-					"
-					>{{ folderOf(row.layer, row.index) }}</span
-				>
-				<Tq.InputDropdown
-					:modelValue="row.view.mixBlendMode"
-					:options="MixBlendModeValues"
-					:disabled="!row.visible"
-					@update:modelValue="project.setLayerView(row.index, {mixBlendMode: $event})"
-				/>
-				<Tq.InputNumber
-					:modelValue="row.view.opacity * 100"
-					:min="0"
-					:max="100"
-					:precision="0"
-					suffix="%"
-					:disabled="!row.visible"
-					@update:modelValue="project.setLayerView(row.index, {opacity: $event / 100})"
-				/>
-				<span class="mono">{{ row.index }}</span>
-				<span class="mono">{{ row.shots }}</span>
-				<span class="order">
+			<Tq.InputArray
+				:modelValue="sorted"
+				:itemKey="row => row.layer.id"
+				sortable
+				:removable="row => row.index !== 0"
+				appendable
+				@update:modelValue="reorder"
+				@remove="row => remove(row.index)"
+			>
+				<template #header>
+					<Tq.TableHeader :columns="['Show', 'Name', 'Slot', 'Shots', '']" />
+				</template>
+				<template #default="{item: row}">
+					<Tq.InputCheckbox
+						:modelValue="row.visible"
+						@update:modelValue="project.setLayerVisible(row.index, $event)"
+					/>
+					<Tq.InputString
+						:modelValue="draftNames[row.layer.id] ?? row.layer.name"
+						@update:modelValue="draftNames[row.layer.id] = $event"
+						@confirm="commitName(row.index)"
+						@keydown.enter.stop
+					/>
+					<span class="mono">{{ row.index }}</span>
+					<span class="mono">{{ row.shots }}</span>
 					<Tq.InputButton
-						icon="mdi:chevron-up"
+						:icon="
+							project.captureShot.layer === row.index
+								? 'material-symbols:photo-camera'
+								: 'material-symbols:photo-camera-outline'
+						"
 						narrow
 						subtle
-						tooltip="Move up (towards the top of the stack)"
-						:disabled="row.pos === -1 || row.pos === project.layerStack.length - 1"
-						@click="project.moveLayer(row.index, 1)"
+						tooltip="Shoot into this layer"
+						@click="setCapture(row.index)"
 					/>
-					<Tq.InputButton
-						icon="mdi:chevron-down"
-						narrow
-						subtle
-						tooltip="Move down"
-						:disabled="row.pos <= 0"
-						@click="project.moveLayer(row.index, -1)"
-					/>
-				</span>
-				<Tq.InputButton
-					:icon="
-						project.captureShot.layer === row.index
-							? 'material-symbols:photo-camera'
-							: 'material-symbols:photo-camera-outline'
-					"
-					narrow
-					subtle
-					tooltip="Shoot into this layer"
-					@click="setCapture(row.index)"
-				/>
-				<Tq.InputButton
-					icon="mdi:delete-outline"
-					narrow
-					subtle
-					:tooltip="
-						row.index === 0
-							? 'The film layer can\'t be deleted'
-							: 'Delete layer (its shots are kept; restore it below)'
-					"
-					:disabled="row.index === 0"
-					@click="remove(row.index)"
-				/>
-			</template>
+				</template>
+				<template #add>
+					<div class="add">
+						<Tq.InputString
+							v-model="newName"
+							placeholder="New layer name"
+							@confirm="add"
+							@keydown.enter.stop
+						/>
+						<Tq.InputButton
+							label="Add Layer"
+							icon="mdi:plus"
+							:disabled="!newName.trim()"
+							@click="add"
+						/>
+					</div>
+				</template>
+			</Tq.InputArray>
 		</div>
 
 		<div v-if="deleted.length > 0" class="deleted">
@@ -247,17 +211,7 @@ function setCapture(index: number) {
 			</div>
 		</div>
 
-		<div class="add">
-			<Tq.InputString v-model="newName" placeholder="New layer name" @confirm="add" />
-			<Tq.InputButton label="Add Layer" icon="mdi:plus" :disabled="!newName.trim()" @click="add" />
-		</div>
 		<div v-if="project.assetLayout !== 3" class="migrate">
-			<span v-if="project.assetLayout === 2" class="hint">
-				Images are in layer folders but named by number alone (<code>0001.jpg</code>).
-			</span>
-			<span v-else class="hint">
-				This project keeps every image loose in its folder (<code>…_layer=N_0001.jpg</code>).
-			</span>
 			<Tq.InputButton
 				:label="project.assetLayout === 2 ? 'Rename to project_layer_0001…' : 'Move into layer folders…'"
 				icon="mdi:folder-move-outline"
@@ -265,14 +219,6 @@ function setCapture(index: number) {
 				@click="migrate"
 			/>
 		</div>
-		<p class="hint">
-			Layers are separate timelines sharing the film's frame numbers — a test
-			shot, a replay pass, park references. Presets decide which are shown,
-			stacked bottom → top with their blend and opacity. Hidden layers keep
-			their shots and their place in the list. A deleted layer leaves every
-			preset and the exhibition screens; its shots and files stay, and it
-			can be restored.
-		</p>
 	</div>
 </template>
 
@@ -281,7 +227,6 @@ function setCapture(index: number) {
 	display flex
 	flex-direction column
 	gap var(--tq-gap-section)
-	min-width 44em
 
 .presets
 	display flex
@@ -297,44 +242,23 @@ function setCapture(index: number) {
 
 .grid
 	display grid
-	grid-template-columns auto 1fr auto 7.5em 5em auto auto auto auto auto
+	grid-template-columns auto minmax(8em, 1fr) auto auto auto
 	align-items center
-	gap var(--tq-gap-group) var(--tq-gap-control)
-
-.head
-	font-size 0.75em
-	letter-spacing 0.05em
-	text-transform uppercase
-	color var(--tq-color-text-mute)
+	column-gap var(--tq-gap-control)
 
 .mono
 	font-variant-numeric tabular-nums
 	text-align right
 	color var(--tq-color-text-mute)
 
-.order
-	display flex
-
-.folder
-	text-align left
-	max-width 12em
-	overflow hidden
-	text-overflow ellipsis
-	white-space nowrap
-	font-size 0.85em
-
 .migrate
 	display flex
-	align-items center
-	gap var(--tq-gap-control)
-
-	> .hint
-		flex 1 1 0
+	justify-content flex-end
 
 .deleted
 	display flex
 	flex-direction column
-	gap var(--tq-gap-group)
+	gap var(--tq-gap-control)
 
 .deleted-row
 	display flex
@@ -353,8 +277,4 @@ function setCapture(index: number) {
 	> :first-child
 		flex 1 1 0
 
-.hint
-	margin 0
-	font-size 0.85em
-	color var(--tq-color-text-mute)
 </style>

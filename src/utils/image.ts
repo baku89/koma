@@ -41,10 +41,15 @@ async function removeExifOrientation(blob: Blob): Promise<Blob> {
 	return blob
 }
 
+/**
+ * `cover` crops the picture to fill `size`; `contain` keeps the whole picture
+ * and makes the output as large as fits inside `size` (so its aspect is the
+ * picture's, not the project's — nothing is padded); `stretch` distorts.
+ */
 export async function resizeBlobImage(
 	blob: Blob,
 	size: vec2,
-	mode: 'cover' | 'stretch' = 'cover'
+	mode: 'cover' | 'contain' | 'stretch' = 'cover'
 ) {
 	if (!canvas) {
 		canvas = document.createElement('canvas')
@@ -54,13 +59,19 @@ export async function resizeBlobImage(
 	let x = 0
 	let y = 0
 
+	const blobDeorient = await removeExifOrientation(blob)
+	const bitmap = await createImageBitmap(blobDeorient)
+
+	if (mode === 'contain') {
+		const s = Math.min(width / bitmap.width, height / bitmap.height)
+		width = Math.max(1, Math.round(bitmap.width * s))
+		height = Math.max(1, Math.round(bitmap.height * s))
+	}
+
 	canvas.width = width
 	canvas.height = height
 
 	ctx = canvas.getContext('2d')!
-
-	const blobDeorient = await removeExifOrientation(blob)
-	const bitmap = await createImageBitmap(blobDeorient)
 
 	if (mode === 'cover') {
 		if (width / height > bitmap.width / bitmap.height) {

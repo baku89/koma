@@ -7,6 +7,7 @@ import {useCameraStore} from '@/stores/camera'
 import {Shot, useProjectStore} from '@/stores/project'
 import {useViewportStore} from '@/stores/viewport'
 import {resolveAssetUrl} from '@/utils'
+import {type LayerTransform, layerTransformCss} from '@/utils/layerTransform'
 
 interface Props {
 	frame: number
@@ -21,6 +22,7 @@ const camera = useCameraStore()
 type Layer = ({type: 'jpg'; src: string} | {type: 'lv'}) & {
 	opacity: number
 	mixBlendMode: any
+	transform?: LayerTransform
 }
 
 const layers = asyncComputed<Layer[]>(async () => {
@@ -34,31 +36,38 @@ const layers = asyncComputed<Layer[]>(async () => {
 		captureShot.frame === props.frame ? captureShot.layer : viewport.currentLayer
 	)
 
+	// Read everything reactive BEFORE the first await: asyncComputed only
+	// tracks what is touched synchronously, so a blend / opacity / transform
+	// read after an await would never trigger a recompute (until 2026-10-27
+	// changing the second layer's opacity left the Preview as it was).
+	const hiRes = viewport.enableHiRes
+	const plan = indices.map(layer => {
+		const shot: Shot | null = project.shot(props.frame, layer)
+		const {opacity, mixBlendMode, transform} = project.layerView(layer)
+		return {layer, shot, opacity, mixBlendMode, transform}
+	})
+
 	const layers: Layer[] = []
 
-	for (const layer of indices) {
-		const shot: Shot | null = project.shot(props.frame, layer)
-
-		const {opacity, mixBlendMode} = project.layerView(layer)
-
+	for (const {layer, shot, opacity, mixBlendMode, transform} of plan) {
 		if (captureShot.frame === props.frame && captureShot.layer === layer) {
 			layers.push({
 				type: 'lv',
 				opacity,
 				mixBlendMode,
+				transform,
 			})
 		} else if (shot) {
 			// Regenerate the lv from the hi-res jpg if its file is missing.
-			if (!viewport.enableHiRes) await project.ensureLv(props.frame, layer)
-			const src = await resolveAssetUrl(
-				viewport.enableHiRes ? shot.jpg : shot.lv
-			)
+			if (!hiRes) await project.ensureLv(props.frame, layer)
+			const src = await resolveAssetUrl(hiRes ? shot.jpg : shot.lv)
 			if (src) {
 				layers.push({
 					type: 'jpg',
 					src,
 					opacity,
 					mixBlendMode,
+					transform,
 				})
 			}
 		}
@@ -83,6 +92,7 @@ const style = computed(() => {
 			:style="{
 				opacity: layer.opacity,
 				mixBlendMode: layer.mixBlendMode,
+				transform: layerTransformCss(layer.transform),
 			}"
 		>
 			<img v-if="layer.type === 'jpg'" :src="layer.src" />
@@ -114,7 +124,11 @@ video
 .no-lv
 	width 100%
 	height 100%
-	object-fit cover
+	// Whole picture, letter / pillar-boxed when its aspect differs from the project's.
+	object-fit contain
+	// Pixels as stored, like the lv: a camera JPEG's EXIF Orientation (a camera
+	// on its side) is not applied, so Hi-Res never turns against the lv.
+	image-orientation none
 
 .layer
 	position absolute

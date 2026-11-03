@@ -7,6 +7,7 @@ import sleep from 'p-sleep'
 // @ts-ignore
 import saferEval from 'safer-eval'
 import {initTweeq, useTweeq} from 'tweeq'
+import {keyboardTarget} from 'tweeq'
 import {markRaw, watch, watchEffect} from 'vue'
 
 import AddsubVisualizer from '@/addsub/components/AddsubVisualizer.vue'
@@ -15,7 +16,9 @@ import HoudiniPanel from '@/addsub/components/HoudiniPanel.vue'
 import LedPanel from '@/addsub/components/LedPanel.vue'
 import LensPanel from '@/addsub/components/LensPanel.vue'
 import PlanPanel from '@/addsub/components/PlanPanel.vue'
+import RigDistortionPanel from '@/addsub/components/RigDistortionPanel.vue'
 import SequencePanel from '@/addsub/components/SequencePanel.vue'
+import {setupDistortionReticle} from '@/addsub/distortionReticle'
 import {setupAddsubInbox} from '@/addsub/inboxOps'
 import {linearRigPlan, setPlan} from '@/addsub/plan'
 import {setupAddsubRelay} from '@/addsub/relayPublish'
@@ -27,17 +30,21 @@ import {useMillStore, useRigStore} from '@/addsub/stores/machines'
 import {usePrevizStore} from '@/addsub/stores/previz'
 import {useRigWorkStore} from '@/addsub/stores/rigWork'
 import {type CaptureRequest, useSequenceStore} from '@/addsub/stores/sequence'
+import {setupAddsubTools} from '@/addsub/tools'
 import {isElectron, native} from '@/electron'
 import {useCameraStore} from '@/stores/camera'
 import {useCncStore} from '@/stores/cnc'
 import {useDmxStore} from '@/stores/dmx'
 import {useInboxStore} from '@/stores/inbox'
+import type {MachineFrame} from '@/stores/machine'
 import {useOscStore} from '@/stores/osc'
 import {Shot, useProjectStore} from '@/stores/project'
 import {setupProjectInbox} from '@/stores/projectInboxOps'
+import {setupProjectTools} from '@/stores/projectTools'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
 import {useTimelineStore} from '@/stores/timeline'
 import {useTimerStore} from '@/stores/timer'
+import {useToolsStore} from '@/stores/tools'
 import {useTrackerStore} from '@/stores/tracker'
 import {useViewportStore} from '@/stores/viewport'
 import {preventConcurrentExecution} from '@/utils'
@@ -46,9 +53,11 @@ import {
 	playSound,
 	registerCapturedAsset,
 	resizeBlobImage,
+	resolveShotAt,
 	speak,
 } from '@/utils'
 import {nativeAssetPath, resolveBlob} from '@/utils/assets'
+import {resetExifOrientation} from '@/utils/exif'
 import {
 	type ExportFrame,
 	exportFramesToMp4,
@@ -93,6 +102,21 @@ const shootAlerts = useShootAlertsStore()
 const mill = useMillStore()
 const rig = useRigStore()
 const rigWork = useRigWorkStore()
+
+/**
+ * The Box Rig panel's third frame (stores/rigWork.ts): work coordinates with
+ * the measured distortion taken out — where the camera really is, and the
+ * frame plans are in.
+ */
+const rigFrames: MachineFrame[] = [
+	{
+		id: 'calibrated',
+		label: 'Cal',
+		hint: 'Where the camera really is: work coordinates with the distortion correction (Distortion, below) taken out. Plans are in this frame; without recorded points it is the work frame.',
+		fromMachine: m => rigWork.toCalibrated(m),
+		toMachine: a => rigWork.fromCalibrated(a),
+	},
+]
 const led = useLedStore()
 const lens = useLensStore()
 const previz = usePrevizStore()
@@ -101,12 +125,16 @@ const sequence = useSequenceStore()
 // Exhibition screens: live state + display copy of the project (§15.2).
 setupAddsubRelay()
 setupAddsubShootAlerts()
-// Patches dropped into the project's `_inbox/` by anything outside koma
-// (stores/inbox.ts) — the way to change an open project without fighting
-// its autosave.
+setupDistortionReticle()
+// The tools koma offers over the aux bridge (stores/tools.ts; Claude Code's
+// MCP server): the inbox ops change an open project without fighting its
+// autosave (stores/inbox.ts), the read tools describe it.
 setupProjectInbox()
 setupAddsubInbox()
+setupProjectTools()
+setupAddsubTools()
 useInboxStore()
+useToolsStore()
 
 // A file dropped anywhere but on a timeline cell would navigate the tab to
 // it — and this tab holds the camera (WebUSB) and every serial port. Swallow
@@ -208,6 +236,72 @@ async function runPreShoot() {
 	const fn = compileScript(project.preShootScript)
 
 	await fn(makeScriptContext())
+}
+
+/** Project Settings, at a given tab or else the one last used. */
+async function openProjectSettings(initialTab?: string) {
+	await Tq.modal.promptTabs(
+		[
+			{
+				id: 'general',
+				title: 'General',
+				scheme: {
+					name: {type: 'string'},
+					fps: {type: 'number', min: 1, max: 60, step: 1},
+					duration: {type: 'number', min: 0, step: 1},
+				},
+				value: {
+					name: project.name,
+					fps: project.fps,
+					duration: project.duration,
+				},
+				onInput(v) {
+					project.setDuration(v.duration)
+					project.$patch({name: v.name, fps: v.fps})
+				},
+			},
+			{id: 'layers', title: 'Layers', component: markRaw(LayersPanel)},
+			{
+				id: 'shootCondition',
+				title: 'Shoot Condition',
+				scheme: {
+					shootCondition: {
+						type: 'string',
+						ui: 'code',
+						lang: 'javascript',
+					},
+				},
+				value: {shootCondition: project.shootCondition},
+				onInput(v) {
+					project.$patch({shootCondition: v.shootCondition})
+				},
+			},
+			{
+				id: 'scripts',
+				title: 'Scripts',
+				scheme: {
+					preShootScript: {
+						type: 'string',
+						ui: 'code',
+						lang: 'javascript',
+					},
+					customScript: {
+						type: 'string',
+						ui: 'code',
+						lang: 'javascript',
+					},
+				},
+				value: {
+					preShootScript: project.preShootScript ?? '',
+					customScript: project.customScript ?? '',
+				},
+				onInput(v) {
+					project.$patch(v)
+				},
+			},
+		],
+		{title: 'Project Settings', initialTab}
+	)
 }
 
 /**
@@ -346,12 +440,18 @@ const {fn: shoot} = preventConcurrentExecution(
 
 			if (!jpg) throw new Error('No JPEG image found')
 
+			// A camera on its side tags the JPEG with an EXIF Orientation that
+			// browsers (the Hi-Res view, exports) apply while the lv is made from
+			// the stored pixels. Save it "as stored" so every view agrees.
+			jpg = await resetExifOrientation(jpg)
+			if (raw) raw = await resetExifOrientation(raw) // a DNG carries the same tag
+
 			if (new Date().getTime() - captureDate > 500) {
 				playSound('sound/Accent36-1.mp3')
 			}
 
 			// Resize jpg to fit the resolution of the project
-			const lv = await resizeBlobImage(jpg, project.resolution, 'cover')
+			const lv = await resizeBlobImage(jpg, project.resolution, 'contain')
 
 			// Register the captured bytes as session assets and store only their
 			// ids on the shot. The initial filename is derived from the capture
@@ -407,9 +507,10 @@ function placeShotAndAdvance(newShot: Shot) {
 		project.setShot(frame, layer, newShot)
 
 		// Next frame without a shot on the capture layer (a named test shot
-		// advances along its own layer, the film along layer 0).
+		// advances along its own layer, the film along layer 0). A held shot
+		// counts as occupying its whole span.
 		let next = frame + 1
-		while (next < state.komas.length && state.komas[next]?.shots[layer]) {
+		while (next < state.komas.length && resolveShotAt(state.komas, next, layer)) {
 			next++
 		}
 		// We filled the last frame — extend the duration by one.
@@ -501,7 +602,7 @@ gamepadAxisNeutral.on(() => {
 // the frame one before the current one, without moving currentFrame. Releasing
 // restores both. Bound to the '0' key and the gamepad B button.
 
-const keyboard = Bndr.keyboard()
+const keyboard = Bndr.keyboard(keyboardTarget())
 let peeking = false
 let peekRestoreOnionskin = true
 
@@ -535,26 +636,40 @@ const exposureConfigNames = [
 	'colorTemperature',
 ] as const
 
-async function applyExposureFromShot(shot: Shot | null) {
+// "Camera settings" = the exposure plus the focus position. Not focalLength
+// (read-only, and koma overwrites it from the lens table), model, imageQuality…
+const cameraSettingNames = [...exposureConfigNames, 'focusDistance'] as const
+
+async function applyConfigsFromShot(
+	shot: Shot | null,
+	names: readonly string[],
+	what: string
+) {
 	const {tethr} = camera
 	if (!tethr) {
 		alert('No camera is connected.')
 		return
 	}
 
-	const configs = shot?.cameraConfigs
+	const configs = shot?.cameraConfigs as Record<string, unknown> | undefined
 	if (!configs) {
-		alert('No exposure settings to copy.')
+		alert(`No ${what} to copy: the selected cell has no shot (or no camera record).`)
 		return
 	}
 
-	const exposureConfigs = Object.fromEntries(
-		exposureConfigNames
-			.filter(name => configs[name] !== undefined)
-			.map(name => [name, configs[name]])
+	const subset = Object.fromEntries(
+		names.filter(name => configs[name] !== undefined).map(name => [name, configs[name]])
 	)
+	if (Object.keys(subset).length === 0) {
+		alert(`The selected shot recorded no ${what}.`)
+		return
+	}
 
-	await tethr.importConfigs(exposureConfigs)
+	await tethr.importConfigs(subset as any)
+}
+
+function applyExposureFromShot(shot: Shot | null) {
+	return applyConfigsFromShot(shot, exposureConfigNames, 'exposure settings')
 }
 
 // Recall commands for the selected shot (timeline context menu / palette).
@@ -776,69 +891,7 @@ Tq.actions.register([
 				id: 'project_settings',
 				icon: 'mdi:gear',
 				bind: 'command+option+,',
-				async perform() {
-					await Tq.modal.promptTabs(
-						[
-							{
-								id: 'general',
-								title: 'General',
-								scheme: {
-									name: {type: 'string'},
-									fps: {type: 'number', min: 1, max: 60, step: 1},
-									duration: {type: 'number', min: 0, step: 1},
-								},
-								value: {
-									name: project.name,
-									fps: project.fps,
-									duration: project.duration,
-								},
-								onInput(v) {
-									project.setDuration(v.duration)
-									project.$patch({name: v.name, fps: v.fps})
-								},
-							},
-							{
-								id: 'shootCondition',
-								title: 'Shoot Condition',
-								scheme: {
-									shootCondition: {
-										type: 'string',
-										ui: 'code',
-										lang: 'javascript',
-									},
-								},
-								value: {shootCondition: project.shootCondition},
-								onInput(v) {
-									project.$patch({shootCondition: v.shootCondition})
-								},
-							},
-							{
-								id: 'scripts',
-								title: 'Scripts',
-								scheme: {
-									preShootScript: {
-										type: 'string',
-										ui: 'code',
-										lang: 'javascript',
-									},
-									customScript: {
-										type: 'string',
-										ui: 'code',
-										lang: 'javascript',
-									},
-								},
-								value: {
-									preShootScript: project.preShootScript ?? '',
-									customScript: project.customScript ?? '',
-								},
-								onInput(v) {
-									project.$patch(v)
-								},
-							},
-						],
-						{title: 'Project Settings'}
-					)
-				},
+				perform: () => openProjectSettings(),
 			},
 		],
 	},
@@ -925,6 +978,19 @@ Tq.actions.register([
 				perform() {
 					return applyExposureFromShot(
 						project.shot(viewport.currentFrame, viewport.currentLayer)
+					)
+				},
+			},
+			{
+				id: 'apply_camera_from_koma',
+				label: 'Apply Camera Settings from Selected Koma',
+				icon: 'mdi:camera-retake',
+				perform() {
+					// Exposure + focus position, as recorded when the shot was taken.
+					return applyConfigsFromShot(
+						project.shot(viewport.currentFrame, viewport.currentLayer),
+						cameraSettingNames,
+						'camera settings'
 					)
 				},
 			},
@@ -1118,7 +1184,7 @@ Tq.actions.register([
 			},
 			{
 				id: 'go_to_plan',
-				label: 'Go to Plan (capture frame): Move Rig + Apply Camera',
+				label: 'Go to Plan (capture frame): Rig + Camera + LED',
 				icon: 'mdi:map-marker-path',
 				perform: () => recallForSelectedShot(() => sequence.goToPlan()),
 			},
@@ -1153,7 +1219,7 @@ Tq.actions.register([
 			},
 			{
 				id: 'go_to_plan_selected',
-				label: 'Go to Plan (Rig + Camera)',
+				label: 'Go to Plan (Rig + Camera + LED)',
 				icon: 'mdi:map-marker-check-outline',
 				perform: () =>
 					recallForSelectedShot(() =>
@@ -1174,7 +1240,7 @@ Tq.actions.register([
 			},
 			{
 				id: 'recall_shot_led',
-				label: 'Recall Shot Lighting (LED)',
+				label: 'Recall Lighting (Shot / Plan)',
 				icon: 'mdi:lightbulb-on-outline',
 				perform: () =>
 					recallForSelectedShot(() =>
@@ -1183,7 +1249,7 @@ Tq.actions.register([
 			},
 			{
 				id: 'move_rig_to_shot',
-				label: 'Move Rig to Shot Camera Position',
+				label: 'Move Rig to Shot / Plan Position',
 				icon: 'mdi:camera-marker-outline',
 				perform: () =>
 					recallForSelectedShot(() =>
@@ -1385,16 +1451,31 @@ Tq.actions.register([
 				},
 			},
 			{
+				id: 'hold_increase',
+				label: 'Hold +1',
+				icon: 'mdi:arrow-expand-right',
+				bind: ']',
+				perform: () => viewport.changeHold(1),
+			},
+			{
+				id: 'hold_decrease',
+				label: 'Hold −1',
+				icon: 'mdi:arrow-collapse-left',
+				bind: '[',
+				perform: () => viewport.changeHold(-1),
+			},
+			{
+				id: 'hold_set',
+				label: 'Set Hold…',
+				icon: 'mdi:arrow-expand-horizontal',
+				perform: () => viewport.promptHold(),
+			},
+			{
 				id: 'layers',
 				label: 'Layers…',
 				icon: 'mdi:layers-triple',
 				bind: 'command+shift+l',
-				async perform() {
-					await Tq.modal.promptTabs(
-						[{id: 'layers', title: 'Layers', component: markRaw(LayersPanel)}],
-						{title: 'Layers'}
-					)
-				},
+				perform: () => openProjectSettings('layers'),
 			},
 			{
 				id: 'insert_camera',
@@ -1458,6 +1539,25 @@ Tq.actions.register([
 				bind: ['c'],
 				perform: () => {
 					viewport.coloredOnionskin = !viewport.coloredOnionskin
+				},
+			},
+			{
+				id: 'toggle_solo',
+				label: 'Solo (Capture Layer Only)',
+				icon: 'mdi:alpha-s-box-outline',
+				bind: 's',
+				perform() {
+					project.solo = !project.solo
+				},
+			},
+			{
+				id: 'toggle_layer_visibility',
+				label: 'Show / Hide Current Layer',
+				icon: 'mdi:eye-off-outline',
+				bind: 'shift+h',
+				perform() {
+					const layer = viewport.currentLayer
+					project.setLayerVisible(layer, !project.isLayerVisible(layer))
 				},
 			},
 		],
@@ -1578,7 +1678,9 @@ watchEffect(() => {
 										<MachinePanel
 											:machine="rig"
 											:limits="project.addsub.rigLimits"
+											:frames="rigFrames"
 										/>
+										<RigDistortionPanel />
 									</Tq.ParameterGrid>
 								</Tq.PaneTab>
 								<Tq.PaneTab

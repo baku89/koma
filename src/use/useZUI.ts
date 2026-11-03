@@ -1,6 +1,7 @@
 import * as Bndr from 'bndr-js'
 import {mat2d, vec2} from 'linearly'
 import {useBndr} from 'tweeq'
+import {keyboardTarget} from 'tweeq'
 import {Ref} from 'vue'
 
 export function useZUI(
@@ -9,7 +10,7 @@ export function useZUI(
 ) {
 	useBndr(element, element => {
 		const pointer = Bndr.pointer(element)
-		const keyboard = Bndr.keyboard()
+		const keyboard = Bndr.keyboard(keyboardTarget())
 
 		const lmbPressed = pointer.left.pressed({pointerCapture: true})
 		const mmbPressed = pointer.middle.pressed({pointerCapture: true})

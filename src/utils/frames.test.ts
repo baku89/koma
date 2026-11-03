@@ -2,7 +2,10 @@ import {describe, expect, it} from 'vitest'
 
 import {
 	deleteFramesOnLayer,
+	holdEnd,
+	holdOf,
 	insertFramesOnLayer,
+	resolveShotAt,
 	shotsAtOrAfter,
 	trimTrailingEmptyKomas,
 } from './frames'
@@ -72,5 +75,39 @@ describe('deleteFramesOnLayer', () => {
 	it('keeps a trailing koma that has backup shots', () => {
 		const komas: K[] = [{shots: ['a0']}, {shots: [null], backupShots: [{}]}]
 		expect(trimTrailingEmptyKomas(komas)).toBe(0)
+	})
+})
+
+describe('holds', () => {
+	type H = {id: string; hold?: number}
+	const k = (...shots: (H | null)[]): {shots: (H | null)[]} => ({shots})
+	const a: H = {id: 'a', hold: 3}
+	const b: H = {id: 'b'}
+	// a held for 3 (frames 0-2), empty 3, b at 4 (no hold), empty 5
+	const komas = [k(a), k(null), k(null), k(null), k(b), k(null)]
+
+	it('resolves continuation frames to the held shot', () => {
+		expect(resolveShotAt(komas, 0, 0)).toEqual({shot: a, frame: 0, held: false})
+		expect(resolveShotAt(komas, 2, 0)).toEqual({shot: a, frame: 0, held: true})
+		expect(resolveShotAt(komas, 3, 0)).toBeNull()
+		expect(resolveShotAt(komas, 4, 0)).toEqual({shot: b, frame: 4, held: false})
+		expect(resolveShotAt(komas, 5, 0)).toBeNull()
+		expect(resolveShotAt(komas, 99, 0)).toBeNull()
+		expect(resolveShotAt(komas, -1, 0)).toBeNull()
+	})
+	it('a shot inside the span ends the hold there', () => {
+		const c: H = {id: 'c'}
+		const cut = [k(a), k(c), k(null)]
+		expect(resolveShotAt(cut, 1, 0)?.shot).toBe(c)
+		expect(resolveShotAt(cut, 2, 0)).toBeNull()
+		expect(holdEnd(cut, 0, 0)).toBe(0)
+		expect(holdEnd(komas, 0, 0)).toBe(2)
+		expect(holdEnd(komas, 4, 0)).toBe(4)
+	})
+	it('treats a missing or bad hold as 1', () => {
+		expect(holdOf(b)).toBe(1)
+		expect(holdOf({hold: 0})).toBe(1)
+		expect(holdOf({hold: 2.7})).toBe(2)
+		expect(holdOf(null)).toBe(1)
 	})
 })

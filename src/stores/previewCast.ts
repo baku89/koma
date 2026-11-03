@@ -26,6 +26,8 @@ import {defineStore} from 'pinia'
 import {computed, readonly, ref, watch} from 'vue'
 
 import {resolveBlob} from '@/utils'
+import {fitContain} from '@/utils/fit'
+import {applyLayerTransform, type LayerTransform} from '@/utils/layerTransform'
 
 import {useCameraStore} from './camera'
 import {useProjectStore} from './project'
@@ -49,6 +51,7 @@ const blendMode = {
 type CastLayer = ({source: 'live'} | {source: 'image'; id: string}) & {
 	opacity: number
 	mixBlendMode: keyof typeof blendMode
+	transform?: LayerTransform
 }
 
 interface CastKoma {
@@ -111,8 +114,9 @@ export const usePreviewCastStore = defineStore('previewCast', () => {
 			// The playback canvas is drawn on top; the live view shows through it
 			// only on the capture frame when no other layer has a shot there.
 			const frame = viewport.previewFrame
-			const shots = project.allKomas[frame]?.shots ?? []
-			covered = project.compositeLayers(viewport.currentLayer).some(l => shots[l]?.lv)
+			covered = project
+				.compositeLayers(viewport.currentLayer)
+				.some(l => project.shot(frame, l)?.lv)
 			if (frame === project.captureShot.frame && !covered) komas.push(komaAt(frame, 1, null))
 		} else {
 			const tinted =
@@ -200,8 +204,8 @@ export const usePreviewCastStore = defineStore('previewCast', () => {
 		playback = el
 	}
 
-	/** `object-fit: cover` */
-	function drawCover(
+	/** `object-fit: contain`, like the Preview. */
+	function drawContain(
 		c: CanvasRenderingContext2D,
 		src: CanvasImageSource,
 		sw: number,
@@ -209,8 +213,8 @@ export const usePreviewCastStore = defineStore('previewCast', () => {
 		w: number,
 		h: number
 	) {
-		const s = Math.max(w / sw, h / sh)
-		c.drawImage(src, (w - sw * s) / 2, (h - sh * s) / 2, sw * s, sh * s)
+		const r = fitContain(sw, sh, w, h)
+		c.drawImage(src, r.x, r.y, r.width, r.height)
 	}
 
 	function drawKoma(koma: CastKoma, zoom: number) {
@@ -222,16 +226,19 @@ export const usePreviewCastStore = defineStore('previewCast', () => {
 		for (const layer of koma.layers) {
 			gctx.globalAlpha = layer.opacity
 			gctx.globalCompositeOperation = blendMode[layer.mixBlendMode] ?? 'source-over'
+			gctx.save()
+			applyLayerTransform(gctx, layer.transform, w, h)
 			if (layer.source === 'image') {
 				const bmp = image(layer.id)
-				if (bmp) drawCover(gctx, bmp, bmp.width, bmp.height, w, h)
+				if (bmp) drawContain(gctx, bmp, bmp.width, bmp.height, w, h)
 			} else if (liveReady()) {
-				drawCover(gctx, video, video.videoWidth, video.videoHeight, w, h)
+				drawContain(gctx, video, video.videoWidth, video.videoHeight, w, h)
 			} else {
 				// No live view: the Preview shows a black cell there.
 				gctx.fillStyle = 'black'
 				gctx.fillRect(0, 0, w, h)
 			}
+			gctx.restore()
 		}
 		if (koma.tint) {
 			gctx.globalAlpha = 1

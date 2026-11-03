@@ -37,6 +37,11 @@
  * The server address is a per-machine setting (app config, not the
  * project): a host (`koma-exhibit.local`) and a port (7777 by default, the
  * relay's own default). Empty host = off.
+ *
+ * Whether a project reaches the screens is per project (`exhibitSync`, off by
+ * default): jobs 1 and 3 stop without it. The connection stays up for the
+ * machine state and the control messages (phone jog, Houdini), which carry no
+ * pictures.
  */
 
 import {createEventHook, useDocumentVisibility, watchDebounced} from '@vueuse/core'
@@ -158,6 +163,9 @@ export const useRelayStore = defineStore('relay', () => {
 		const h = lanHosts.value[0] ?? host.value.trim()
 		return `http://${h}:${serverPort.value ?? port.value ?? RELAY_DEFAULT_PORT}`
 	})
+
+	/** The open project may be sent to the screens (files and live view). */
+	const projectShared = computed(() => !!project.exhibitSync)
 
 	const syncing = ref(false)
 	const pending = ref(0)
@@ -390,7 +398,7 @@ export const useRelayStore = defineStore('relay', () => {
 		try {
 			while (syncRequested) {
 				syncRequested = false
-				if (!connected.value || !project.directoryHandle) break
+				if (!connected.value || !projectShared.value || !project.directoryHandle) break
 				syncing.value = true
 				try {
 					await syncOnce(project.directoryHandle)
@@ -477,6 +485,13 @@ export const useRelayStore = defineStore('relay', () => {
 	}
 
 	async function syncOnce(dir: FileSystemDirectoryHandle) {
+		// The project may change under a running sync: nothing of it may go after
+		// that, least of all a project.json naming files of the other one.
+		const assertStillShared = () => {
+			if (!projectShared.value || project.directoryHandle !== dir) {
+				throw new Error('Sync stopped: the project is no longer shared')
+			}
+		}
 		serverFiles ??= await fetchManifest()
 		const server = serverFiles
 		const wanted = (await wantedFiles()).filter(f => pushed.get(f.rel) !== f.tag)
@@ -489,6 +504,7 @@ export const useRelayStore = defineStore('relay', () => {
 					const w = queue.shift()
 					if (!w) return
 					if (!connected.value) throw new Error('Relay disconnected')
+					assertStillShared()
 					try {
 						const file = await getFile(dir, w.rel)
 						if (!file) continue // not on disk (yet) — the next save will bring it
@@ -508,6 +524,7 @@ export const useRelayStore = defineStore('relay', () => {
 		)
 
 		// project.json last: what it references is now on the server.
+		assertStillShared()
 		const json = await getFile(dir, 'project.json')
 		if (json) {
 			const info = await put('project.json', json, json.lastModified)
@@ -536,7 +553,7 @@ export const useRelayStore = defineStore('relay', () => {
 
 	async function offerTo(id: string) {
 		const track = liveTrack()
-		if (!track || pcs.has(id)) return
+		if (!projectShared.value || !track || pcs.has(id)) return
 		const pc = new RTCPeerConnection({iceServers: []})
 		track.contentHint = 'detail'
 		const sender = pc.addTrack(track, liveStream.value!)
@@ -634,6 +651,25 @@ export const useRelayStore = defineStore('relay', () => {
 		if (track) for (const id of wanting) void offerTo(id)
 	})
 
+	// Another project: what was pushed for the last one says nothing about this
+	// one (the same path can hold other content).
+	watch(
+		() => project.directoryHandle,
+		() => pushed.clear()
+	)
+
+	// Sharing turned off (by the toggle, or by opening another project): cut the
+	// live view at once, but remember who asked. Turned on: answer them and send
+	// the display copy.
+	watch(projectShared, shared => {
+		if (shared) {
+			for (const id of wanting) void offerTo(id)
+			scheduleSync()
+		} else {
+			for (const id of [...pcs.keys()]) closePeer(id)
+		}
+	})
+
 	// Last: the immediate watch below connects (and runs a sync), which touches
 	// everything declared above. Debounced: the inputs update per keystroke.
 	watchDebounced(
@@ -666,6 +702,7 @@ export const useRelayStore = defineStore('relay', () => {
 		lanHosts: readonly(lanHosts),
 		lanUrl,
 		token,
+		projectShared,
 		enabled,
 		connected: readonly(connected),
 		connecting: readonly(connecting),

@@ -1,12 +1,14 @@
 /**
  * "Export MP4": a range of the timeline composited the way the Preview shows
  * it — the layers of the active preset up to the current one, each with its
- * opacity and blend mode, cover-fitted into the output — and encoded with
+ * opacity and blend mode, contain-fitted into the output — and encoded with
  * utils/mp4. Frames with nothing on them hold the previous picture, so the
  * timing of the film is kept.
  */
 
-import {type EncodeSource,encodeTakesToMp4} from './mp4'
+import {fitContain} from './fit'
+import {applyLayerTransform, type LayerTransform} from './layerTransform'
+import {type EncodeSource, encodeTakesToMp4} from './mp4'
 
 export type ExportBlendMode = 'normal' | 'lighten' | 'darken' | 'difference'
 
@@ -15,6 +17,7 @@ export interface ExportLayer {
 	blob(): Promise<Blob | null | undefined>
 	opacity: number
 	mixBlendMode: ExportBlendMode
+	transform?: LayerTransform
 }
 
 export interface ExportFrame {
@@ -39,15 +42,15 @@ const compositeOperation: Record<ExportBlendMode, GlobalCompositeOperation> = {
 	difference: 'difference',
 }
 
-/** `object-fit: cover` */
-function drawCover(
+/** `object-fit: contain`, like the Preview. */
+function drawContain(
 	c: OffscreenCanvasRenderingContext2D,
 	src: ImageBitmap,
 	w: number,
 	h: number
 ) {
-	const s = Math.max(w / src.width, h / src.height)
-	c.drawImage(src, (w - src.width * s) / 2, (h - src.height * s) / 2, src.width * s, src.height * s)
+	const r = fitContain(src.width, src.height, w, h)
+	c.drawImage(src, r.x, r.y, r.width, r.height)
 }
 
 export async function exportFramesToMp4(
@@ -70,7 +73,8 @@ export async function exportFramesToMp4(
 				const b = await layer.blob()
 				if (!b) continue
 				try {
-					bitmaps.push({bmp: await createImageBitmap(b), layer})
+					// Pixels as stored (no EXIF rotation), like the Preview.
+					bitmaps.push({bmp: await createImageBitmap(b, {imageOrientation: 'none'}), layer})
 				} catch {
 					// undecodable file: leave the layer out
 				}
@@ -93,7 +97,10 @@ export async function exportFramesToMp4(
 			for (const {bmp, layer} of bitmaps) {
 				ctx.globalAlpha = layer.opacity
 				ctx.globalCompositeOperation = compositeOperation[layer.mixBlendMode] ?? 'source-over'
-				drawCover(ctx, bmp, width, height)
+				ctx.save()
+				applyLayerTransform(ctx, layer.transform, width, height)
+				drawContain(ctx, bmp, width, height)
+				ctx.restore()
 				bmp.close()
 			}
 			ctx.globalAlpha = 1

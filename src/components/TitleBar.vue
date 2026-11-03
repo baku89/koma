@@ -148,6 +148,14 @@ const saveStatus = computed(() => {
 				v-tooltip="'Hi-Res'"
 				icon="mdi:high-definition"
 			/>
+			<Tq.InputCheckbox
+				v-model="project.solo"
+				v-tooltip="{
+					title: 'Solo (S)',
+					description: 'Show only the capture layer, whatever the preset hides or shows.',
+				}"
+				icon="mdi:alpha-s-box-outline"
+			/>
 			<Tq.InputGroup>
 				<Tq.InputCheckbox
 					v-model="viewport.enableOnionskin"

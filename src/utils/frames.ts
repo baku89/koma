@@ -100,3 +100,55 @@ export function trimTrailingEmptyKomas<S>(komas: KomaLike<S>[]): number {
 	}
 	return dropped
 }
+
+//------------------------------------------------------------------------------
+// Holds (Dragonframe-style): a shot with `hold: n` (n ≥ 2) stays on screen for
+// the n frames from its own, as long as those cells on its layer are empty —
+// a shot placed inside the span ends it there. Only the origin cell holds the
+// shot object; the continuation cells stay null in storage, so every consumer
+// that wants "what is on this frame" goes through resolveShotAt / the project
+// store's shot(), and everything keyed by storage (save, reconcile, the trash
+// ledger, insert / delete) keeps seeing one shot in one cell.
+
+export interface Holdable {
+	hold?: number
+}
+
+/** The frames a shot stays on screen for: its `hold`, at least 1. */
+export function holdOf(shot: Holdable | null | undefined): number {
+	const h = shot?.hold
+	return Number.isFinite(h) && (h as number) >= 1 ? Math.floor(h as number) : 1
+}
+
+/**
+ * The shot shown at `frame` on `layer`: the cell's own, or the nearest earlier
+ * shot on the layer whose hold reaches this frame. `frame` in the result is
+ * where that shot is stored; `held` is true for a continuation frame.
+ */
+export function resolveShotAt<S extends Holdable>(
+	komas: KomaLike<S>[],
+	frame: number,
+	layer: number
+): {shot: S; frame: number; held: boolean} | null {
+	if (frame < 0) return null
+	const own = shotAt(komas, frame, layer)
+	if (own) return {shot: own, frame, held: false}
+	for (let f = Math.min(frame, komas.length) - 1; f >= 0; f--) {
+		const s = shotAt(komas, f, layer)
+		if (!s) continue
+		return f + holdOf(s) > frame ? {shot: s, frame: f, held: true} : null
+	}
+	return null
+}
+
+/**
+ * The last frame a shot stored at `frame` is shown on: its hold, clipped by
+ * the next shot on the layer.
+ */
+export function holdEnd<S extends Holdable>(komas: KomaLike<S>[], frame: number, layer: number): number {
+	const s = shotAt(komas, frame, layer)
+	if (!s) return frame
+	const end = frame + holdOf(s) - 1
+	for (let f = frame + 1; f <= end; f++) if (shotAt(komas, f, layer)) return f - 1
+	return end
+}

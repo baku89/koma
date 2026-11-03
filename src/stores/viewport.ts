@@ -8,6 +8,7 @@ import {computed, readonly, ref, shallowRef, watch} from 'vue'
 import {
 	frameAssetPath,
 	getObjectURL,
+	holdEnd,
 	imageSignature,
 	playSound,
 	reencodeImage,
@@ -88,9 +89,19 @@ export const useViewportStore = defineStore('viewport', () => {
 		registerShotSelection()
 	}
 
-	/** Step to the previous/next *visible* layer in display order. */
+	// The selected layer's row is gone (hidden, or another preset): follow to
+	// the capture layer, whose row always exists, so keys don't act on a cell
+	// nobody can see.
+	watch(
+		() => project.timelineLayerIndices.includes(currentLayer.value),
+		onTimeline => {
+			if (!onTimeline) setCurrentLayer(project.captureShot.layer)
+		}
+	)
+
+	/** Step to the previous/next row of the timeline. */
 	function stepLayer(delta: 1 | -1) {
-		const vis = project.visibleLayerIndices
+		const vis = project.timelineLayerIndices
 		if (vis.length === 0) return
 		const pos = vis.indexOf(currentLayer.value)
 		const next = pos === -1 ? vis[0] : vis[clamp(pos + delta, 0, vis.length - 1)]
@@ -158,8 +169,14 @@ export const useViewportStore = defineStore('viewport', () => {
 	function deleteShot() {
 		const r = framesToEdit()
 		if (!r) return
-		const [from, to] = r
+		const [from, last] = r
 		const layer = currentLayer.value
+		// A shot stored in the range takes its held frames with it; a held
+		// continuation frame in the range just shortens its hold (deleteFrames).
+		let to = last
+		for (let f = from; f <= last; f++) {
+			if (project.cellShot(f, layer)) to = Math.max(to, holdEnd(project.komas, f, layer))
+		}
 		const moving = shotsAtOrAfter(project.komas, to + 1, layer)
 		if (moving > 0) {
 			const name = project.layer(layer).name
@@ -186,6 +203,9 @@ export const useViewportStore = defineStore('viewport', () => {
 		const [from, to] = r
 		const layer = currentLayer.value
 		project.$patch(draft => {
+			// A hold reaching into the range ends just before it.
+			const held = project.shotOrigin(from, layer)
+			if (held?.held) held.shot.hold = from - held.frame > 1 ? from - held.frame : undefined
 			for (let f = from; f <= to; f++) {
 				const shots = draft.komas[f]?.shots
 				if (shots && shots[layer]) shots[layer] = null
@@ -193,6 +213,56 @@ export const useViewportStore = defineStore('viewport', () => {
 		})
 		setCurrentFrame(from)
 		playSound('sound/Hit08-1.mp3')
+	}
+
+	// Hold (Dragonframe): keep the selected shot on screen for more / fewer
+	// frames. Growing moves whatever follows on the layer (like Insert), so ask
+	// when that renames files; shrinking is like Delete. Acts on the shot shown
+	// at the cursor — a held continuation frame counts as its origin.
+	function changeHold(delta: number) {
+		const frame = currentFrame.value
+		const layer = currentLayer.value
+		const origin = project.shotOrigin(frame, layer)
+		if (!origin) return
+		const current = holdEnd(project.komas, origin.frame, layer) - origin.frame + 1
+		setHoldTo(origin.frame, layer, current + delta)
+	}
+
+	function promptHold() {
+		const frame = currentFrame.value
+		const layer = currentLayer.value
+		const origin = project.shotOrigin(frame, layer)
+		if (!origin) return
+		const current = holdEnd(project.komas, origin.frame, layer) - origin.frame + 1
+		const answer = prompt(`Hold #${origin.frame} for how many frames?`, String(current))
+		if (answer === null) return
+		const hold = Number(answer)
+		if (!Number.isFinite(hold) || hold < 1) return
+		setHoldTo(origin.frame, layer, Math.floor(hold))
+	}
+
+	function setHoldTo(originFrame: number, layer: number, hold: number) {
+		const current = holdEnd(project.komas, originFrame, layer) - originFrame + 1
+		if (hold < 1 || hold === current) return
+		const moving =
+			hold > current ? shotsAtOrAfter(project.komas, originFrame + current, layer) : 0
+		if (moving > 0) {
+			const name = project.layer(layer).name
+			const what = moving === 1 ? '1 shot' : `${moving} shots`
+			if (
+				!confirm(
+					`Hold #${originFrame} on "${name}" for ${hold} frames?\n\n${what} after it move later on this layer (their files are renamed on the next save).`
+				)
+			) {
+				return
+			}
+		}
+		project.setHold(originFrame, layer, hold)
+		// Keep the cursor on the held shot's last frame when it grew, so
+		// repeated ] / [ read as stretching its end.
+		const end = holdEnd(project.komas, originFrame, layer)
+		if (currentFrame.value > end || hold > current) setCurrentFrame(end)
+		selectShot()
 	}
 
 	// In-app clipboard for a copied shot, matched to the system clipboard by a
@@ -283,7 +353,7 @@ export const useViewportStore = defineStore('viewport', () => {
 		const layer = currentLayer.value
 
 		const jpeg = await reencodeImage(blob, 'image/jpeg')
-		const lvBlob = await resizeBlobImage(jpeg, project.resolution, 'cover')
+		const lvBlob = await resizeBlobImage(jpeg, project.resolution, 'contain')
 
 		const jpg = registerCapturedAsset(
 			jpeg,
@@ -494,5 +564,8 @@ export const useViewportStore = defineStore('viewport', () => {
 		popup,
 		onionskin,
 		selectShot,
+		changeHold,
+		promptHold,
+		setHoldTo,
 	}
 })

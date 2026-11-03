@@ -5,9 +5,12 @@ import {useTweeq} from 'tweeq'
 import {computed, ref, shallowRef, watch} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
+import {usePreviewOverlaysStore} from '@/stores/previewOverlays'
 import {useProjectStore} from '@/stores/project'
 import {useShootAlertsStore} from '@/stores/shootAlerts'
+import {useTimelineStore} from '@/stores/timeline'
 import {useViewportStore} from '@/stores/viewport'
+import {usePreviewDrawing} from '@/use/usePreviewDrawing'
 import {useZUI} from '@/use/useZUI'
 import {Rect} from '@/utils/Rect'
 
@@ -19,6 +22,8 @@ const project = useProjectStore()
 const camera = useCameraStore()
 const viewport = useViewportStore()
 const shootAlerts = useShootAlertsStore()
+const previewOverlays = usePreviewOverlaysStore()
+const timeline = useTimelineStore()
 
 // Two top-right overlay panes (viewport settings / shoot alerts). Settings is
 // an ordinary hover pane. Alerts are persistent: shown by default whenever any
@@ -92,6 +97,9 @@ useZUI($wrapper, delta => {
 	project.viewport.transform = mat2d.mul(delta, transform.value)
 })
 
+const $frame = shallowRef<HTMLElement | null>(null)
+const drawing = usePreviewDrawing($frame)
+
 Tq.actions.register([
 	{
 		id: 'viewport',
@@ -141,7 +149,7 @@ async function onDblclick(e: MouseEvent) {
 		ref="$wrapper"
 		:style="{'--tint': 'red'}"
 	>
-		<div class="frame" :style="frameStyles" @click="onDblclick">
+		<div ref="$frame" class="frame" :style="frameStyles" @click="onDblclick">
 			<!--
 				Static render (paused / scrubbing): full DOM path with onionskin,
 				live view, layers and tint. Hidden while playing, and its frame is
@@ -182,7 +190,40 @@ async function onDblclick(e: MouseEvent) {
 				preserveAspectRatio="none"
 				v-html="project.viewport.overlay"
 			/>
+			<!-- Overlays other parts of the app put up (stores/previewOverlays.ts) -->
+			<svg
+				v-for="(svg, i) in previewOverlays.overlays"
+				:key="i"
+				class="view-overlay"
+				viewBox="0 0 1 1"
+				preserveAspectRatio="none"
+				v-html="svg"
+			/>
+			<svg
+				class="drawing"
+				:viewBox="`0 0 ${project.resolution[0]} ${project.resolution[1]}`"
+				:stroke-width="2 / transform[0]"
+			>
+				<path
+					v-for="(stroke, i) in drawing.strokes.value"
+					:key="i"
+					:d="stroke.d"
+					:stroke="stroke.color"
+				/>
+				<path
+					v-if="drawing.liveStroke.value !== null"
+					:d="drawing.liveStroke.value"
+					:stroke="timeline.toolOptions.color"
+				/>
+			</svg>
 		</div>
+		<!-- Above the frame, so a stroke doesn't also click it (= autofocus). -->
+		<div
+			v-if="drawing.tool.value"
+			class="drawing-input"
+			:class="drawing.tool.value"
+			@pointerdown="drawing.onPointerDown"
+		/>
 		<div v-if="viewport.popup?.type === 'progress'" class="popupProgress">
 			<div
 				class="progress"
@@ -313,6 +354,28 @@ async function onDblclick(e: MouseEvent) {
 		stroke none
 		fill var(--tq-color-background)
 		opacity 0.7
+
+// On top of the dimming outline of .frame:before too.
+.drawing
+	position absolute
+	inset 0
+	width 100%
+	height 100%
+	pointer-events none
+	z-index 11
+	fill none
+	stroke-linecap round
+	stroke-linejoin round
+
+.drawing-input
+	position absolute
+	inset 0
+
+	&.pencil
+		cursor crosshair
+
+	&.eraser
+		cursor pointer
 
 .popupProgress
 	left 50%

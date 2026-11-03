@@ -25,6 +25,9 @@ export const useTimelineStore = defineStore('timeline', () => {
 		color: 'skyblue',
 	})
 
+	/** Width of the layer names column, in px (per machine, like the panes). */
+	const layerColumnWidth = Tq.config.ref('timeline.layerColumnWidth', 160)
+
 	const frameWidthBase = ref(60)
 	const komaAspect = ref(3 / 2)
 
@@ -105,6 +108,7 @@ export const useTimelineStore = defineStore('timeline', () => {
 	])
 
 	return {
+		layerColumnWidth,
 		currentTool,
 		toolOptions,
 		frameWidth,
