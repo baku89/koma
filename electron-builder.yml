@@ -13,7 +13,8 @@ npmRebuild: false
 asar: true
 mac:
   category: public.app-category.photography
-  icon: public/icon.png
+  # Icon Composer asset: actool (Xcode 26+) compiles it to Assets.car + icon.icns.
+  icon: electron/Koma.icon
   identity: null
   target:
     - dir
