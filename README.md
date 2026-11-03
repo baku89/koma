@@ -38,12 +38,20 @@ The terms used in the code and documentation.
 
 - Sound Effects by [OtoLogic](https://otologic.jp/free/license.html) ([CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/))
 
-## Run Aux-Manager
+## Aux (and the MCP server)
 
-Aux-Manager keeps the macOS `ptpcamera` daemon from claiming the camera (so
-Tethr can open it over WebUSB) and bridges OSC between the app (WebSocket,
-port 8080) and UDP (in 5200 / out 5201).
+`yarn dev` starts the Vite dev server together with koma's local helper, in
+one terminal UI: it keeps the macOS `ptpcamera` daemon from claiming the
+camera (so Tethr can open it over WebUSB), bridges OSC between the app
+(WebSocket, port 8080) and UDP (in 5200 / out 5201), and hosts the MCP
+server (`http://127.0.0.1:8090/mcp`) through which Claude Code and scripts
+read and edit the project open in koma. `yarn aux` runs the helper alone;
+the desktop app (`yarn app`) has it built in.
 
 ```bash
-yarn aux
+yarn dev        # vite + aux
+yarn aux        # aux only
 ```
+
+The repo's `.mcp.json` points Claude Code at the server; open koma and the
+tools (`get_project`, `set_plan`, `apply_patch`, …) appear.
