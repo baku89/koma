@@ -62,3 +62,8 @@
 - aux の状態（OSC / MCP のポートが取れたか）は `window.koma.auxStatus()` で読めるだけで UI に出していない（`yarn dev` と同時に動かすとそちらに譲る）。
 - Chromium の CSP 警告（dev 起動時のみ）。アイコンは `public/icon.png` を流用、署名・notarize 無し（配布するなら要対応）。
 - 展示画面（exhibit.html / jog.html）はアプリに入れていない（relay が配る dist を使う）。
+
+## Lumix S9 を koma で使う
+
+- **koma の画面から実機で確認する**（接続、ライブビュー、撮影）。Tethr 単体と docs でしか試していない。
+- **フォーカスの操作を付ける**: Camera Control に `focusMode`（AF-S のままだとピントが合わないコマで撮れない）と、`runManualFocus` の相対送りのボタン。S9 は `focusDistance` が無いので、今の koma からはピントを動かせない（`App.vue` のキーも Plan / Lens も `focusDistance` 前提）。

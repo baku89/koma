@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import {mat4, quat, vec2, vec3} from 'linearly'
 import {identity} from 'lodash-es'
-import {ShutterSpeed} from 'tethr'
 import {Euler, Quaternion} from 'three'
 import {computed} from 'vue'
 
 import {useCameraStore} from '@/stores/camera'
 import {type Koma, useProjectStore} from '@/stores/project'
 import {useTrackerStore} from '@/stores/tracker'
+import {shutterSpeedToSeconds} from '@/utils/shutterSpeed'
 
 import LineGraph from '../LineGraph.vue'
 
@@ -247,16 +247,6 @@ function useGraphPoints<T>({
 
 function isPropertyVisible(name: string) {
 	return project.visibleProperties[name]?.visible ?? false
-}
-
-function shutterSpeedToSeconds(ss?: ShutterSpeed | null) {
-	if (typeof ss !== 'string') {
-		return null
-	} else if (ss.startsWith('1/')) {
-		return 1 / parseInt(ss.slice(2))
-	} else {
-		return /^[0-9]+$/.test(ss) ? parseInt(ss) : null
-	}
 }
 
 function invLog(v: number) {

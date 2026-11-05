@@ -385,6 +385,13 @@ const {fn: shoot} = preventConcurrentExecution(
 
 		const {tethr} = camera
 
+		const onProgress = ({progress}: {progress: number}) => {
+			viewport.popup = {
+				type: 'progress',
+				progress: scalar.lerp(0.1, 1, progress),
+			}
+		}
+
 		try {
 			viewport.popup = {
 				type: 'progress',
@@ -420,12 +427,6 @@ const {fn: shoot} = preventConcurrentExecution(
 				progress: 0.1,
 			}
 
-			const onProgress = ({progress}: {progress: number}) => {
-				viewport.popup = {
-					type: 'progress',
-					progress: scalar.lerp(0.1, 1, progress),
-				}
-			}
 			tethr.on('progress', onProgress)
 
 			// Run the pre-shoot script and wait for the Promise it returns, then
@@ -443,28 +444,36 @@ const {fn: shoot} = preventConcurrentExecution(
 
 			const result = await tethr.takePhoto()
 
-			tethr.off('progress', onProgress)
+			if (result.status !== 'ok') {
+				await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+				speak('The camera did not shoot')
+				throw new Error(result.message ?? `The camera did not shoot: ${result.status}`)
+			}
 
 			let jpg: Blob | undefined
 			let raw: Blob | undefined
 			let jpgFilename: string | undefined
 			let rawFilename: string | undefined
 
-			if (result.status === 'ok') {
-				for (const object of result.value) {
-					const format = String(object.format)
+			for (const object of result.value) {
+				const format = String(object.format)
 
-					if (/jpe?g/.test(format)) {
-						jpg = object.blob
-						jpgFilename = object.filename
-					} else {
-						raw = object.blob
-						rawFilename = object.filename
-					}
+				if (/jpe?g/.test(format)) {
+					jpg = object.blob
+					jpgFilename = object.filename
+				} else {
+					raw = object.blob
+					rawFilename = object.filename
 				}
 			}
 
-			if (!jpg) throw new Error('No JPEG image found')
+			if (!jpg) {
+				await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+				speak('The camera sent no JPEG')
+				throw new Error(
+					'The camera sent no JPEG. Set the image quality to one that includes JPEG.'
+				)
+			}
 
 			// A camera on its side tags the JPEG with an EXIF Orientation that
 			// browsers (the Hi-Res view, exports) apply while the lv is made from
@@ -505,6 +514,7 @@ const {fn: shoot} = preventConcurrentExecution(
 				cut: cutRecordFor(frame, layer),
 			}
 		} finally {
+			tethr.off('progress', onProgress)
 			viewport.popup = null
 		}
 	},

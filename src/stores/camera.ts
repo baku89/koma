@@ -3,6 +3,8 @@ import {defineStore} from 'pinia'
 import {Tethr, TethrDeviceType, TethrIdentifier} from 'tethr'
 import {ref, watch} from 'vue'
 
+import {debounceAsync} from '@/utils/promise'
+
 import {useProjectStore} from './project'
 
 export const useCameraStore = defineStore('camera', () => {
@@ -55,16 +57,24 @@ export const useCameraStore = defineStore('camera', () => {
 		// workaround is no longer needed.
 		await cam.importConfigs(project.cameraConfigs)
 
+		// One read at a time: a camera that reports its own changes (Panasonic)
+		// can fire several in a row, and each read asks for every config. Reads
+		// finishing out of order would keep the older values.
+		const {fn: saveConfigs} = debounceAsync(async () => {
+			try {
+				const configs = await cam.exportConfigs()
+				// Disconnected or switched while reading
+				if (tethr.value !== cam) return
+				project.cameraConfigs = {model: model ?? undefined, ...configs}
+			} catch (e) {
+				// eslint-disable-next-line no-console
+				console.warn('[camera] could not read the configs', e)
+			}
+		})
+
 		saveConfigs()
 
-		async function saveConfigs() {
-			project.cameraConfigs = {
-				model: model ?? undefined,
-				...(await cam.exportConfigs()),
-			}
-		}
-
-		cam.on('change', saveConfigs)
+		cam.on('change', () => saveConfigs())
 		;(window as any).cam = cam
 
 		await cam.startLiveview()

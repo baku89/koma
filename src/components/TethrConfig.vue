@@ -66,6 +66,13 @@ const inputAttrs = computed<InputAttrs>(() => {
 			return {
 				labelizer: (v: any) => (/^[a-z]+$/i.test(v) ? capital(v) : v),
 			}
+		case 'exposureComp':
+		case 'imageAspect':
+			// The default labelizer drops signs and colons: -2/3 and +2/3 both
+			// read "2 3", 16:9 reads "16 9".
+			return {
+				labelizer: (v: any) => String(v),
+			}
 		case 'liveviewMagnifyRatio':
 			return {
 				labelizer: (v: any) => '×' + v,
