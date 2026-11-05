@@ -42,6 +42,8 @@ interface AssetEntry {
 	url?: string
 	/** True while the file lives under `_trash/` (deleted but recoverable). */
 	trashed?: boolean
+	/** `blob`'s bytes were read back from disk at full size (assetReachedDisk). */
+	verified?: boolean
 }
 
 export const TRASH_DIR = '_trash'
@@ -233,6 +235,7 @@ export function healAssetBlob(id: string, blob: Blob) {
 	e.blob = blob
 	e.parentDir = undefined
 	e.handle = undefined
+	e.verified = false
 }
 
 //------------------------------------------------------------------------------
@@ -259,6 +262,48 @@ async function getBlob(e: AssetEntry): Promise<Blob | undefined> {
 		// File missing or its snapshot was invalidated by an external change.
 	}
 	return undefined
+}
+
+/**
+ * Whether bytes that only this session holds have really reached a file. A
+ * captured asset displays from its in-memory blob, so a working preview says
+ * nothing about the disk: this checks the file itself, at the blob's size.
+ * Assets loaded from disk hold no blob and have nothing to lose here.
+ */
+export async function assetReachedDisk(id: string): Promise<boolean> {
+	const e = entries.get(id)
+	if (!e?.blob || e.verified) return true
+	if (!e.parentDir) return false
+	try {
+		const handle = await getHandle(e)
+		if (!handle) return false
+		e.verified = (await handle.getFile()).size === e.blob.size
+		return e.verified
+	} catch {
+		return false
+	}
+}
+
+/**
+ * Write a captured asset's bytes over its file again, for a file assetReachedDisk
+ * found short or gone. A save would not: it only looks at the name, which is
+ * already right. Returns whether the file now holds them.
+ */
+export async function rewriteAssetFromMemory(id: string): Promise<boolean> {
+	const e = entries.get(id)
+	if (!e?.blob || !e.parentDir) return false
+	try {
+		const {dir, name} = await walkPath(e.parentDir, e.filename, true)
+		const handle = await dir.getFileHandle(name, {create: true})
+		const writable = await handle.createWritable()
+		await writable.write(e.blob)
+		await writable.close()
+		e.handle = handle
+		e.verified = false
+	} catch {
+		return false
+	}
+	return assetReachedDisk(id)
 }
 
 export async function resolveBlob(
@@ -345,6 +390,7 @@ async function moveEntry(
 		await writable.write(e.blob)
 		await writable.close()
 		e.handle = h
+		e.verified = false
 		if (e.transient) e.blob = undefined
 	} else {
 		return // no bytes anywhere — nothing to persist
@@ -474,13 +520,13 @@ export async function reconcileAssets(
 	}
 
 	// 2. Rename live assets to their sequential paths.
-	const dirty: {e: AssetEntry; name: string}[] = []
+	const dirty: {e: AssetEntry; name: string; inDir: boolean}[] = []
 	for (const {id, name} of desired) {
 		const e = entries.get(id)
 		if (!e) continue
 		const inDir = !e.trashed && (await sameDir(e.parentDir, dir))
 		if (inDir && e.filename === name) continue
-		dirty.push({e, name})
+		dirty.push({e, name, inDir})
 	}
 
 	// Rename one at a time, always picking an asset whose target path is currently
@@ -490,7 +536,11 @@ export async function reconcileAssets(
 	// folder — where move() falls back to copy+delete — meant a swarm of `_tmp_#`
 	// swap files and two byte-copies per file.
 	const remaining = dirty.map(d => ({e: d.e, target: d.name, from: d.e.filename}))
-	const occupied = new Set(remaining.map(p => p.from))
+	// Only a file already in this folder holds its name. A captured asset's
+	// filename is where it is going, not where it is: counting it would make it
+	// block itself and take the cycle path, writing every new frame to a temp in
+	// the project root and copying it again into its layer folder.
+	const occupied = new Set(dirty.filter(d => d.inDir).map(d => d.e.filename))
 	let tempCounter = 0
 
 	while (remaining.length > 0) {

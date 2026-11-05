@@ -21,6 +21,7 @@ import {
 	type ShotMachineData,
 } from '@/addsub/projectData'
 import {
+	assetReachedDisk,
 	assignReactive,
 	basenameOf,
 	clearAssets,
@@ -49,6 +50,7 @@ import {
 	resizeBlobImage,
 	resolveBlob,
 	resolveShotAt,
+	rewriteAssetFromMemory,
 	sameDirName,
 	saveJson,
 	showReadwriteDirectoryPicker,
@@ -1110,16 +1112,37 @@ export const useProjectStore = defineStore('project', () => {
 		data: unknown
 	}>()
 
+	/**
+	 * Why the last save failed, or null. Captured frames display from memory, so
+	 * without this a project that cannot write looks perfectly healthy until the
+	 * page reloads and every frame since the last good save is gone.
+	 */
+	const saveError = ref<string | null>(null)
+	let saveRetryTimer: ReturnType<typeof setTimeout> | undefined
+
 	const {fn: save, isExecuting: isSaving} = debounceAsync(
 		async () => {
 			if (isOpening.value) return
 
-			if (!directoryHandle.value) {
-				throw new Error('No directory is specified')
+			let data: Awaited<ReturnType<typeof saveProject>>
+			let dir: FileSystemDirectoryHandle
+			try {
+				if (!directoryHandle.value) {
+					throw new Error('No directory is specified')
+				}
+				dir = directoryHandle.value
+				data = await saveProject(dir, toRaw(project))
+				saveError.value = null
+			} catch (e) {
+				// eslint-disable-next-line no-console
+				console.error('[project] save failed', e)
+				saveError.value = e instanceof Error ? `${e.name}: ${e.message}` : String(e)
+				// No further edit may come to trigger the next attempt.
+				clearTimeout(saveRetryTimer)
+				saveRetryTimer = setTimeout(() => requestAutoSave(), 5000)
+				throw e
 			}
-
-			const data = await saveProject(directoryHandle.value, toRaw(project))
-			savedHook.trigger({dir: directoryHandle.value, project: toRaw(project), data})
+			savedHook.trigger({dir, project: toRaw(project), data})
 		},
 		{
 			// Fires only once the whole (possibly re-queued) save chain settles, so
@@ -1150,7 +1173,8 @@ export const useProjectStore = defineStore('project', () => {
 			if (!hasContent(project)) return
 			await materializeEphemeral()
 		}
-		save()
+		// A failure is recorded in saveError and retried by save itself.
+		save().catch(() => undefined)
 	}, 500)
 
 	/**
@@ -1162,6 +1186,52 @@ export const useProjectStore = defineStore('project', () => {
 	async function flushSave() {
 		await requestAutoSave.flush()
 		await until(isSaving).toBe(false)
+	}
+
+	/**
+	 * Save now, past the autosave debounce and suspension, and read back that
+	 * every frame captured so far is on disk. Throws if not: the shutter must not
+	 * fire while what it already took exists only in this tab's memory.
+	 */
+	async function ensureShotsOnDisk(timeoutMs = 120_000) {
+		if (isOpening.value) throw new Error('The project is still opening')
+		if (!projectLoaded) throw new Error('No project is open')
+		if (ephemeral) {
+			if (!hasContent(project)) return
+			await materializeEphemeral()
+		}
+		if (directoryHandle.value) await queryPermission(directoryHandle.value)
+
+		requestAutoSave.cancel()
+		const settled = () =>
+			until(isSaving).toBe(false, {timeout: timeoutMs, throwOnTimeout: true})
+		await settled().catch(() => {
+			throw new Error(`A save has not finished after ${timeoutMs / 1000} s`)
+		})
+		await save()
+		await settled().catch(() => {
+			throw new Error(`A save has not finished after ${timeoutMs / 1000} s`)
+		})
+		if (saveError.value) throw new Error(saveError.value)
+
+		const ids: (string | undefined)[] = []
+		const add = (shot: Shot | null | undefined) => {
+			if (shot) ids.push(shot.lv, shot.jpg, shot.raw)
+		}
+		for (const koma of project.komas) {
+			koma?.shots.forEach(add)
+			koma?.backupShots?.forEach(add)
+		}
+		for (const {shot} of project.trash) add(shot)
+
+		let missing = 0
+		for (const id of ids) {
+			if (!id || (await assetReachedDisk(id))) continue
+			if (!(await rewriteAssetFromMemory(id))) missing++
+		}
+		if (missing > 0) {
+			throw new Error(`${missing} captured file(s) did not reach the project folder`)
+		}
 	}
 
 	// Same trick as undoableData: while a burst is in progress the source
@@ -2109,7 +2179,9 @@ export const useProjectStore = defineStore('project', () => {
 		isOpening,
 		isSaving,
 		dirty,
+		saveError,
 		flushSave,
+		ensureShotsOnDisk,
 		onSaved: savedHook.on,
 		isSavedToDisk,
 		beginInteraction,

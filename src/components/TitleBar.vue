@@ -91,6 +91,9 @@ async function onCutClick() {
 // disk (opening / saving=re-sequencing / unsaved edits), otherwise the
 // destination icon (local disk vs in-app OPFS).
 const saveStatus = computed(() => {
+	if (project.saveError) {
+		return {icon: 'mdi:alert', content: `Save failed: ${project.saveError}`}
+	}
 	if (project.isOpening) {
 		return {icon: 'eos-icons:bubble-loading', content: 'Opening…'}
 	}
@@ -115,6 +118,7 @@ const saveStatus = computed(() => {
 				:icon="saveStatus.icon"
 				inline
 			/>
+			<span v-if="project.saveError" class="save-error">Not saved</span>
 			<Tq.InputButton
 				v-tooltip="'Project Settings'"
 				icon="mdi:gear"
@@ -282,6 +286,11 @@ const saveStatus = computed(() => {
 	&.active
 		--tq-color-input var(--tq-color-rec)
 		--tq-color-input-hover var(--tq-color-rec)
+
+.save-error
+	margin-left var(--tq-gap-control, 4px)
+	color var(--tq-color-error, #e5484d)
+	font-weight bold
 
 .project-name
 	display flex

@@ -78,6 +78,32 @@ koma（ストップモーション撮影アプリ）のプロジェクト知識�
 
 **DeviceBusy は現実:** PTP バス（単一スロット）混雑時にカメラは書き込みを落とす。`setCamData` は 10×25ms リトライ。importConfigs は per-write sweep を抑制 + 各 config を verify/retry（以前は busy を 'ok' として握りつぶしていた）。
 
+### Lumix S9（2026-11-04、`TethrPanasonic`）
+DC-S9（`04da:2382`、S5 と同じ PID、ファーム 1.9）を実機で確認。確認済み: 全設定の往復（シャッター 59 値、ISO、絞り、露出補正、WB 15 値、アスペクト、画質、フォトスタイル）、ライブビュー（約 30 fps、640 / 960 / 1280）、AF、MF の相対送り、JPEG + RAW のダウンロード（32 MB で 8 秒）。**koma の画面からの接続は未確認。**
+
+- **`usb.reset()` で USB から切断→約 2 秒後に再接続**するので、Panasonic だけ `open()` の reset を飛ばす（`connect` イベント経由で繰り返す恐れがあった）。`0x66` と clearHalt はそのまま。
+- **イベントは v0.6.4（`881329b`）から全機種で届いていなかった**: `open()` が `#opened = true` の前に `#listenInterruptIn()` を呼び、先頭のガードで即終了していた。今は Panasonic だけ有効。fp で有効にすると `DevicePropChanged` ごとの読み直しでバスが混むので、実機で試してから広げる（EOS は GetEvent のポーリングが主なので影響は小さいはず、未確認）。
+- **S9 はまれに（30 トランザクションに 1 回程度）応答を保留し、次のコマンドが来るまで返さない**。割り込みを読むかどうか、`C107` に応えるかどうかとは無関係（実測）。Tethr のキューは完了まで次を送らないのでデッドロックになり、10 秒ごとの timeout が続く。`nudgeAfterMs`（1.5 秒）で無害な OpenSession を送って解消する。**長い転送には付けない**（オブジェクトのダウンロード）。
+- **AF-S でピントが合わないと、撮影コマンドは OK を返すのにシャッターが切れない**（`C108` が来ない、ファイルも増えない）。`takePhoto` は 10 秒 + 露光時間で `general error` を返す。コマ撮りでは MF にする。
+- **ドライブモードが連写（`0x2000081` = 1）だと 1 回の指示で 2 枚撮れる**。`0` なら 1 枚。Tethr には設定を置いていない。
+- 画質コードは S9 では 0 / 1 / 3 / 4 / 5 = fine / standard / raw / raw,fine / raw,standard（撮影して確認）。既存の表（2 / 3 / 4）とずれているので `model === 'DC-S9'` のときだけ差し替え。S5 / G9M2 の表は未確認。
+- `focusMode` を追加（`0x2000071`: 3 = MF、4 = AF-S、5 = AF-C）。MF 駆動は MF モードでだけ受け付ける。**フォーカスは相対送りのみ**（`0x12010040` は常に 65535）で `focusDistance` は無い = レンズ表の Distance / Target モードは使えない。
+- 他の修正: `close()` が `super.open()` を呼んでいた、分数のシャッター（1/1.3 など）が `parseInt` で丸められていた、`0xfffffffe` = bulb、WB の 0x800b–e（プリセット 1–4）、`setLiveviewSize` の `map(parseInt)`、拒否された設定は例外でなく `invalid parameter`（`0x201d` は一度だけ再試行）、ライブビュー中に空データが返る desc は読み直す。
+- **資料**: 公式の [LUMIX SDK](https://av.jpn.support.panasonic.com/support/global/cs/soft/tool/sdk.html) は Windows 専用のベータ（DLL + ヘッダ、S9 は Beta 1.00 の対象、ダウンロードに機体のコードと利用許諾の同意が要る）で未入手。PTP の仕様は libgphoto2 の `camlibs/ptp2`（`ptp.h` / `config.c` / `library.c`）から。撮影先は `0x940A` / `0x940B`（0 = SD、1 = RAM、2 = 両方、`0x08000090` で読む）で Tethr には未実装。
+
+### Tethr の自動テスト（2026-11-04）
+`cd dev_modules/tethr && npm test`（vitest、ハード不要、2 秒）。koma の `yarn test` には含まれない。`src/test/fixtures/panasonicS9.json` は実機の S9 から読んだ生データ（シリアルは 0 に置換）で、`fakeS9.ts` が「リストに無い値は拒否」も含めて再生する。`PTPDevice.test.ts` は偽の `USBDevice`（応答の保留を再現）。テストは Panasonic と `PTPDevice`、機種判定だけで、Sigma / Canon / Theta のプロトコルと、ライブビューの画像取得（canvas が要る）は無い。`IFD.ts` が import 時に `window` に書くので、Node では `src/test/setup.ts` で stub している。
+
+### Tethr の docs: Studio と Camera Check（2026-11-04）
+`dev_modules/tethr/doc`（VuePress）。`npm run dev --w doc -- --port 5570` などで起動（8080 は aux と競合）。
+
+- **Studio（`/studio`、`components/Studio.vue`）**: koma からタイムラインを抜いたサンプルアプリ。Tweeq の `App` / `TitleBar` / `PaneSplit` / `PaneZUI`、ライブビュー、撮影、オニオンスキン、コンタクトシート、フォルダ保存、ショートカット（Enter / L / F / O / Esc）。`PaneZUI` の中身はサイズを持たないので `@update:size` で与える。
+- **Camera Check（`/report`、`components/CameraReport.vue`）**: 接続しただけでは何も動かさない（以前は自動で撮影していた）。項目を選んで実行。本体は UI と分けた `report/runChecks.ts`（設定は最大 12 値を書いて読み戻し、元に戻す。`focusDistance` / `focalLength` / `destinationToSave` は書かない。レンズの段に丸められた値は成功扱い）と `report/reportFile.ts`（ホワイトリストで組み立てるのでシリアルやファイル名は載らない）。
+- **PR リンク**: `github.com/baku89/tethr/new/main?filename=&value=&message=&description=`（新規ファイル画面に流し込む。push 権限が無ければ fork 経由の PR になる）。**GitHub の URL は 4,000 文字は通るが 7,000 で 500**、なので `MaxUrlLength` は 4000、超えたら値を入れずクリップボードへ。S9 の全項目で約 2,400 文字。集まったレポートは `doc/reports/*.yaml` で、ページ下部の一覧になる。
+- テストは `cd dev_modules/tethr && npm test`（core + doc）。doc のテストは本物の `TethrPanasonic` + S9 の偽カメラで `runChecks` を回す。
+- **`linearly` を 0.21 → 0.33 に更新**（Tweeq に揃えた。古いままだと `PaneZUI` の `mat2d.inv` が無い）。Sigma が使う関数は新旧で結果が同じことを確認済み。**`TethrSigma` の `import {TethrPTPUSB} from '.'` は循環参照だったので `'./TethrPTPUSB'` に直した。** `TethrManager` はペア済みの機器をピッカーで選び直しても開き直さない（2 つの `PTPDevice` が同じエンドポイントを読み合っていた）。
+- **未解決**: S9 の `getStorages` は `0x2008`（ID が `0x10000`）。MF でライブビュー中の撮影が 1 度だけ `No image arrived` で失敗した（原因不明、以後再現せず）。Create Pull Request のリンクは未ログインの GitHub で 302 まで（ログイン後の画面は未確認）。
+
 ### WebUSB PTP リロード復帰（2026-06-27, tethr `dd2081b` / koma `d90fe21`）
 Sigma fp 接続中に koma ページをリロードすると再接続不能（connect が `transferOut ... A transfer error has occurred` で throw）だった問題。
 
@@ -96,6 +122,8 @@ NB: macOS `ptpcamera` デーモンの claim 競合（症状は `claimInterface` 
 
 ## アセット保存（lazy-resolve モデル, 2026-06-26）
 OPFS ハードコピー方式を lazy-resolve に置換（Phase 1+2 実装、実機 smoke test 済 2026-06-26、delete→undo 画像復元も確認）。
+
+**撮影前の保存確認（2026-11-05）:** 撮ったコマはメモリの blob から表示するので、プレビューが動いていてもディスクにあるとは限らない。nn_mp で 212 コマが `Main/` に届かないまま再読み込みで失われた（原因は未特定。実データのシミュレーションでは保存できたので実行時の失敗）。そこで `shoot()` はシャッターの前に `project.ensureShotsOnDisk()` を通す: debounce と autosave の一時停止を越えて保存し、撮影済みの全コマを `assetReachedDisk`（ファイルを読み、blob とサイズ比較）で確かめ、短いか無いファイルは `rewriteAssetFromMemory` で書き直し、それでも駄目ならシャッターを切らない。保存の失敗は `project.saveError` に入り、alert と読み上げ、タイトルバーの "Not saved" で知らせ、5 秒ごとに再試行する。あわせて、撮りたてのコマが自分のファイル名を「使用中」と数えて `_tmp_N` 経由で 2 回書かれていたのを直した（`reconcileAssets` の `occupied` はフォルダに実在するファイルだけ）。
 
 **Insert / Delete はレイヤー単位、Shift+クリックで範囲選択（2026-10-16 夕方）:** セルの「Insert」ボタンはそのセルの**レイヤーだけ**にコマを開ける（そのレイヤーのそれ以降のショットが 1 つ後ろへ。後ろへ動くショットがあるときだけ `confirm`。末尾への挿入は確認なし）。Delete キー / 右クリックの削除は選択範囲のショットを外して**そのレイヤーだけ**詰める。以前の「全レイヤーが空になったコマは消す」（他レイヤーに波及する）は廃止、代わりに末尾の完全に空のコマだけ切り詰める（`trimTrailingEmptyKomas`）。他レイヤー・`addsub.plan` / `cuts` / `_trash` の記録（コマ番号キー）は動かさない（ユーザー指定: plan / G-code はコマ番号に紐づけたまま）。撮影カーソルは同じレイヤーで後ろにあるときだけ追従。純関数は `src/utils/frames.ts`（vitest）、ストアは `project.insertFrames` / `project.deleteFrames`。**範囲選択**は `viewport.selectionAnchor` + `currentFrame`（`selectedRange` / `isFrameSelected` / `extendSelection`）。同じレイヤー上の Shift+クリックで伸ばす、別レイヤーならそのセルだけ。Delete / 右クリックの Clear は範囲に効く、Copy は現在コマ 1 つだけ（未対応）。**落とし穴**: Timeline の `pointerdown` は `appSelection.reserveUnselect` で選択解除を予約し（`setTimeout(0)`）、同じ tick の `select()` だけが取り消す → 選択を伸ばす経路でも `appSelection.select` を呼び直す（`registerShotSelection`）。呼ばないと Delete キーで選択だけ消えてショットが消えない。**さらに、本物のマウスでは pointerdown と click が別タスクなので、click の時点で予約した解除が既に走っていて `viewport.isShotSelected` は false になっている** → Shift+クリックの判定を `isShotSelected` に掛けると実機では一度も効かない（Playwright の `click()` は 1 タスク内で発火するので再現しなかった。2026-10-16 夜に発覚）。判定はカーソル（`currentLayer` が同じか）だけで行い、`extendSelection` は無条件に anchor（無ければ `currentFrame`）から伸ばして再登録する。Playwright で確かめるときは `mouse.down()` → 90 ms 待ち → `mouse.up()` のように分けて押す。**Delete の確認ダイアログ**: 範囲より後ろにそのレイヤーのショットがあれば（= 詰めると動く = 次の保存でファイルが付け替わる）`confirm`（「N shots after it move earlier… Use Cut (⌘X) to blank the cells without moving anything」）。レイヤー末尾の削除は確認なし。**性能**: `insertFrames` / `deleteFrames` は `beginInteraction` / `endInteraction` で括る（コマごとの反応的な書き込みで autosave と history の deep watcher がタイムライン全体を毎回走査し、197 コマ × 20 レイヤーで Delete 1 回に数秒かかっていた。`frames.ts` の `setShotAt` も変化の無い書き込みと null のための配列拡張をしない）。括った後は 200 × 20 で store 4 ms・描画まで 35 ms。確認は Playwright（偽ショット、Shift+クリック → Delete で 3 コマがそのレイヤーだけ詰まる、B の Insert で Main 不変、撮影スロット上の Delete は前のコマ、Undo で戻る）。
 

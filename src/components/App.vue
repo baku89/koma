@@ -154,6 +154,19 @@ useEventListener(window, 'beforeunload', (e: BeforeUnloadEvent) => {
 	}
 })
 
+// Frames display from memory, so a failing save is invisible unless said aloud.
+watch(
+	() => project.saveError,
+	(error, previous) => {
+		if (!error || previous) return
+		void playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+		speak('Saving failed')
+		alert(
+			`Koma cannot save this project. Frames shot since the last save exist only in memory: do not reload or close this window.\n\n${error}`
+		)
+	}
+)
+
 // Desktop build: menu items run app commands by id.
 native?.onCommand(id => Tq.actions.perform(id))
 
@@ -355,6 +368,19 @@ const {fn: shoot} = preventConcurrentExecution(
 			speak('No camera is connected')
 
 			throw new Error('No camera is coonnected')
+		}
+
+		// The previous frames must be on disk before this one is taken.
+		try {
+			await project.ensureShotsOnDisk()
+		} catch (e) {
+			await playSound('sound/Onoma-Negative07-4(Low-Short).mp3')
+			speak('Not saved. The shutter did not fire')
+			const reason = e instanceof Error ? e.message : String(e)
+			alert(
+				`The shutter did not fire: earlier frames are not safely on disk. Do not reload or close this window.\n\n${reason}`
+			)
+			throw new Error(`Not saved: ${reason}`)
 		}
 
 		const {tethr} = camera

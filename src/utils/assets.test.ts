@@ -6,6 +6,7 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 
 import {
+	assetReachedDisk,
 	clearAssets,
 	getAssetFilename,
 	liveAssetPaths,
@@ -15,6 +16,7 @@ import {
 	registerTrashedAsset,
 	relocateTrashedAssets,
 	resolveBlob,
+	rewriteAssetFromMemory,
 } from './assets'
 
 class FakeFileHandle {
@@ -123,7 +125,87 @@ const text = async (b: Blob | undefined) => (b ? await b.text() : undefined)
 
 beforeEach(() => clearAssets())
 
+describe('assetReachedDisk', () => {
+	it('is false for a captured asset no save has written, true once written', async () => {
+		const dir = root()
+		const id = registerCapturedAsset(bytes('JPEG'), 'Main/0001.jpg')
+		expect(await assetReachedDisk(id)).toBe(false)
+		await reconcileAssets(dir, [{id, name: 'Main/0001.jpg'}], new Set([id]))
+		expect(await assetReachedDisk(id)).toBe(true)
+	})
+
+	it('is false when the file on disk is shorter than the captured bytes', async () => {
+		const dir = root()
+		const id = registerCapturedAsset(bytes('JPEG'), 'Main/0001.jpg')
+		await reconcileAssets(dir, [{id, name: 'Main/0001.jpg'}], new Set([id]))
+		asFake(dir).file('Main/0001.jpg')!.data = new Uint8Array(1)
+		expect(await assetReachedDisk(id)).toBe(false)
+	})
+
+	it('is false when the written file has gone', async () => {
+		const dir = root()
+		const id = registerCapturedAsset(bytes('JPEG'), 'Main/0001.jpg')
+		await reconcileAssets(dir, [{id, name: 'Main/0001.jpg'}], new Set([id]))
+		asFake(dir).file('Main/0001.jpg')!.getFile = async () => {
+			throw new DOMException('NotFoundError')
+		}
+		expect(await assetReachedDisk(id)).toBe(false)
+	})
+
+	it('rewrites a short file from the bytes still in memory', async () => {
+		const dir = root()
+		const id = registerCapturedAsset(bytes('JPEG'), 'Main/0001.jpg')
+		await reconcileAssets(dir, [{id, name: 'Main/0001.jpg'}], new Set([id]))
+		asFake(dir).file('Main/0001.jpg')!.data = new Uint8Array(1)
+		expect(await assetReachedDisk(id)).toBe(false)
+		expect(await rewriteAssetFromMemory(id)).toBe(true)
+		expect(await assetReachedDisk(id)).toBe(true)
+		expect(await text(await asFake(dir).file('Main/0001.jpg')?.getFile())).toBe('JPEG')
+	})
+
+	it('has nothing to check for an asset loaded from disk', async () => {
+		expect(await assetReachedDisk(registerDiskAsset('Main/0001.jpg', root()))).toBe(true)
+	})
+
+	it('leaves a captured asset unwritten when the save throws', async () => {
+		const dir = root()
+		asFake(dir).getDirectoryHandle = async () => {
+			throw new DOMException('NotAllowedError')
+		}
+		const id = registerCapturedAsset(bytes('JPEG'), 'Main/0001.jpg')
+		await expect(
+			reconcileAssets(dir, [{id, name: 'Main/0001.jpg'}], new Set([id]))
+		).rejects.toThrow()
+		expect(await assetReachedDisk(id)).toBe(false)
+	})
+})
+
 describe('reconcileAssets with layer folders', () => {
+	it('writes a captured frame straight to its path, with no temp in the project root', async () => {
+		const dir = root()
+		const opened: string[] = []
+		const getFileHandle = asFake(dir).getFileHandle.bind(asFake(dir))
+		asFake(dir).getFileHandle = async (name, opts) => {
+			opened.push(name)
+			return getFileHandle(name, opts)
+		}
+		const id = registerCapturedAsset(bytes('J'), 'Main/0001.jpg')
+		await reconcileAssets(dir, [{id, name: 'Main/0001.jpg'}], new Set([id]))
+		expect(opened).toEqual([])
+		expect(asFake(dir).tree()).toEqual(['Main/0001.jpg'])
+	})
+
+	it('still parks one file on a temp to resolve a genuine swap', async () => {
+		const dir = root()
+		const a = registerCapturedAsset(bytes('A'), 'Main/0001.jpg')
+		const b = registerCapturedAsset(bytes('B'), 'Main/0002.jpg')
+		await reconcileAssets(dir, [{id: a, name: 'Main/0001.jpg'}, {id: b, name: 'Main/0002.jpg'}], new Set([a, b]))
+		await reconcileAssets(dir, [{id: a, name: 'Main/0002.jpg'}, {id: b, name: 'Main/0001.jpg'}], new Set([a, b]))
+		expect(asFake(dir).tree()).toEqual(['Main/0001.jpg', 'Main/0002.jpg'])
+		expect(await text(await asFake(dir).file('Main/0001.jpg')?.getFile())).toBe('B')
+		expect(await text(await asFake(dir).file('Main/0002.jpg')?.getFile())).toBe('A')
+	})
+
 	it('writes captured frames into the layer folder', async () => {
 		const dir = root()
 		const jpg = registerCapturedAsset(bytes('J'), 'Main/0001.jpg')
