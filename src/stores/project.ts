@@ -12,7 +12,7 @@ import {clamp, cloneDeep, debounce} from 'lodash-es'
 import sleep from 'p-sleep'
 import {defineStore} from 'pinia'
 import {ConfigType, TethrIdentifier} from 'tethr'
-import {computed, nextTick, reactive, ref, toRaw, toRefs} from 'vue'
+import {computed, nextTick, reactive, ref, toRaw, toRefs, watch} from 'vue'
 
 import {
 	type AddsubProjectData,
@@ -1177,6 +1177,56 @@ export const useProjectStore = defineStore('project', () => {
 		save().catch(() => undefined)
 	}, 500)
 
+	// A suspension that is never ended (a pointerup lost outside the window, an
+	// input whose confirm never comes) stops every save, the unsaved badge and
+	// the reload warning at once, silently, while new shots keep displaying from
+	// memory: that is how a whole day of nn_mp was lost on 2026-11-05 (Dropbox
+	// kept no version of project.json between the day before and the reload).
+	// No gesture lasts this long, so past it the depth is forced back to zero
+	// and the stack of the begin that opened it is logged.
+	const SUSPEND_LIMIT_MS = 30_000
+	let suspendOrigin: string | undefined
+	let suspendTimer: ReturnType<typeof setTimeout> | undefined
+	function suspendAutosave() {
+		// Taken here, synchronously, so the stack names the begin's caller.
+		if (autosaveSuspendDepth.value === 0) {
+			suspendOrigin = new Error('autosave suspended here').stack
+		}
+		autosaveSuspendDepth.value++
+	}
+	watch(autosaveSuspendDepth, depth => {
+		if (depth > 0 && !suspendTimer) {
+			suspendTimer = setTimeout(() => {
+				suspendTimer = undefined
+				// eslint-disable-next-line no-console
+				console.warn(
+					`[project] autosave was left suspended (depth ${autosaveSuspendDepth.value}) for ${SUSPEND_LIMIT_MS / 1000} s; resuming`,
+					suspendOrigin
+				)
+				autosaveSuspendDepth.value = 0
+				requestAutoSave()
+			}, SUSPEND_LIMIT_MS)
+		} else if (depth <= 0 && suspendTimer) {
+			clearTimeout(suspendTimer)
+			suspendTimer = undefined
+		}
+	})
+
+	/**
+	 * Save past the autosave debounce and any suspension, now. A captured frame
+	 * must never wait on a gesture's bookkeeping: the shutter calls this after
+	 * placing each shot.
+	 */
+	function saveNow() {
+		if (!projectLoaded) return
+		dirty.value = true
+		if (ephemeral) {
+			requestAutoSave()
+			return
+		}
+		save().catch(() => undefined)
+	}
+
 	/**
 	 * Save now if anything is pending and wait for it: a bulk import (video
 	 * frames) calls this between batches so the bytes reach the disk — and
@@ -1267,7 +1317,7 @@ export const useProjectStore = defineStore('project', () => {
 		// can't record a bogus (null) snapshot.
 		history.pause()
 		historyBatching.value = true
-		autosaveSuspendDepth.value++
+		suspendAutosave()
 		requestAutoSave.cancel() // drop a save queued by the previous interaction
 	}
 
@@ -1279,7 +1329,8 @@ export const useProjectStore = defineStore('project', () => {
 		// unlike the usual pause/resume flow our source actually transitions here.)
 		historyBatching.value = false
 		history.resume()
-		autosaveSuspendDepth.value--
+		// Never below zero: the watchdog above may already have reset it.
+		autosaveSuspendDepth.value = Math.max(0, autosaveSuspendDepth.value - 1)
 		requestAutoSave()
 	}
 
@@ -1290,12 +1341,12 @@ export const useProjectStore = defineStore('project', () => {
 	 * edit that happens to overlap. Safe to nest with begin/endInteraction.
 	 */
 	function beginAutosaveBatch() {
-		autosaveSuspendDepth.value++
+		suspendAutosave()
 		requestAutoSave.cancel()
 	}
 
 	function endAutosaveBatch() {
-		autosaveSuspendDepth.value--
+		autosaveSuspendDepth.value = Math.max(0, autosaveSuspendDepth.value - 1)
 		requestAutoSave()
 	}
 
@@ -2180,6 +2231,7 @@ export const useProjectStore = defineStore('project', () => {
 		isSaving,
 		dirty,
 		saveError,
+		saveNow,
 		flushSave,
 		ensureShotsOnDisk,
 		onSaved: savedHook.on,

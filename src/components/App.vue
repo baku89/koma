@@ -557,6 +557,8 @@ function placeShotAndAdvance(newShot: Shot) {
 		state.captureShot = {frame: next, layer}
 		state.previewRange[1] = state.captureShot.frame
 	})
+	// Past the debounce and any (possibly leaked) autosave suspension.
+	project.saveNow()
 
 	viewport.setCurrentFrame(project.captureShot.frame)
 	viewport.setCurrentLayer(project.captureShot.layer)
@@ -584,6 +586,7 @@ sequence.registerCapture(async (req: CaptureRequest) => {
 		try {
 			const shot = await shoot()
 			project.setShot(req.frame, req.layer, shot)
+			project.saveNow()
 		} finally {
 			project.$patch({captureShot: saved})
 			viewport.setCurrentFrame(saved.frame)
@@ -1095,6 +1098,7 @@ Tq.actions.register([
 
 						project.captureShot.layer += 1
 					})
+					project.saveNow()
 
 					viewport.setCurrentFrame(project.captureShot.frame)
 					viewport.setCurrentLayer(project.captureShot.layer)
