@@ -1,8 +1,8 @@
 import {onMounted, onUnmounted, ref, watch} from 'vue'
 
 /**
- * Ambient sound for screen A (ADDSUB.md §15): the click/percussion stem of
- * the Max Cooper track, looped from `public/sound/`. Plays whenever screen A
+ * Ambient sound for screen A (ADDSUB.md §15): a loop made for the
+ * exhibit from the Max Cooper track ("Recursions"), played from `public/sound/`. Plays whenever screen A
  * is visible (`?screen=a` or both). Kiosk Chrome is launched with
  * `--autoplay-policy=no-user-gesture-required`; elsewhere autoplay may be
  * blocked, so the first pointer/key gesture on the page starts it.
@@ -15,7 +15,7 @@ import {onMounted, onUnmounted, ref, watch} from 'vue'
  * with them. Needs the window-management permission (the kiosk grants it);
  * without it the displays are unknown and the sound stays on.
  */
-export const SOUND_SRC = 'sound/exhibit-clicks.mp3'
+export const SOUND_SRC = 'sound/exhibit-loop.mp3'
 
 const VOLUME_KEY = 'exhibit.sound.volume'
 const ENABLED_KEY = 'exhibit.sound.enabled'

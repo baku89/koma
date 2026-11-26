@@ -43,10 +43,14 @@ const relayStatus = computed(() => {
 })
 
 // Setup overlay: shown until a folder is readable. Afterwards it's reachable
-// by parking the mouse in the top-left corner (a gear appears), by pressing
-// S, or with `?setup` in the URL.
+// by moving the mouse into the top-left corner (a gear appears, and goes away
+// again once the mouse has been still for a few seconds), by pressing S, or
+// with `?setup` in the URL.
 const showSetup = ref(params.has('setup'))
 const cornerHover = ref(false)
+const CORNER_IDLE_MS = 3000
+let cornerTimer: ReturnType<typeof setTimeout> | null = null
+let lastMouse: {x: number; y: number} | null = null
 
 // Space pauses / resumes screen A, from whichever window has the keyboard
 // (A listens on the channel, in this window or its own).
@@ -65,7 +69,15 @@ function onKey(e: KeyboardEvent) {
 }
 
 function onMouseMove(e: MouseEvent) {
+	// Chrome also sends a mousemove when the page changes under a pointer that
+	// is not moving (the window going fullscreen at startup, a layout change):
+	// a pointer left in the corner must not bring the button up.
+	const prev = lastMouse
+	lastMouse = {x: e.screenX, y: e.screenY}
+	if (!prev || (prev.x === e.screenX && prev.y === e.screenY)) return
 	cornerHover.value = e.clientX < 80 && e.clientY < 80
+	if (cornerTimer) clearTimeout(cornerTimer)
+	cornerTimer = setTimeout(() => (cornerHover.value = false), CORNER_IDLE_MS)
 }
 
 /** Re-assign what this window shows (reloads with the new query). */
@@ -115,6 +127,7 @@ onUnmounted(() => {
 	window.removeEventListener('keydown', onKey)
 	window.removeEventListener('mousemove', onMouseMove)
 	if (shiftTimer) clearInterval(shiftTimer)
+	if (cornerTimer) clearTimeout(cornerTimer)
 	wakeLock?.release()
 	channel.close()
 })

@@ -5,6 +5,9 @@
  * second), and keeps them there — a display that shows up late (a projector
  * switched on after the Mac), a window that left fullscreen or was closed.
  * While a display is missing (projectors switched off), screen A is silent.
+ * A mouse pointer left resting on the top edge of a display (where macOS
+ * slides the menu bar and the window's title bar into a fullscreen window) is
+ * moved to the middle of the first exhibit screen.
  *
  * Both windows live in one Chrome profile: screen B follows screen A over a
  * BroadcastChannel, which does not cross profiles. Chrome's command line can
@@ -24,7 +27,7 @@
  *   KOMA_EXHIBIT_CHROME    Chrome binary
  *   KOMA_EXHIBIT_DEBUG_PORT  DevTools port (default 9333, localhost only)
  */
-import {spawn} from 'node:child_process'
+import {execFile, spawn} from 'node:child_process'
 import {homedir} from 'node:os'
 import {join} from 'node:path'
 import {setTimeout as sleep} from 'node:timers/promises'
@@ -297,6 +300,52 @@ async function place(cdp, targetId, d) {
 }
 
 //------------------------------------------------------------------------------
+// The mouse pointer
+
+/** Rows at the top of a display where a resting pointer brings the menu bar down. */
+const TOP_EDGE_PX = 8
+
+/** JXA: no dependency, and neither call needs the Accessibility permission. */
+function jxa(script) {
+	return new Promise((resolve, reject) => {
+		execFile('osascript', ['-l', 'JavaScript', '-e', script], {timeout: 5000}, (err, out) =>
+			err ? reject(err) : resolve(out.trim())
+		)
+	})
+}
+
+async function pointer() {
+	return JSON.parse(
+		await jxa(
+			'ObjC.import("CoreGraphics"); const p = $.CGEventGetLocation($.CGEventCreate(null)); JSON.stringify({x: p.x, y: p.y})'
+		)
+	)
+}
+
+let lastPointer = null
+
+/**
+ * Moves the pointer off the top edge once it has rested there for a check
+ * (someone using the mouse keeps it moving, and is left alone). `force`: right
+ * after a window went fullscreen, without waiting for the next check.
+ */
+async function parkPointer(ds, force = false) {
+	const home = ds[SCREENS.findIndex((s, i) => s !== '-' && ds[i])]
+	if (!home) return
+	const p = await pointer()
+	const d = ds.find(d => p.x >= d.left && p.x < d.left + d.width && p.y >= d.top && p.y < d.top + d.height)
+	const onEdge = !d || p.y - d.top < TOP_EDGE_PX
+	const rested = force || (lastPointer && lastPointer.x === p.x && lastPointer.y === p.y)
+	lastPointer = p
+	if (!onEdge || !rested) return
+	const x = Math.round(home.left + home.width / 2)
+	const y = Math.round(home.top + home.height / 2)
+	await jxa(`ObjC.import("CoreGraphics"); $.CGWarpMouseCursorPosition($.CGPointMake(${x}, ${y}))`)
+	lastPointer = {x, y}
+	log(`mouse pointer was resting on the top edge (${Math.round(p.x)}, ${Math.round(p.y)}): moved to ${x}, ${y}`)
+}
+
+//------------------------------------------------------------------------------
 
 async function main() {
 	log(`exhibit screens: ${SCREENS.join(', ')} (displays left to right) — ${PAGE}`)
@@ -326,12 +375,15 @@ async function main() {
 			lastSeen = seen
 			// At startup, give every display the time to show up before placing anything.
 			if (ds.length >= SCREENS.length || Date.now() - started > DISPLAYS_WAIT_MS) {
+				let moved = false
 				for (const [i, token] of SCREENS.entries()) {
 					if (token === '-' || !ds[i]) continue
 					if (await place(cdp, windows.get(token), ds[i])) {
 						log(`screen ${token.toUpperCase()} → display ${i + 1}, fullscreen`)
+						moved = true
 					}
 				}
+				await parkPointer(ds, moved).catch(e => log(`mouse pointer not moved: ${e?.message ?? e}`))
 			}
 		} catch (e) {
 			log(`${e?.message ?? e}`)

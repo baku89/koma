@@ -610,6 +610,7 @@ koma の別 URL として、会場のモニターに映す画面を用意する�
 - 確認済（Playwright、OPFS の vice-tests）: 画像フォールバック / 動画の両方で停止・再開、B のウィンドウから止めて A のウィンドウから再開、B が同じコマで止まる。5 分の自動再開と、停止中にエンコードが終わる場合は未確認。
 
 ### 画面 A の環境音（2026-09-28）
+- **（2026-11-26）音源を差し替えた**: 展示用に作り直したループ `public/sound/exhibit-loop.mp3`（元は `10_addsub/src/audio/recursions_for-exhibit.wav`、4:06、320 kbps、ピーク 0 dB / 平均 −22.9 dB）。**以前のステムより平均で 14 dB ほど大きい**ので、展示機の Setup の音量は合わせ直す。ファイル名を変えたのはキャッシュを確実に外すため。以下は以前のステムの記録。
 - Max Cooper のトラックから **クリック/パーカッション成分だけ**を抜いたステム `public/sound/exhibit-clicks.mp3`（4:59、320 kbps、ピーク −3.9 dB / 平均 −37 dB。疎な音なので静か）を、画面 A が載っている窓（`?screen=a` と両方表示）で `<audio loop>` ループ再生する。`src/exhibit/sound.ts`（`useExhibitSound`）、Exhibit.vue の Setup に On/Off と音量（localStorage `exhibit.sound.*`、展示機ごと）、`?mute` で強制無音。映像との同期はしない（独立ループ）。
 - autoplay: キオスク Chrome は `--autoplay-policy=no-user-gesture-required` で起動するので即再生。ブロックされる環境では Setup に "autoplay blocked" と出て、ページ上の最初の click / key で始まる（headless Chromium で両経路確認済み）。
 - **ディスプレイが外れている間は無音（2026-10-02）**: URL の `?displays=<n>`（展示が使うディスプレイの数。`kiosk.mjs` が `KOMA_EXHIBIT_SCREENS` の枚数（`-` も数える）を付ける）より、つながっているディスプレイが少ない間は音を止め、戻ったら続きから鳴らす。プロジェクターを落とした夜に音だけ鳴り続けないため。判定はページ内の Window Management API（`getScreenDetails()` の `screens.length` と `screenschange`）。権限が `granted` のときだけ読む（kiosk が付与。プロンプトは出さない）。権限が無い・`?displays` が無いときは従来どおり鳴る。読み込み時は先にディスプレイを確かめてから再生する。Setup の音の欄に「silent while a display is disconnected」。
@@ -655,6 +656,7 @@ Dropbox 同期とフォルダピッカー方式をやめ、**常時稼働する�
 - 5 秒ごとに見直す: ディスプレイが後から現れた（プロジェクターを Mac より後に点けた）、ウィンドウが閉じられた、全画面を抜けた → 開き直して置き直す。起動直後は全ディスプレイが揃うまで 20 秒まで待つ（Chrome は起動直後に 1 枚しか報告しないことがある）。
 - 起動時は relay がページを返すまで待つ。Chrome が終了したらスクリプトも終了し、launchd（KeepAlive）が全体を立ち上げ直す。Chrome が動いている間は `caffeinate -dis` でスリープを止める。
 - `KOMA_EXHIBIT_SCREENS`: ディスプレイ左から順に `a` / `b` / `ab`（1 枚に両方）/ `-`（そのディスプレイは使わない）。例: 手元モニタ + プロジェクター 2 台なら `-,a,b`。
+- **止まったままのマウスポインタ（2026-11-26）**: 自動起動のあとポインタが画面の上端で止まっていると、macOS が全画面のウィンドウにメニューバーとタイトルバーを下ろしたままにし、左上の「⚙ SETUP」も出ていた。(1) `kiosk.mjs` は 5 秒ごとの見直しでポインタの位置を読み（JXA の `CGEventGetLocation`）、**どれかのディスプレイの上端 8 px に 1 回ぶん止まっていたら**、最初の展示画面の中央へ移す（`CGWarpMouseCursorPosition`。アクセシビリティの許可は要らない）。ウィンドウを全画面にした直後は待たずに移す。動かしている最中のマウスには触らない。(2) 展示ページの SETUP ボタンは、**実際にマウスが動いて**左上 80 px に入ったときだけ出て、3 秒止まると消える（Chrome はポインタが動かなくても、下のページが変わると mousemove を送る）。S キーと `?setup` は従来どおり。**未確認**: 展示機で、warp したあとメニューバーが実際に引っ込むか（warp はマウスイベントを出さない。開発機では位置の読み取りと warp の成功だけ確認）。
 - 設定（S キーの Setup、環境音の音量など）と OPFS の動画キャッシュはこのプロファイルに入る。普段使いの Chrome とは別なので、初回は入れ直し。
 - Node 22 以降が要る（組み込みの WebSocket。依存パッケージ無し）。
 - **service worker の事故（2026-10-02、展示機で「片方が白、片方が黒」）**: koma の PWA service worker（vite-plugin-pwa）は、precache に完全一致しないナビゲーションに `index.html` を返す。`exhibit.html?screen=a` はクエリ付きなので一致せず、**同じプロファイルで 2 回目に開くと koma 本体のページが返って起動に失敗し、真っ白になる**（初回は service worker がまだ無いので正常。`jog.html?machine=` も同じ）。対策は 2 つ: (1) `vite.config.ts` の `workbox.navigateFallbackDenylist` で `exhibit.html` / `jog.html` / `/api/` / `/project/` / `/ws` をネットワークへ通す（**`yarn build` し直しが要る**）、(2) `kiosk.mjs` が起動のたびに `Storage.clearDataForOrigin`（`service_workers,cache_storage`、ページの session に送る。browser session だと Internal error）で service worker を外し、開いている展示ウィンドウをキャッシュ無しで読み直す = 起動直後は必ず relay の最新ビルドが出る。
